@@ -36,6 +36,9 @@ class OverlayRenderer:
     - Hardware metrics (CPU, GPU, etc.)
     """
 
+    # Base resolution for scaling (most common device)
+    BASE_RESOLUTION = 320
+
     def __init__(self, width=320, height=320):
         """
         Initialize renderer.
@@ -62,12 +65,59 @@ class OverlayRenderer:
         self.date_format = 0
         self.temp_unit = 0
 
+        # Dynamic font/coordinate scaling
+        # Stores the resolution the config was designed for
+        self._config_resolution = (width, height)
+        self._scale_enabled = True  # Enable scaling by default
+
     def set_resolution(self, width, height):
         """Update LCD resolution."""
         self.width = width
         self.height = height
+        # Clear font cache as sizes will change with new scale
+        self.font_cache = {}
         # Clear background as it needs to be resized
         self.background = None
+
+    def set_config_resolution(self, width, height):
+        """Set the resolution the current config was designed for.
+
+        Used for dynamic font/coordinate scaling when displaying a config
+        designed for one resolution on a device with a different resolution.
+
+        Args:
+            width: Config's target width
+            height: Config's target height
+        """
+        self._config_resolution = (width, height)
+
+    def set_scale_enabled(self, enabled):
+        """Enable or disable dynamic font/coordinate scaling."""
+        self._scale_enabled = enabled
+        # Clear font cache when toggling
+        self.font_cache = {}
+
+    def _get_scale_factor(self):
+        """Calculate scale factor from config resolution to display resolution.
+
+        Uses the smaller dimension (usually the same for square LCDs) to
+        calculate a uniform scale factor.
+
+        Returns:
+            Float scale factor (1.0 = no scaling)
+        """
+        if not self._scale_enabled:
+            return 1.0
+
+        cfg_w, cfg_h = self._config_resolution
+        # Use minimum dimension for uniform scaling
+        cfg_size = min(cfg_w, cfg_h)
+        disp_size = min(self.width, self.height)
+
+        if cfg_size <= 0:
+            return 1.0
+
+        return disp_size / cfg_size
 
     def set_format_options(self, time_format=0, date_format=0, temp_unit=0):
         """
@@ -275,7 +325,18 @@ class OverlayRenderer:
 
         # Apply theme mask (Windows: isDrawMbImage check)
         if self.theme_mask and self.theme_mask_visible:
-            img.paste(self.theme_mask, self.theme_mask_position, self.theme_mask)
+            # Scale mask and position if needed
+            scale = self._get_scale_factor()
+            if abs(scale - 1.0) > 0.01:  # Scaling enabled and needed
+                mask_w = int(self.theme_mask.width * scale)
+                mask_h = int(self.theme_mask.height * scale)
+                scaled_mask = self.theme_mask.resize(
+                    (mask_w, mask_h), Image.Resampling.LANCZOS)
+                pos_x = int(self.theme_mask_position[0] * scale)
+                pos_y = int(self.theme_mask_position[1] * scale)
+                img.paste(scaled_mask, (pos_x, pos_y), scaled_mask)
+            else:
+                img.paste(self.theme_mask, self.theme_mask_position, self.theme_mask)
 
         # Convert to RGB before drawing text (matches Windows GenerateImage pattern).
         # Drawing text on RGBA causes PIL to replace alpha at anti-aliased edges;
@@ -290,6 +351,9 @@ class OverlayRenderer:
         if not self.config or not isinstance(self.config, dict):
             return img
 
+        # Get scale factor for dynamic font/coordinate scaling
+        scale = self._get_scale_factor()
+
         for elem_idx, (key, cfg) in enumerate(self.config.items()):
             if not isinstance(cfg, dict) or not cfg.get('enabled', True):
                 continue
@@ -297,11 +361,17 @@ class OverlayRenderer:
             if elem_idx == self.flash_skip_index:
                 continue
 
-            x = cfg.get('x', 10)
-            y = cfg.get('y', 10)
+            # Get base values
+            base_x = cfg.get('x', 10)
+            base_y = cfg.get('y', 10)
             font_cfg = cfg.get('font', {})
-            font_size = font_cfg.get('size', 24) if isinstance(font_cfg, dict) else 24
+            base_font_size = font_cfg.get('size', 24) if isinstance(font_cfg, dict) else 24
             color = cfg.get('color', '#FFFFFF')
+
+            # Apply scaling to coordinates and font size
+            x = int(base_x * scale)
+            y = int(base_y * scale)
+            font_size = max(8, int(base_font_size * scale))  # Min 8pt for readability
 
             # Get text to render
             if 'text' in cfg:

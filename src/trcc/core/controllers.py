@@ -405,6 +405,18 @@ class OverlayController:
         if renderer:
             renderer.set_config(config)
 
+    def set_config_resolution(self, width: int, height: int):
+        """Set the resolution the config was designed for (for dynamic scaling)."""
+        renderer = self._ensure_renderer()
+        if renderer:
+            renderer.set_config_resolution(width, height)
+
+    def set_scale_enabled(self, enabled: bool):
+        """Enable or disable dynamic font/coordinate scaling."""
+        renderer = self._ensure_renderer()
+        if renderer:
+            renderer.set_scale_enabled(enabled)
+
     def load_config(self, dc_path: Path) -> bool:
         """Load overlay config from DC file."""
         return self.model.load_from_dc(dc_path)
@@ -603,6 +615,8 @@ class FormCZTVController:
                 dc_data = parse_dc_file(str(dc_path))
                 overlay_config = dc_to_overlay_config(dc_data)
                 self.overlay.set_config(overlay_config)
+                # Set config resolution for dynamic font scaling
+                self.overlay.set_config_resolution(self.lcd_width, self.lcd_height)
             except Exception as e:
                 print(f"[!] Failed to parse DC file: {e}")
 

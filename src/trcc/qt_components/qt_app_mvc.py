@@ -47,6 +47,7 @@ from .uc_video_cut import UCVideoCut
 from .uc_image_cut import UCImageCut
 from .uc_info_module import UCInfoModule
 from .uc_activity_sidebar import UCActivitySidebar
+from ..dc_writer import CarouselConfig, write_carousel_config, read_carousel_config
 
 # Language code mapping: system locale -> Windows asset suffix
 LOCALE_TO_LANG = {
@@ -435,6 +436,8 @@ class TRCCMainWindowMVC(QMainWindow):
         theme_dir = self._data_dir / f'Theme{width}{height}'
         if theme_dir.exists():
             self.uc_theme_local.set_theme_directory(theme_dir)
+            # Load carousel config for new resolution
+            self._load_carousel_config(theme_dir)
 
         # Cloud themes — per-resolution videos directory
         videos_dir = self._get_videos_dir(width, height)
@@ -637,6 +640,8 @@ class TRCCMainWindowMVC(QMainWindow):
         theme_dir = self._data_dir / f'Theme{w}{h}'
         if theme_dir.exists():
             self.uc_theme_local.set_theme_directory(theme_dir)
+            # Load carousel config (Theme.dc) after themes are loaded
+            self._load_carousel_config(theme_dir)
 
         videos_dir = self._get_videos_dir(w, h)
         self.uc_theme_web.set_videos_directory(videos_dir)
@@ -1048,9 +1053,18 @@ class TRCCMainWindowMVC(QMainWindow):
         """
         self._hide_cutters()
         if result is not None:
+            # Save cropped image as background (Windows: ImageCut_OK_Write)
             self.controller.current_image = result
-            self.controller._update_preview(result)
-            self.uc_preview.set_status("Image cropped")
+            # Save to working dir for later theme save
+            bg_path = self.controller.working_dir / '00.png'
+            result.save(str(bg_path))
+            # Set as overlay background so mask/overlays render on top
+            self.controller.overlay.set_background(result)
+            # Re-render with overlays
+            preview = self.controller.render_overlay_and_preview()
+            if preview:
+                self.controller._update_preview(preview)
+            self.uc_preview.set_status("Image cropped and saved")
         else:
             self.uc_preview.set_status("Image crop cancelled")
 
@@ -1062,9 +1076,14 @@ class TRCCMainWindowMVC(QMainWindow):
         """
         self._hide_cutters()
         if zt_path:
-            self.controller.video.load(Path(zt_path))
+            # Copy Theme.zt to working dir for later theme save
+            import shutil
+            dest_path = self.controller.working_dir / 'Theme.zt'
+            shutil.copy(zt_path, dest_path)
+            # Load and play
+            self.controller.video.load(dest_path)
             self.controller.video.play()
-            self.uc_preview.set_status("Video exported")
+            self.uc_preview.set_status("Video exported and saved")
         else:
             self.uc_preview.set_status("Video cut cancelled")
 
@@ -1161,6 +1180,99 @@ class TRCCMainWindowMVC(QMainWindow):
             self._slideshow_timer.start(interval_s * 1000)
         else:
             self._slideshow_timer.stop()
+
+        # Save carousel config (Theme.dc) - Windows cmd=48
+        self._save_carousel_config()
+
+    def _get_theme_dir(self) -> Path:
+        """Get current theme directory for this resolution."""
+        w, h = self.controller.lcd_width, self.controller.lcd_height
+        return self._data_dir / f'Theme{w}{h}'
+
+    def _save_carousel_config(self):
+        """Save carousel/slideshow config to Theme.dc (Windows cmd=48)."""
+        theme_dir = self._get_theme_dir()
+        if not theme_dir.exists():
+            return
+
+        # Build theme index list from selected themes
+        all_themes = self.uc_theme_local._all_themes
+        slideshow_themes = self.uc_theme_local.get_slideshow_themes()
+        theme_indices = []
+        for t in slideshow_themes:
+            name = t.get('name', '')
+            for i, at in enumerate(all_themes):
+                if at.get('name') == name:
+                    theme_indices.append(i)
+                    break
+
+        # Pad to 6 slots with -1
+        while len(theme_indices) < 6:
+            theme_indices.append(-1)
+
+        # Get current theme index
+        selected = self.uc_theme_local.get_selected_theme()
+        current_idx = 0
+        if selected:
+            name = selected.get('name', '')
+            for i, at in enumerate(all_themes):
+                if at.get('name') == name:
+                    current_idx = i
+                    break
+
+        # Build config
+        config = CarouselConfig(
+            current_theme=current_idx,
+            enabled=self.uc_theme_local.is_slideshow(),
+            interval_seconds=self.uc_theme_local.get_slideshow_interval(),
+            count=len([i for i in theme_indices if i >= 0]),
+            theme_indices=theme_indices[:6],
+            lcd_rotation=self.rotation_combo.currentIndex() + 1,  # 1-4
+        )
+
+        # Write to Theme.dc
+        try:
+            write_carousel_config(config, str(theme_dir / 'Theme.dc'))
+        except Exception as e:
+            print(f"Failed to save carousel config: {e}")
+
+    def _load_carousel_config(self, theme_dir: Path):
+        """Load carousel/slideshow config from Theme.dc."""
+        config_path = theme_dir / 'Theme.dc'
+        config = read_carousel_config(str(config_path))
+        if config is None:
+            return
+
+        # Get all themes list
+        all_themes = self.uc_theme_local._all_themes
+
+        # Restore slideshow theme selections
+        slideshow_names = []
+        for idx in config.theme_indices:
+            if 0 <= idx < len(all_themes):
+                slideshow_names.append(all_themes[idx].get('name', ''))
+        self.uc_theme_local._lunbo_array = slideshow_names
+        self.uc_theme_local._slideshow = config.enabled
+        self.uc_theme_local._slideshow_interval = config.interval_seconds
+
+        # Update UI
+        self.uc_theme_local.timer_input.setText(str(config.interval_seconds))
+        px = (self.uc_theme_local._lunbo_on if config.enabled
+              else self.uc_theme_local._lunbo_off)
+        if not px.isNull():
+            self.uc_theme_local.slideshow_btn.setIcon(QIcon(px))
+            self.uc_theme_local.slideshow_btn.setIconSize(
+                self.uc_theme_local.slideshow_btn.size())
+
+        # Refresh decorations to show badges
+        self.uc_theme_local._apply_decorations()
+
+        # Start timer if enabled
+        self._update_slideshow_state()
+
+        # Restore LCD rotation (1-4 to 0-3 index)
+        if 1 <= config.lcd_rotation <= 4:
+            self.rotation_combo.setCurrentIndex(config.lcd_rotation - 1)
 
     def _on_slideshow_tick(self):
         """Auto-rotate to next theme in slideshow (Windows Timer_event lunbo)."""

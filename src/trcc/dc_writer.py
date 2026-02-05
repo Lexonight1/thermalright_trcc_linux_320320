@@ -203,20 +203,15 @@ def write_tr_export(config: ThemeConfig, theme_path: str, export_path: str) -> N
         f.write(struct.pack('<i', config.mask_x))
         f.write(struct.pack('<i', config.mask_y))
 
+        # Padding (10240 bytes of 0xDC) - Windows pattern
+        f.write(bytes([0xDC] * 10240))
+
         # Embed images if present
         bg_path = os.path.join(theme_path, "00.png")
         mask_path = os.path.join(theme_path, "01.png")
+        zt_path = os.path.join(theme_path, "Theme.zt")
 
-        # Write background image
-        if os.path.exists(bg_path):
-            with open(bg_path, 'rb') as img:
-                img_data = img.read()
-                f.write(struct.pack('<i', len(img_data)))
-                f.write(img_data)
-        else:
-            f.write(struct.pack('<i', 0))
-
-        # Write mask image
+        # Write mask image (01.png)
         if os.path.exists(mask_path):
             with open(mask_path, 'rb') as img:
                 img_data = img.read()
@@ -224,6 +219,36 @@ def write_tr_export(config: ThemeConfig, theme_path: str, export_path: str) -> N
                 f.write(img_data)
         else:
             f.write(struct.pack('<i', 0))
+
+        # Write background: either 00.png or Theme.zt
+        if os.path.exists(bg_path):
+            # Static background
+            with open(bg_path, 'rb') as img:
+                img_data = img.read()
+                f.write(struct.pack('<i', 0))  # marker: not Theme.zt
+                f.write(struct.pack('<i', len(img_data)))
+                f.write(img_data)
+        elif os.path.exists(zt_path):
+            # Video frames (Theme.zt)
+            with open(zt_path, 'rb') as zt:
+                zt_header = zt.read(1)
+                if zt_header == b'\xDC':
+                    frame_count = struct.unpack('<i', zt.read(4))[0]
+                    f.write(struct.pack('<i', frame_count))
+                    # Timestamps
+                    for _ in range(frame_count):
+                        ts = struct.unpack('<i', zt.read(4))[0]
+                        f.write(struct.pack('<i', ts))
+                    # Frame data
+                    for _ in range(frame_count):
+                        frame_len = struct.unpack('<i', zt.read(4))[0]
+                        frame_data = zt.read(frame_len)
+                        f.write(struct.pack('<i', frame_len))
+                        f.write(frame_data)
+                else:
+                    f.write(struct.pack('<i', 0))  # Invalid zt
+        else:
+            f.write(struct.pack('<i', 0))  # No background
 
 
 def _write_string(f, s: str) -> None:
@@ -558,20 +583,51 @@ def import_theme(tr_path: str, theme_path: str) -> None:
     mask_x = read_int32()
     mask_y = read_int32()
 
-    # Read embedded images
-    bg_size = read_int32()
-    if bg_size > 0:
-        bg_data = data[pos:pos + bg_size]
-        pos += bg_size
-        with open(os.path.join(theme_path, "00.png"), 'wb') as f:
-            f.write(bg_data)
+    # Skip padding (10240 bytes of 0xDC)
+    pos += 10240
 
+    # Read mask image (01.png)
     if pos + 4 <= len(data):
         mask_size = read_int32()
         if mask_size > 0 and pos + mask_size <= len(data):
             mask_data = data[pos:pos + mask_size]
+            pos += mask_size
             with open(os.path.join(theme_path, "01.png"), 'wb') as f:
                 f.write(mask_data)
+
+    # Read background: either 00.png or Theme.zt
+    if pos + 4 <= len(data):
+        marker = read_int32()
+        if marker == 0:
+            # Static background (00.png)
+            if pos + 4 <= len(data):
+                bg_size = read_int32()
+                if bg_size > 0 and pos + bg_size <= len(data):
+                    bg_data = data[pos:pos + bg_size]
+                    pos += bg_size
+                    with open(os.path.join(theme_path, "00.png"), 'wb') as f:
+                        f.write(bg_data)
+        elif marker > 0:
+            # Video frames (Theme.zt)
+            frame_count = marker
+            zt_path = os.path.join(theme_path, "Theme.zt")
+            with open(zt_path, 'wb') as zt:
+                zt.write(struct.pack('B', 0xDC))
+                zt.write(struct.pack('<i', frame_count))
+                # Timestamps
+                for _ in range(frame_count):
+                    if pos + 4 <= len(data):
+                        ts = read_int32()
+                        zt.write(struct.pack('<i', ts))
+                # Frame data
+                for _ in range(frame_count):
+                    if pos + 4 <= len(data):
+                        frame_len = read_int32()
+                        if pos + frame_len <= len(data):
+                            frame_data = data[pos:pos + frame_len]
+                            pos += frame_len
+                            zt.write(struct.pack('<i', frame_len))
+                            zt.write(frame_data)
 
     # Create and save config1.dc
     theme = ThemeConfig()
@@ -592,6 +648,106 @@ def import_theme(tr_path: str, theme_path: str) -> None:
     theme.mask_y = mask_y
 
     write_dc_file(theme, os.path.join(theme_path, "config1.dc"))
+
+
+# =============================================================================
+# Carousel Configuration (Theme.dc) - Windows LunBo
+# =============================================================================
+#
+# Binary format (0xDC header):
+#   byte:   0xDC magic
+#   int32:  current_theme_index (myTheme)
+#   bool:   carousel_enabled (isLunbo)
+#   int32:  carousel_interval_seconds (myLunBoTimer, min 3)
+#   int32:  carousel_count (lunBoCount)
+#   int32[6]: carousel_indices (lunBoArray, -1 = empty slot)
+#   int32:  lcd_rotation (myLddVal, 1-4)
+#
+# See: FormCZTV.cs ReadFileThemeSub() line 1010 and line 4591
+
+@dataclass
+class CarouselConfig:
+    """Carousel/slideshow configuration."""
+    current_theme: int = 0             # myTheme - index of current theme
+    enabled: bool = False              # isLunbo
+    interval_seconds: int = 3          # myLunBoTimer (minimum 3)
+    count: int = 0                     # lunBoCount
+    theme_indices: List[int] = field(default_factory=lambda: [-1, -1, -1, -1, -1, -1])
+    lcd_rotation: int = 1              # myLddVal (1-4)
+
+
+def write_carousel_config(config: CarouselConfig, filepath: str) -> None:
+    """Write carousel configuration to Theme.dc."""
+    with open(filepath, 'wb') as f:
+        # Magic header
+        f.write(struct.pack('B', 0xDC))
+
+        # Current theme index
+        f.write(struct.pack('<i', config.current_theme))
+
+        # Carousel enabled flag
+        f.write(struct.pack('?', config.enabled))
+
+        # Interval in seconds (min 3)
+        interval = max(3, config.interval_seconds)
+        f.write(struct.pack('<i', interval))
+
+        # Count of themes in carousel
+        f.write(struct.pack('<i', config.count))
+
+        # 6 theme indices (-1 = empty)
+        indices = config.theme_indices[:6]
+        while len(indices) < 6:
+            indices.append(-1)
+        for idx in indices:
+            f.write(struct.pack('<i', idx))
+
+        # LCD rotation (1-4)
+        f.write(struct.pack('<i', config.lcd_rotation))
+
+
+def read_carousel_config(filepath: str) -> Optional[CarouselConfig]:
+    """Read carousel configuration from Theme.dc."""
+    if not os.path.exists(filepath):
+        return None
+
+    try:
+        with open(filepath, 'rb') as f:
+            # Check magic header
+            magic = struct.unpack('B', f.read(1))[0]
+            if magic != 0xDC:
+                return None
+
+            config = CarouselConfig()
+
+            # Current theme index
+            config.current_theme = struct.unpack('<i', f.read(4))[0]
+
+            # Carousel enabled
+            config.enabled = struct.unpack('?', f.read(1))[0]
+
+            # Interval
+            config.interval_seconds = struct.unpack('<i', f.read(4))[0]
+
+            # Count
+            config.count = struct.unpack('<i', f.read(4))[0]
+
+            # 6 theme indices
+            config.theme_indices = []
+            for _ in range(6):
+                idx = struct.unpack('<i', f.read(4))[0]
+                config.theme_indices.append(idx)
+
+            # LCD rotation (optional - may not exist in older files)
+            try:
+                config.lcd_rotation = struct.unpack('<i', f.read(4))[0]
+            except struct.error:
+                config.lcd_rotation = 1
+
+            return config
+
+    except Exception:
+        return None
 
 
 if __name__ == '__main__':
