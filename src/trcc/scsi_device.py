@@ -1,0 +1,171 @@
+"""
+SCSI Device Bridge — connects MVC models to lcd_driver/device_detector.
+
+models.py imports `from ..scsi_device import find_lcd_devices, send_image_to_device`
+This module provides those two functions.
+
+SCSI send protocol is inlined here (from trcc_handshake_v2) so everything
+lives in one place under src/trcc/.  LCDDriver is used only for resolution
+auto-detection during device discovery.
+"""
+
+import binascii
+import os
+import struct
+import subprocess
+import tempfile
+from typing import Dict, List, Set
+
+# Track which devices have been initialized (poll + init sent)
+_initialized_devices: Set[str] = set()
+
+# =========================================================================
+# Low-level SCSI helpers (Mode 3 protocol, from USBLCD.exe 20480-20540)
+# =========================================================================
+
+# Frame chunk commands — 4 chunks totalling 0x42000 bytes (320×320×2)
+_FRAME_CHUNKS = [
+    (0x101F5,     0x10000),
+    (0x10101F5,   0x10000),
+    (0x20101F5,   0x10000),
+    (0x30101F5,   0x2000),
+]
+
+
+def _crc32(data: bytes) -> int:
+    return binascii.crc32(data) & 0xFFFFFFFF
+
+
+def _build_header(cmd: int, size: int) -> bytes:
+    """Build 20-byte SCSI command header: cmd(4) + zeros(8) + size(4) + crc32(4)."""
+    header_16 = struct.pack('<I', cmd) + b'\x00' * 8 + struct.pack('<I', size)
+    crc = _crc32(header_16)
+    return header_16 + struct.pack('<I', crc)
+
+
+def _scsi_read(dev: str, cdb: bytes, length: int) -> bytes:
+    """Execute SCSI READ via sg_raw."""
+    cdb_hex = ' '.join(f'{b:02x}' for b in cdb)
+    cmd = ['sg_raw', '-r', str(length), dev] + cdb_hex.split()
+    result = subprocess.run(cmd, capture_output=True, timeout=10)
+    return result.stdout if result.returncode == 0 else b''
+
+
+def _scsi_write(dev: str, header: bytes, data: bytes) -> bool:
+    """Execute SCSI WRITE via sg_raw with temp file for payload."""
+    cdb_hex = ' '.join(f'{b:02x}' for b in list(header[:16]))
+
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(data)
+        tmp_path = f.name
+
+    cmd = ['sg_raw', '-s', str(len(data)), '-i', tmp_path, dev] + cdb_hex.split()
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return result.returncode == 0
+    finally:
+        os.unlink(tmp_path)
+
+
+def _init_device(dev: str):
+    """Poll + init handshake (must be called before first frame send)."""
+    # Step 1: Poll
+    poll_header = _build_header(0xF5, 0xE100)
+    _scsi_read(dev, poll_header[:16], 0xE100)
+
+    # Step 2: Init
+    init_header = _build_header(0x1F5, 0xE100)
+    _scsi_write(dev, init_header, b'\x00' * 0xE100)
+
+
+def _send_frame(dev: str, rgb565_data: bytes):
+    """Send one RGB565 frame in 4 SCSI chunks."""
+    total_size = sum(size for _, size in _FRAME_CHUNKS)
+    if len(rgb565_data) < total_size:
+        rgb565_data += b'\x00' * (total_size - len(rgb565_data))
+
+    offset = 0
+    for cmd, size in _FRAME_CHUNKS:
+        header = _build_header(cmd, size)
+        _scsi_write(dev, header, rgb565_data[offset:offset + size])
+        offset += size
+
+
+# =========================================================================
+# Public API (used by core/models.py)
+# =========================================================================
+
+def find_lcd_devices() -> List[Dict]:
+    """Detect connected LCD devices.
+
+    Returns:
+        List of dicts with keys: name, path, resolution, vendor, product,
+        model, button_image
+    """
+    try:
+        from .device_detector import detect_devices
+    except ImportError:
+        return []
+
+    raw = detect_devices()
+    devices = []
+
+    for dev in raw:
+        if not dev.scsi_device:
+            continue
+
+        # Detect resolution via LCDDriver if possible
+        resolution = (320, 320)
+        try:
+            from .lcd_driver import LCDDriver
+            driver = LCDDriver(device_path=dev.scsi_device, auto_detect_resolution=True)
+            if driver.implementation:
+                resolution = driver.implementation.resolution
+        except Exception:
+            pass
+
+        devices.append({
+            'name': f"{dev.vendor_name} {dev.product_name}",
+            'path': dev.scsi_device,
+            'resolution': resolution,
+            'vendor': dev.vendor_name,
+            'product': dev.product_name,
+            'model': dev.model,
+            'button_image': dev.button_image,
+        })
+
+    return devices
+
+
+def send_image_to_device(
+    device_path: str,
+    rgb565_data: bytes,
+    width: int,
+    height: int,
+) -> bool:
+    """Send RGB565 image data to an LCD device via SCSI.
+
+    Initializes (poll + init) on first send to each device, then skips
+    init for subsequent sends.
+
+    Args:
+        device_path: SCSI device path (e.g. /dev/sg0)
+        rgb565_data: Raw RGB565 pixel bytes (big-endian, width*height*2 bytes)
+        width: Image width in pixels
+        height: Image height in pixels
+
+    Returns:
+        True if the send succeeded.
+    """
+    try:
+        if device_path not in _initialized_devices:
+            _init_device(device_path)
+            _initialized_devices.add(device_path)
+
+        _send_frame(device_path, rgb565_data)
+        return True
+    except Exception as e:
+        print(f"[!] SCSI send failed ({device_path}): {e}")
+        # Allow re-init on next attempt
+        _initialized_devices.discard(device_path)
+        return False

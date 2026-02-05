@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+"""
+TRCC Linux - Command Line Interface
+
+Entry points for the trcc-linux package.
+"""
+
+import argparse
+import sys
+import os
+
+
+def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        prog="trcc",
+        description="Thermalright LCD Control Center for Linux",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    trcc detect           Show active device
+    trcc detect --all     List all devices
+    trcc select 2         Switch to device 2
+    trcc gui              Launch the GUI
+    trcc test             Test display with color cycle
+    trcc send image.png   Send image to LCD
+    trcc color ff0000     Display solid red color
+    trcc info             Show system metrics
+        """
+    )
+    
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="%(prog)s 1.0.0"
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (-v, -vv, -vvv)"
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # GUI command
+    gui_parser = subparsers.add_parser("gui", help="Launch graphical interface")
+    gui_parser.add_argument(
+        "--decorated", "-d",
+        action="store_true",
+        help="Use decorated window (normal window with titlebar, can minimize)"
+    )
+
+    # Detect command
+    detect_parser = subparsers.add_parser("detect", help="Detect LCD device")
+    detect_parser.add_argument("--all", "-a", action="store_true", help="Show all devices")
+    
+    # Select command
+    select_parser = subparsers.add_parser("select", help="Select device to control")
+    select_parser.add_argument("number", type=int, help="Device number from 'trcc detect --all'")
+    
+    # Test command
+    test_parser = subparsers.add_parser("test", help="Test display with color cycle")
+    test_parser.add_argument("--device", "-d", help="Device path (e.g., /dev/sg0)")
+    test_parser.add_argument("--loop", "-l", action="store_true", help="Loop colors continuously")
+    
+    # Send command
+    send_parser = subparsers.add_parser("send", help="Send image to LCD")
+    send_parser.add_argument("image", help="Image file to send")
+    send_parser.add_argument("--device", "-d", help="Device path")
+    
+    # Color command
+    color_parser = subparsers.add_parser("color", help="Display solid color")
+    color_parser.add_argument("hex", help="Hex color code (e.g., ff0000 for red)")
+    color_parser.add_argument("--device", "-d", help="Device path")
+    
+    # Info command
+    info_parser = subparsers.add_parser("info", help="Show system metrics")
+
+    # Reset command
+    reset_parser = subparsers.add_parser("reset", help="Reset/reinitialize LCD device")
+    reset_parser.add_argument("--device", "-d", help="Device path (e.g., /dev/sg0)")
+
+    # Setup udev rules command
+    udev_parser = subparsers.add_parser("setup-udev", help="Install udev rules for LCD device access")
+    udev_parser.add_argument("--dry-run", action="store_true", help="Print rules without installing")
+
+    # Download command (like spacy download)
+    download_parser = subparsers.add_parser("download", help="Download theme packs")
+    download_parser.add_argument("pack", nargs="?", help="Theme pack name (e.g., themes-320)")
+    download_parser.add_argument("--list", "-l", action="store_true", help="List available packs")
+    download_parser.add_argument("--force", "-f", action="store_true", help="Force reinstall")
+    download_parser.add_argument("--info", "-i", action="store_true", help="Show pack info")
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    if args.command == "gui":
+        return gui(verbose=args.verbose, decorated=args.decorated)
+    elif args.command == "detect":
+        return detect(show_all=args.all)
+    elif args.command == "select":
+        return select_device(args.number)
+    elif args.command == "test":
+        return test_display(device=args.device, loop=args.loop)
+    elif args.command == "send":
+        return send_image(args.image, device=args.device)
+    elif args.command == "color":
+        return send_color(args.hex, device=args.device)
+    elif args.command == "info":
+        return show_info()
+    elif args.command == "reset":
+        return reset_device(device=args.device)
+    elif args.command == "setup-udev":
+        return setup_udev(dry_run=args.dry_run)
+    elif args.command == "download":
+        return download_themes(pack=args.pack, show_list=args.list,
+                              force=args.force, show_info=args.info)
+
+    return 0
+
+
+def gui(verbose=0, decorated=False):
+    """Launch the GUI application."""
+    import logging
+
+    # Set up logging based on verbosity (filter out noisy PIL)
+    if verbose >= 2:
+        logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(name)s: %(message)s')
+        logging.getLogger('PIL').setLevel(logging.WARNING)
+    elif verbose == 1:
+        logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    try:
+        from trcc.qt_components.qt_app_mvc import run_mvc_app
+        print("[TRCC] Starting LCD Control Center...")
+        return run_mvc_app(decorated=decorated)
+    except ImportError as e:
+        print(f"Error: PyQt6 not available: {e}")
+        print("Install with: pip install PyQt6")
+        return 1
+    except Exception as e:
+        print(f"Error launching GUI: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def detect(show_all=False):
+    """Detect LCD device."""
+    try:
+        from trcc.device_detector import detect_devices
+        
+        devices = detect_devices()
+        if not devices:
+            print("No compatible TRCC LCD device detected.")
+            return 1
+        
+        if show_all:
+            selected = _get_selected_device()
+            for i, dev in enumerate(devices, 1):
+                marker = "*" if dev.scsi_device == selected else " "
+                print(f"{marker} [{i}] {dev.scsi_device} ({dev.product_name})")
+            if len(devices) > 1:
+                print("\nUse 'trcc select N' to switch devices")
+        else:
+            selected = _get_selected_device()
+            if selected and any(d.scsi_device == selected for d in devices):
+                print(f"Active: {selected}")
+            else:
+                print(f"Active: {devices[0].scsi_device}")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def _get_settings_path():
+    """Get path to settings file."""
+    return os.path.expanduser("~/.config/trcc/settings.json")
+
+
+def _get_selected_device():
+    """Get currently selected device from settings."""
+    import json
+    settings_path = _get_settings_path()
+    if os.path.exists(settings_path):
+        try:
+            with open(settings_path) as f:
+                settings = json.load(f)
+                return settings.get("selected_device")
+        except Exception:
+            pass
+    return None
+
+
+def _set_selected_device(device_path):
+    """Save selected device to settings."""
+    import json
+    settings_path = _get_settings_path()
+    settings_dir = os.path.dirname(settings_path)
+    os.makedirs(settings_dir, exist_ok=True)
+    
+    settings = {}
+    if os.path.exists(settings_path):
+        try:
+            with open(settings_path) as f:
+                settings = json.load(f)
+        except Exception:
+            pass
+    
+    settings["selected_device"] = device_path
+    with open(settings_path, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+def select_device(number):
+    """Select a device by number."""
+    try:
+        from trcc.device_detector import detect_devices
+        
+        devices = detect_devices()
+        if not devices:
+            print("No devices found.")
+            return 1
+        
+        if number < 1 or number > len(devices):
+            print(f"Invalid device number. Use 1-{len(devices)}")
+            return 1
+        
+        device = devices[number - 1]
+        _set_selected_device(device.scsi_device)
+        print(f"Selected: {device.scsi_device} ({device.product_name})")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def test_display(device=None, loop=False):
+    """Test display with color cycle."""
+    try:
+        from trcc.lcd_driver import LCDDriver
+        from PIL import Image
+        import time
+        
+        if device is None:
+            device = _get_selected_device()
+        
+        driver = LCDDriver(device_path=device)
+        
+        colors = [
+            ((255, 0, 0), "Red"),
+            ((0, 255, 0), "Green"),
+            ((0, 0, 255), "Blue"),
+            ((255, 255, 0), "Yellow"),
+            ((255, 0, 255), "Magenta"),
+            ((0, 255, 255), "Cyan"),
+            ((255, 255, 255), "White"),
+        ]
+        
+        print(f"Testing display on {driver.device_path}...")
+        
+        while True:
+            for color, name in colors:
+                print(f"  Displaying: {name}")
+                frame = driver.create_solid_color(*color)
+                driver.send_frame(frame)
+                time.sleep(1)
+            
+            if not loop:
+                break
+        
+        print("Test complete!")
+        return 0
+    except KeyboardInterrupt:
+        print("\nTest interrupted.")
+        return 0
+    except Exception as e:
+        print(f"Error testing display: {e}")
+        return 1
+
+
+def send_image(image_path, device=None):
+    """Send image to LCD."""
+    try:
+        from trcc.lcd_driver import LCDDriver
+        
+        if not os.path.exists(image_path):
+            print(f"Error: File not found: {image_path}")
+            return 1
+        
+        if device is None:
+            device = _get_selected_device()
+        
+        driver = LCDDriver(device_path=device)
+        frame = driver.load_image(image_path)
+        driver.send_frame(frame)
+        print(f"Sent {image_path} to {driver.device_path}")
+        return 0
+    except Exception as e:
+        print(f"Error sending image: {e}")
+        return 1
+
+
+def send_color(hex_color, device=None):
+    """Send solid color to LCD."""
+    try:
+        from trcc.lcd_driver import LCDDriver
+        
+        # Parse hex color
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) != 6:
+            print("Error: Invalid hex color. Use format: ff0000")
+            return 1
+        
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        
+        if device is None:
+            device = _get_selected_device()
+        
+        driver = LCDDriver(device_path=device)
+        frame = driver.create_solid_color(r, g, b)
+        driver.send_frame(frame)
+        print(f"Sent color #{hex_color} to {driver.device_path}")
+        return 0
+    except Exception as e:
+        print(f"Error sending color: {e}")
+        return 1
+
+
+def reset_device(device=None):
+    """Reset/reinitialize the LCD device."""
+    try:
+        from trcc.lcd_driver import LCDDriver
+
+        if device is None:
+            device = _get_selected_device()
+
+        print(f"Resetting LCD device...")
+        driver = LCDDriver(device_path=device)
+        print(f"  Device: {driver.device_path}")
+
+        # Send test frame (red) - this will auto-init if needed
+        frame = driver.create_solid_color(255, 0, 0)
+        driver.send_frame(frame, force_init=True)
+        print(f"[✓] Device reset - displaying RED")
+        return 0
+    except Exception as e:
+        print(f"Error resetting device: {e}")
+        return 1
+
+
+def show_info():
+    """Show system metrics."""
+    try:
+        from trcc.system_info import get_all_metrics, format_metric
+        
+        metrics = get_all_metrics()
+        
+        print("System Information")
+        print("=" * 40)
+        
+        # CPU
+        print("\nCPU:")
+        for key in ['cpu_temp', 'cpu_percent', 'cpu_freq']:
+            if key in metrics:
+                print(f"  {key}: {format_metric(key, metrics[key])}")
+        
+        # GPU
+        print("\nGPU:")
+        for key in ['gpu_temp', 'gpu_usage', 'gpu_clock']:
+            if key in metrics:
+                print(f"  {key}: {format_metric(key, metrics[key])}")
+        
+        # Memory
+        print("\nMemory:")
+        for key in ['mem_percent', 'mem_used', 'mem_total']:
+            if key in metrics:
+                print(f"  {key}: {format_metric(key, metrics[key])}")
+        
+        # Date/Time
+        print("\nDate/Time:")
+        for key in ['date', 'time', 'weekday']:
+            if key in metrics:
+                print(f"  {key}: {format_metric(key, metrics[key])}")
+        
+        return 0
+    except Exception as e:
+        print(f"Error getting metrics: {e}")
+        return 1
+
+
+def setup_udev(dry_run=False):
+    """Generate and install udev rules + USB storage quirks from KNOWN_DEVICES.
+
+    Without quirks, UAS claims these LCD devices and the kernel ignores them
+    (no /dev/sgX created). The :u quirk forces usb-storage bulk-only transport.
+    """
+    try:
+        from trcc.device_detector import KNOWN_DEVICES
+
+        # --- 1. udev rules (permissions) ---
+        rules_path = "/etc/udev/rules.d/99-trcc-lcd.rules"
+        rules_lines = ["# Thermalright LCD cooler displays — auto-generated by trcc setup-udev"]
+
+        for (vid, pid), info in sorted(KNOWN_DEVICES.items()):
+            vendor = info.get("vendor", "Unknown")
+            product = info.get("product", "Unknown")
+            rules_lines.append(
+                f'# {vendor} {product}\n'
+                f'SUBSYSTEM=="scsi_generic", '
+                f'ATTRS{{idVendor}}=="{vid:04x}", '
+                f'ATTRS{{idProduct}}=="{pid:04x}", '
+                f'MODE="0666", TAG+="uaccess"'
+            )
+
+        rules_content = "\n\n".join(rules_lines) + "\n"
+
+        # --- 2. usb-storage quirks (UAS bypass) ---
+        # Format: vid:pid:u (u = US_FL_IGNORE_UAS, forces bulk-only transport)
+        quirk_entries = [f"{vid:04x}:{pid:04x}:u" for vid, pid in sorted(KNOWN_DEVICES)]
+        quirks_param = ",".join(quirk_entries)
+
+        # modprobe config (persistent across reboots)
+        modprobe_path = "/etc/modprobe.d/trcc-lcd.conf"
+        modprobe_content = (
+            "# Thermalright LCD — force usb-storage bulk-only (bypass UAS)\n"
+            "# Without this, devices are ignored and /dev/sgX is never created\n"
+            "# Auto-generated by trcc setup-udev\n"
+            f"options usb-storage quirks={quirks_param}\n"
+        )
+
+        if dry_run:
+            print("=== udev rules ===")
+            print(rules_content)
+            print(f"# Would write to {rules_path}\n")
+            print("=== usb-storage quirks ===")
+            print(modprobe_content)
+            print(f"# Would write to {modprobe_path}")
+            return 0
+
+        # Need root
+        if os.geteuid() != 0:
+            print("Error: root required. Run with:")
+            print("  sudo trcc setup-udev")
+            print("\nOr preview first:")
+            print("  trcc setup-udev --dry-run")
+            return 1
+
+        # Write udev rules
+        with open(rules_path, "w") as f:
+            f.write(rules_content)
+        print(f"Wrote {rules_path}")
+
+        # Write modprobe config
+        with open(modprobe_path, "w") as f:
+            f.write(modprobe_content)
+        print(f"Wrote {modprobe_path}")
+
+        # Apply quirks immediately (without reboot)
+        quirks_sysfs = "/sys/module/usb_storage/parameters/quirks"
+        if os.path.exists(quirks_sysfs):
+            with open(quirks_sysfs, "w") as f:
+                f.write(quirks_param)
+            print(f"Applied quirks: {quirks_param}")
+
+        # Reload udev
+        os.system("udevadm control --reload-rules")
+        os.system("udevadm trigger")
+        print("\nDone. Replug your LCD USB cable for changes to take effect.")
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def download_themes(pack=None, show_list=False, force=False, show_info=False):
+    """Download theme packs (like spacy download)."""
+    try:
+        from trcc.theme_downloader import list_available, show_info as pack_info, download_pack
+
+        if show_list or pack is None:
+            list_available()
+            return 0
+
+        if show_info:
+            pack_info(pack)
+            return 0
+
+        return download_pack(pack, force=force)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
