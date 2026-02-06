@@ -1,0 +1,248 @@
+"""Tests for system_info – metric reading helpers and format_metric display."""
+
+import unittest
+from unittest.mock import mock_open, patch
+
+from trcc.system_info import (
+    DATE_FORMATS,
+    TIME_FORMATS,
+    WEEKDAYS,
+    find_hwmon_by_name,
+    format_metric,
+    get_cpu_frequency,
+    get_cpu_temperature,
+    get_cpu_usage,
+    get_memory_available,
+    get_memory_usage,
+    read_file,
+)
+
+# ── read_file ────────────────────────────────────────────────────────────────
+
+class TestReadFile(unittest.TestCase):
+
+    def test_returns_stripped_content(self):
+        m = mock_open(read_data="  hello world  \n")
+        with patch('builtins.open', m):
+            self.assertEqual(read_file('/fake'), 'hello world')
+
+    def test_returns_none_on_error(self):
+        self.assertIsNone(read_file('/nonexistent/path/xyz'))
+
+
+# ── find_hwmon_by_name ───────────────────────────────────────────────────────
+
+class TestFindHwmon(unittest.TestCase):
+
+    @patch('trcc.system_info.os.path.exists', return_value=True)
+    @patch('trcc.system_info.read_file')
+    def test_finds_matching_hwmon(self, mock_read, mock_exists):
+        def side_effect(path):
+            if 'hwmon2/name' in path:
+                return 'coretemp'
+            return None
+        mock_read.side_effect = side_effect
+
+        result = find_hwmon_by_name('coretemp')
+        self.assertIn('hwmon2', result)
+
+    @patch('trcc.system_info.os.path.exists', return_value=False)
+    def test_returns_none_no_hwmon_dir(self, _):
+        self.assertIsNone(find_hwmon_by_name('coretemp'))
+
+
+# ── get_cpu_temperature ──────────────────────────────────────────────────────
+
+class TestGetCpuTemperature(unittest.TestCase):
+
+    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.find_hwmon_by_name')
+    def test_reads_k10temp(self, mock_find, mock_read):
+        mock_find.side_effect = lambda name: '/sys/class/hwmon/hwmon0' if name == 'k10temp' else None
+        mock_read.return_value = '45000'
+
+        temp = get_cpu_temperature()
+        self.assertAlmostEqual(temp, 45.0)
+
+    @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
+    @patch('trcc.system_info.subprocess.run')
+    def test_fallback_to_sensors(self, mock_run, _):
+        mock_run.return_value = type('R', (), {
+            'stdout': 'temp1_input: 52.0\n', 'returncode': 0
+        })()
+        temp = get_cpu_temperature()
+        self.assertAlmostEqual(temp, 52.0)
+
+
+# ── get_cpu_usage ────────────────────────────────────────────────────────────
+
+class TestGetCpuUsage(unittest.TestCase):
+
+    def test_reads_proc_stat(self):
+        stat_line = "cpu  1000 200 300 8000 100 0 0 0 0 0\n"
+        m = mock_open(read_data=stat_line)
+        with patch('builtins.open', m):
+            usage = get_cpu_usage()
+            self.assertIsNotNone(usage)
+            self.assertGreater(usage, 0)
+            self.assertLessEqual(usage, 100)
+
+
+# ── get_cpu_frequency ────────────────────────────────────────────────────────
+
+class TestGetCpuFrequency(unittest.TestCase):
+
+    @patch('trcc.system_info.read_file', return_value='3500000')
+    def test_reads_cpufreq(self, _):
+        freq = get_cpu_frequency()
+        self.assertAlmostEqual(freq, 3500.0)
+
+    @patch('trcc.system_info.read_file', return_value=None)
+    def test_fallback_proc_cpuinfo(self, _):
+        cpuinfo = "processor\t: 0\ncpu MHz\t\t: 4200.123\n"
+        m = mock_open(read_data=cpuinfo)
+        with patch('builtins.open', m):
+            freq = get_cpu_frequency()
+            self.assertAlmostEqual(freq, 4200.123)
+
+
+# ── get_memory_usage / get_memory_available ──────────────────────────────────
+
+class TestMemoryMetrics(unittest.TestCase):
+
+    def _meminfo(self):
+        return (
+            "MemTotal:       16000000 kB\n"
+            "MemFree:         2000000 kB\n"
+            "MemAvailable:    8000000 kB\n"
+        )
+
+    def test_memory_usage_percentage(self):
+        m = mock_open(read_data=self._meminfo())
+        with patch('builtins.open', m):
+            usage = get_memory_usage()
+            self.assertIsNotNone(usage)
+            self.assertAlmostEqual(usage, 50.0)
+
+    def test_memory_available_mb(self):
+        m = mock_open(read_data=self._meminfo())
+        with patch('builtins.open', m):
+            avail = get_memory_available()
+            self.assertIsNotNone(avail)
+            self.assertAlmostEqual(avail, 8000000 / 1024.0)
+
+
+# ── format_metric ────────────────────────────────────────────────────────────
+
+class TestFormatMetric(unittest.TestCase):
+    """format_metric covers temperatures, percentages, frequencies, etc."""
+
+    # Temperatures
+    def test_temp_celsius(self):
+        self.assertEqual(format_metric('cpu_temp', 65.3), '65°C')
+
+    def test_temp_fahrenheit(self):
+        result = format_metric('gpu_temp', 50.0, temp_unit=1)
+        self.assertEqual(result, '122°F')
+
+    # Percentages
+    def test_percent(self):
+        self.assertEqual(format_metric('cpu_percent', 88.7), '89%')
+
+    def test_usage(self):
+        self.assertEqual(format_metric('gpu_usage', 42.0), '42%')
+
+    def test_activity(self):
+        self.assertEqual(format_metric('disk_activity', 12.0), '12%')
+
+    # Frequencies
+    def test_freq_mhz(self):
+        self.assertEqual(format_metric('cpu_freq', 800.0), '800MHz')
+
+    def test_freq_ghz(self):
+        self.assertEqual(format_metric('gpu_clock', 1800.0), '1.8GHz')
+
+    # Disk I/O
+    def test_disk_read(self):
+        self.assertEqual(format_metric('disk_read', 1.5), '1.5MB/s')
+
+    def test_disk_write(self):
+        self.assertEqual(format_metric('disk_write', 0.3), '0.3MB/s')
+
+    # Network
+    def test_net_kbs(self):
+        self.assertEqual(format_metric('net_up', 512.0), '512KB/s')
+
+    def test_net_mbs(self):
+        self.assertEqual(format_metric('net_down', 2048.0), '2.0MB/s')
+
+    def test_net_total_mb(self):
+        self.assertEqual(format_metric('net_total_up', 500.0), '500MB')
+
+    def test_net_total_gb(self):
+        self.assertEqual(format_metric('net_total_down', 2048.0), '2.0GB')
+
+    # Fan
+    def test_fan(self):
+        self.assertEqual(format_metric('fan_cpu', 1200.0), '1200RPM')
+
+    # Memory available
+    def test_mem_available_mb(self):
+        self.assertEqual(format_metric('mem_available', 512.0), '512MB')
+
+    def test_mem_available_gb(self):
+        self.assertEqual(format_metric('mem_available', 4096.0), '4.0GB')
+
+    # Date / time / weekday (use frozen datetime)
+    @patch('trcc.system_info.datetime')
+    def test_date_format_0(self, mock_dt):
+        from datetime import datetime as real_dt
+        fake_now = real_dt(2026, 2, 6, 14, 30, 0)
+        mock_dt.now.return_value = fake_now
+        # datetime.now() returns our fake, but strftime must work on real obj
+        result = format_metric('date', 0, date_format=0)
+        self.assertEqual(result, '2026/02/06')
+
+    @patch('trcc.system_info.datetime')
+    def test_time_format_0(self, mock_dt):
+        from datetime import datetime as real_dt
+        fake_now = real_dt(2026, 2, 6, 14, 5, 0)
+        mock_dt.now.return_value = fake_now
+        result = format_metric('time', 0, time_format=0)
+        self.assertEqual(result, '14:05')
+
+    @patch('trcc.system_info.datetime')
+    def test_weekday(self, mock_dt):
+        from datetime import datetime as real_dt
+        fake_now = real_dt(2026, 2, 6, 0, 0, 0)  # Friday
+        mock_dt.now.return_value = fake_now
+        result = format_metric('weekday', 0)
+        self.assertEqual(result, 'FRI')
+
+    def test_day_of_week_index(self):
+        self.assertEqual(format_metric('day_of_week', 0), 'MON')
+        self.assertEqual(format_metric('day_of_week', 6), 'SUN')
+
+    # Fallback
+    def test_unknown_metric(self):
+        self.assertEqual(format_metric('something', 3.14), '3.1')
+
+
+# ── Format dictionaries ─────────────────────────────────────────────────────
+
+class TestFormatConstants(unittest.TestCase):
+
+    def test_time_formats_keys(self):
+        self.assertEqual(set(TIME_FORMATS.keys()), {0, 1, 2})
+
+    def test_date_formats_keys(self):
+        self.assertEqual(set(DATE_FORMATS.keys()), {0, 1, 2, 3, 4})
+
+    def test_weekdays_length(self):
+        self.assertEqual(len(WEEKDAYS), 7)
+        self.assertEqual(WEEKDAYS[0], 'MON')
+        self.assertEqual(WEEKDAYS[6], 'SUN')
+
+
+if __name__ == '__main__':
+    unittest.main()
