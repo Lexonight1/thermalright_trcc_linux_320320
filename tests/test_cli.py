@@ -468,5 +468,139 @@ class TestEnsureExtracted(unittest.TestCase):
             _ensure_extracted(driver)  # should not raise
 
 
+# ── gui() additional branches ────────────────────────────────────────────────
+
+class TestGuiExtra(unittest.TestCase):
+
+    def test_gui_import_error(self):
+        """PyQt6 not importable → returns 1."""
+        with patch.dict('sys.modules', {
+            'trcc.qt_components.qt_app_mvc': None,
+        }):
+            result = gui()
+        self.assertEqual(result, 1)
+
+
+# ── detect() additional branches ─────────────────────────────────────────────
+
+class TestDetectExtra(unittest.TestCase):
+
+    def _make_device(self, path='/dev/sg0', name='LCD'):
+        dev = MagicMock()
+        dev.scsi_device = path
+        dev.product_name = name
+        return dev
+
+    def test_detect_exception(self):
+        """detect_devices raises → returns 1."""
+        mock_mod = MagicMock()
+        mock_mod.detect_devices.side_effect = RuntimeError('oops')
+        with patch.dict('sys.modules', {'trcc.device_detector': mock_mod}):
+            result = detect()
+        self.assertEqual(result, 1)
+
+    def test_detect_show_all_multi(self):
+        """show_all with multiple devices shows * marker."""
+        dev1 = self._make_device('/dev/sg0', 'LCD-A')
+        dev2 = self._make_device('/dev/sg1', 'LCD-B')
+        mock_mod = MagicMock()
+        mock_mod.detect_devices.return_value = [dev1, dev2]
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with patch.dict('sys.modules', {'trcc.device_detector': mock_mod}), \
+             patch('trcc.cli._get_selected_device', return_value='/dev/sg1'), \
+             redirect_stdout(buf):
+            result = detect(show_all=True)
+        self.assertEqual(result, 0)
+        output = buf.getvalue()
+        self.assertIn('*', output)
+        self.assertIn('trcc select', output)
+
+    def test_detect_no_selected_match(self):
+        """Selected device not in list → prints first device."""
+        dev = self._make_device('/dev/sg0', 'LCD')
+        mock_mod = MagicMock()
+        mock_mod.detect_devices.return_value = [dev]
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with patch.dict('sys.modules', {'trcc.device_detector': mock_mod}), \
+             patch('trcc.cli._get_selected_device', return_value='/dev/sg9'), \
+             redirect_stdout(buf):
+            result = detect(show_all=False)
+        self.assertEqual(result, 0)
+        self.assertIn('/dev/sg0', buf.getvalue())
+
+
+# ── Settings corrupt JSON ────────────────────────────────────────────────────
+
+class TestSettingsCorruptJSON(unittest.TestCase):
+
+    def test_get_corrupt_json(self):
+        """Corrupt JSON → returns None."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            f.write('{bad json')
+            path = f.name
+        try:
+            with patch('trcc.cli._get_settings_path', return_value=path):
+                result = _get_selected_device()
+            self.assertIsNone(result)
+        finally:
+            os.unlink(path)
+
+    def test_set_with_corrupt_existing(self):
+        """Set device with corrupt existing file → overwrites cleanly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'settings.json')
+            with open(path, 'w') as f:
+                f.write('{bad')
+            with patch('trcc.cli._get_settings_path', return_value=path):
+                _set_selected_device('/dev/sg0')
+                result = _get_selected_device()
+            self.assertEqual(result, '/dev/sg0')
+
+
+# ── download_themes additional branches ──────────────────────────────────────
+
+class TestDownloadExtra(unittest.TestCase):
+
+    def test_show_info(self):
+        """show_info=True calls pack_info."""
+        mock_mod = MagicMock()
+        with patch.dict('sys.modules', {'trcc.theme_downloader': mock_mod}):
+            result = download_themes(pack='test', show_list=False,
+                                     force=False, show_info=True)
+        self.assertEqual(result, 0)
+        mock_mod.show_info.assert_called_once()
+
+    def test_exception_returns_1(self):
+        """Exception during download → returns 1."""
+        mock_mod = MagicMock()
+        mock_mod.download_pack.side_effect = RuntimeError('net error')
+        with patch.dict('sys.modules', {'trcc.theme_downloader': mock_mod}):
+            result = download_themes(pack='themes-320', show_list=False,
+                                     force=False, show_info=False)
+        self.assertEqual(result, 1)
+
+
+# ── test_display KeyboardInterrupt ───────────────────────────────────────────
+
+class TestTestDisplayExtra(unittest.TestCase):
+
+    def test_keyboard_interrupt(self):
+        mock_mod = MagicMock()
+        mock_driver = MagicMock()
+        mock_mod.LCDDriver.return_value = mock_driver
+        mock_mod.LCDDriver.return_value.send_image.side_effect = KeyboardInterrupt
+
+        with patch.dict('sys.modules', {'trcc.lcd_driver': mock_mod}), \
+             patch('trcc.cli._get_selected_device', return_value='/dev/sg0'):
+            result = cli_test_display()
+        self.assertEqual(result, 0)
+
+
 if __name__ == '__main__':
     unittest.main()

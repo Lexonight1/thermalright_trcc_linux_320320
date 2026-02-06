@@ -284,5 +284,258 @@ class TestMapDefaults(unittest.TestCase):
         mod._DEFAULT_MAP = None
 
 
+# ── discover() end-to-end ────────────────────────────────────────────────────
+
+class TestDiscoverEndToEnd(unittest.TestCase):
+
+    @patch.object(SensorEnumerator, '_discover_computed')
+    @patch.object(SensorEnumerator, '_discover_rapl')
+    @patch.object(SensorEnumerator, '_discover_psutil')
+    @patch.object(SensorEnumerator, '_discover_nvidia')
+    @patch.object(SensorEnumerator, '_discover_hwmon')
+    def test_discover_calls_all_sub_discoveries(self, hw, nv, ps, rapl, comp):
+        enum = SensorEnumerator()
+        result = enum.discover()
+        hw.assert_called_once()
+        nv.assert_called_once()
+        ps.assert_called_once()
+        rapl.assert_called_once()
+        comp.assert_called_once()
+        self.assertEqual(result, [])
+
+    @patch.object(SensorEnumerator, '_discover_computed')
+    @patch.object(SensorEnumerator, '_discover_rapl')
+    @patch.object(SensorEnumerator, '_discover_psutil')
+    @patch.object(SensorEnumerator, '_discover_nvidia')
+    @patch.object(SensorEnumerator, '_discover_hwmon')
+    def test_discover_resets_state(self, *_):
+        enum = SensorEnumerator()
+        enum._sensors = [SensorInfo('old', 'Old', 'temp', '°C', 'hwmon')]
+        enum._hwmon_paths = {'old': '/fake'}
+        enum.discover()
+        self.assertEqual(len(enum._sensors), 0)
+        self.assertEqual(len(enum._hwmon_paths), 0)
+
+
+# ── _discover_hwmon ──────────────────────────────────────────────────────────
+
+class TestDiscoverHwmon(unittest.TestCase):
+
+    @patch('trcc.sensor_enumerator._read_sysfs')
+    @patch('trcc.sensor_enumerator.Path')
+    def test_discovers_temp_and_fan(self, mock_path_cls, mock_sysfs):
+        from pathlib import PurePosixPath
+
+        hwmon_base = MagicMock()
+        hwmon_base.exists.return_value = True
+
+        hwmon0 = MagicMock()
+        hwmon0.name = 'hwmon0'
+
+        # Use PurePosixPath so sorted() works (has __lt__)
+        temp_file = PurePosixPath('/sys/class/hwmon/hwmon0/temp1_input')
+        fan_file = PurePosixPath('/sys/class/hwmon/hwmon0/fan1_input')
+        hwmon0.glob.return_value = [temp_file, fan_file]
+        hwmon0.__truediv__ = lambda self, x: MagicMock(
+            __str__=lambda s: f'/sys/class/hwmon/hwmon0/{x}')
+
+        hwmon_base.iterdir.return_value = [hwmon0]
+
+        def path_side(arg):
+            if arg == '/sys/class/hwmon':
+                return hwmon_base
+            return MagicMock()
+        mock_path_cls.side_effect = path_side
+
+        def sysfs_side(path):
+            if 'name' in str(path):
+                return 'k10temp'
+            if 'label' in str(path):
+                return None
+            return '55000'
+        mock_sysfs.side_effect = sysfs_side
+
+        enum = SensorEnumerator()
+        enum._discover_hwmon()
+        self.assertGreaterEqual(len(enum._sensors), 2)
+        ids = [s.id for s in enum._sensors]
+        self.assertTrue(any('temp1' in sid for sid in ids))
+        self.assertTrue(any('fan1' in sid for sid in ids))
+
+
+# ── _discover_rapl ───────────────────────────────────────────────────────────
+
+class TestDiscoverRapl(unittest.TestCase):
+
+    @patch('trcc.sensor_enumerator._read_sysfs')
+    @patch('trcc.sensor_enumerator.Path')
+    def test_discovers_rapl_domain(self, mock_path_cls, mock_sysfs):
+        rapl_base = MagicMock()
+        rapl_base.exists.return_value = True
+
+        rapl_dir = MagicMock()
+        rapl_dir.name = 'intel-rapl:0'
+        energy_uj = MagicMock()
+        energy_uj.exists.return_value = True
+        name_file = MagicMock()
+
+        rapl_dir.__truediv__ = lambda self, x: (
+            energy_uj if x == 'energy_uj' else name_file)
+        rapl_base.glob.return_value = [rapl_dir]
+
+        def path_side(arg):
+            if 'powercap' in str(arg):
+                return rapl_base
+            return MagicMock()
+        mock_path_cls.side_effect = path_side
+        mock_sysfs.return_value = 'package-0'
+
+        enum = SensorEnumerator()
+        enum._discover_rapl()
+        self.assertEqual(len(enum._sensors), 1)
+        self.assertEqual(enum._sensors[0].source, 'rapl')
+        self.assertIn('package-0', enum._sensors[0].id)
+
+    @patch('trcc.sensor_enumerator._read_sysfs')
+    @patch('trcc.sensor_enumerator.Path')
+    def test_skips_sub_zones(self, mock_path_cls, mock_sysfs):
+        rapl_base = MagicMock()
+        rapl_base.exists.return_value = True
+
+        sub_zone = MagicMock()
+        sub_zone.name = 'intel-rapl:0:0'  # Sub-zone (has extra colon)
+        rapl_base.glob.return_value = [sub_zone]
+
+        mock_path_cls.return_value = rapl_base
+
+        enum = SensorEnumerator()
+        enum._discover_rapl()
+        self.assertEqual(len(enum._sensors), 0)
+
+
+# ── read_all hwmon edge cases ────────────────────────────────────────────────
+
+class TestReadAllEdgeCases(unittest.TestCase):
+
+    def test_unknown_prefix_returns_raw(self):
+        enum = SensorEnumerator()
+        enum._hwmon_paths = {'hwmon:test:custom1': '/fake/custom1_input'}
+        with patch('trcc.sensor_enumerator._read_sysfs', return_value='123'):
+            readings = enum.read_all()
+        # 'custom1' doesn't start with temp/fan/in/power/freq → raw value
+        self.assertEqual(readings['hwmon:test:custom1'], 123.0)
+
+    def test_hwmon_value_error(self):
+        enum = SensorEnumerator()
+        enum._hwmon_paths = {'hwmon:test:temp1': '/fake/temp1_input'}
+        with patch('trcc.sensor_enumerator._read_sysfs', return_value='not-a-number'):
+            readings = enum.read_all()
+        self.assertNotIn('hwmon:test:temp1', readings)
+
+
+# ── read_one edge cases ──────────────────────────────────────────────────────
+
+class TestReadOneEdgeCases(unittest.TestCase):
+
+    def test_falls_through_to_read_all(self):
+        enum = SensorEnumerator()
+        # Sensor not in _hwmon_paths → falls through to read_all
+        with patch.object(enum, 'read_all', return_value={'psutil:cpu_percent': 42.0}):
+            result = enum.read_one('psutil:cpu_percent')
+        self.assertEqual(result, 42.0)
+
+    def test_hwmon_value_error_returns_none(self):
+        enum = SensorEnumerator()
+        enum._hwmon_paths = {'hwmon:test:temp1': '/fake/path'}
+        with patch('trcc.sensor_enumerator._read_sysfs', return_value='bad'):
+            result = enum.read_one('hwmon:test:temp1')
+        self.assertIsNone(result)
+
+
+# ── _read_computed ───────────────────────────────────────────────────────────
+
+class TestReadComputed(unittest.TestCase):
+
+    @patch('trcc.sensor_enumerator.PSUTIL_AVAILABLE', True)
+    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.sensor_enumerator.time')
+    def test_disk_delta(self, mock_time, mock_psutil):
+        mock_time.monotonic.return_value = 101.0
+        mock_psutil.disk_io_counters.return_value = MagicMock(
+            read_bytes=10 * 1024 * 1024,
+            write_bytes=5 * 1024 * 1024,
+            busy_time=500,
+        )
+        mock_psutil.net_io_counters.return_value = MagicMock(
+            bytes_sent=1024, bytes_recv=2048)
+
+        enum = SensorEnumerator()
+        enum._disk_prev = (MagicMock(
+            read_bytes=0, write_bytes=0, busy_time=0), 100.0)
+
+        readings = {}
+        enum._read_computed(readings)
+        self.assertIn('computed:disk_read', readings)
+        self.assertAlmostEqual(readings['computed:disk_read'], 10.0, delta=0.1)
+        self.assertIn('computed:disk_activity', readings)
+
+    @patch('trcc.sensor_enumerator.PSUTIL_AVAILABLE', True)
+    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.sensor_enumerator.time')
+    def test_network_delta(self, mock_time, mock_psutil):
+        mock_time.monotonic.return_value = 101.0
+        mock_psutil.disk_io_counters.return_value = None
+        mock_psutil.net_io_counters.return_value = MagicMock(
+            bytes_sent=1024 * 100, bytes_recv=1024 * 500)
+
+        enum = SensorEnumerator()
+        enum._net_prev = (MagicMock(
+            bytes_sent=0, bytes_recv=0), 100.0)
+
+        readings = {}
+        enum._read_computed(readings)
+        self.assertIn('computed:net_up', readings)
+        self.assertAlmostEqual(readings['computed:net_up'], 100.0, delta=1.0)
+
+    @patch('trcc.sensor_enumerator.PSUTIL_AVAILABLE', False)
+    def test_no_psutil_returns_nothing(self):
+        enum = SensorEnumerator()
+        readings = {}
+        enum._read_computed(readings)
+        self.assertEqual(readings, {})
+
+
+# ── map_defaults with fans and GPU ───────────────────────────────────────────
+
+class TestMapDefaultsFull(unittest.TestCase):
+
+    def test_fan_sensor_mapping(self):
+        import trcc.sensor_enumerator as mod
+        from trcc.sensor_enumerator import map_defaults
+        mod._DEFAULT_MAP = None
+
+        enum = SensorEnumerator()
+        enum._sensors = [
+            SensorInfo('hwmon:nct:fan1', 'NCT Fan1', 'fan', 'RPM', 'hwmon'),
+            SensorInfo('hwmon:nct:fan2', 'NCT Fan2', 'fan', 'RPM', 'hwmon'),
+        ]
+        mapping = map_defaults(enum)
+        self.assertEqual(mapping.get('fan_cpu'), 'hwmon:nct:fan1')
+        self.assertEqual(mapping.get('fan_gpu'), 'hwmon:nct:fan2')
+        mod._DEFAULT_MAP = None
+
+    def test_cached_second_call(self):
+        import trcc.sensor_enumerator as mod
+        from trcc.sensor_enumerator import map_defaults
+        mod._DEFAULT_MAP = None
+
+        enum = SensorEnumerator()
+        enum._sensors = []
+        first = map_defaults(enum)
+        second = map_defaults(enum)
+        self.assertIs(first, second)
+        mod._DEFAULT_MAP = None
+
+
 if __name__ == '__main__':
     unittest.main()

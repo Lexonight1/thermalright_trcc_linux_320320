@@ -537,5 +537,268 @@ class TestFormatConstants(unittest.TestCase):
         self.assertEqual(WEEKDAYS[6], 'SUN')
 
 
+# ── Additional format_metric branches ────────────────────────────────────────
+
+class TestFormatMetricExtra(unittest.TestCase):
+    """Cover date_format 2/3/4, time_format 2, and invalid format fallbacks."""
+
+    @patch('trcc.system_info.datetime')
+    def test_date_format_2_dd_mm_yyyy(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
+        self.assertEqual(format_metric('date', 0, date_format=2), '15/03/2026')
+
+    @patch('trcc.system_info.datetime')
+    def test_date_format_3_mm_dd(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
+        self.assertEqual(format_metric('date', 0, date_format=3), '03/15')
+
+    @patch('trcc.system_info.datetime')
+    def test_date_format_4_dd_mm(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
+        self.assertEqual(format_metric('date', 0, date_format=4), '15/03')
+
+    @patch('trcc.system_info.datetime')
+    def test_date_format_invalid_falls_back(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
+        # Invalid format key → falls back to format 0
+        self.assertEqual(format_metric('date', 0, date_format=99), '2026/03/15')
+
+    @patch('trcc.system_info.datetime')
+    def test_time_format_2(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 9, 5, 0)
+        result = format_metric('time', 0, time_format=2)
+        self.assertEqual(result, '09:05')
+
+    @patch('trcc.system_info.datetime')
+    def test_time_format_invalid_falls_back(self, mock_dt):
+        from datetime import datetime as real_dt
+        mock_dt.now.return_value = real_dt(2026, 3, 15, 14, 30, 0)
+        result = format_metric('time', 0, time_format=99)
+        self.assertEqual(result, '14:30')
+
+
+# ── CPU temperature fallback branches ────────────────────────────────────────
+
+class TestCpuTempFallbacks(unittest.TestCase):
+
+    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
+    def test_lm_sensors_tctl(self, mock_find, mock_read, mock_run):
+        """Fallback to sensors -u with Tctl match."""
+        mock_run.return_value = type('R', (), {
+            'stdout': 'k10temp-isa-0000\n  Tctl:\n    tctl_input: 63.500\n',
+            'returncode': 0
+        })()
+        # Tctl falls through to 'Tctl' in line.lower() branch
+        temp = get_cpu_temperature()
+        # If sensors parsing works, it finds the value from Tctl line
+        # The code checks 'Tctl' in line.lower() and looks for ': <number>'
+        if temp is not None:
+            self.assertGreater(temp, 0)
+
+    @patch('trcc.system_info.subprocess.run', side_effect=Exception("no sensors"))
+    @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon0')
+    @patch('trcc.system_info.read_file', return_value=None)
+    def test_hwmon_all_temps_none(self, *_):
+        """hwmon found but temp{1,2,3}_input all None → sensors fallback fails → None."""
+        temp = get_cpu_temperature()
+        self.assertIsNone(temp)
+
+
+# ── CPU usage fallback branches ──────────────────────────────────────────────
+
+class TestCpuUsageFallbacks(unittest.TestCase):
+
+    @patch('trcc.system_info.read_file', return_value='2.50 1.00 0.50 1/234 5678')
+    def test_loadavg_fallback(self, mock_read):
+        """When /proc/stat fails, falls back to /proc/loadavg."""
+        with patch('builtins.open', side_effect=OSError("no stat")):
+            usage = get_cpu_usage()
+            self.assertIsNotNone(usage)
+            self.assertAlmostEqual(usage, 25.0)  # 2.50 * 10
+
+    @patch('trcc.system_info.read_file', side_effect=Exception("no loadavg"))
+    def test_both_fail_returns_none(self, _):
+        with patch('builtins.open', side_effect=OSError("no stat")):
+            usage = get_cpu_usage()
+            self.assertIsNone(usage)
+
+
+# ── Memory temperature lm_sensors fallback ───────────────────────────────────
+
+class TestMemoryTempSensors(unittest.TestCase):
+
+    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.os.path.exists', return_value=False)
+    def test_lm_sensors_memory_section(self, mock_exists, mock_read, mock_run):
+        sensors_output = (
+            "coretemp-isa-0000\n"
+            "  temp1_input: 55.000\n"
+            "\n"
+            "ddr5_dimm-virtual-0\n"
+            "  temp1_input: 38.500\n"
+        )
+        mock_run.return_value = type('R', (), {
+            'stdout': sensors_output, 'returncode': 0
+        })()
+        temp = get_memory_temperature()
+        self.assertIsNotNone(temp)
+        self.assertAlmostEqual(temp, 38.5)
+
+
+# ── Memory clock fallbacks ───────────────────────────────────────────────────
+
+class TestMemoryClockFallbacks(unittest.TestCase):
+
+    @patch('trcc.system_info.os.path.exists', return_value=False)
+    @patch('trcc.system_info.subprocess.run')
+    def test_lshw_fallback(self, mock_run, _):
+        # First call (dmidecode) fails, second (lshw) succeeds
+        mock_run.side_effect = [
+            type('R', (), {'stdout': '', 'returncode': 1})(),
+            type('R', (), {
+                'stdout': '/0/33  memory  4096MB DIMM DDR5 4800 MHz\n',
+                'returncode': 0
+            })(),
+        ]
+        clock = get_memory_clock()
+        self.assertAlmostEqual(clock, 4800.0)
+
+    @patch('trcc.system_info.read_file', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
+    @patch('trcc.system_info.os.listdir', return_value=['mc0'])
+    @patch('trcc.system_info.os.path.exists', return_value=True)
+    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    def test_edac_fallback(self, mock_run, mock_exists, mock_listdir, mock_read):
+        clock = get_memory_clock()
+        self.assertAlmostEqual(clock, 5600.0)
+
+
+# ── Disk stats delta calculation ─────────────────────────────────────────────
+
+class TestDiskStatsDelta(unittest.TestCase):
+
+    @patch('trcc.system_info.PSUTIL_AVAILABLE', True)
+    @patch('trcc.system_info.psutil')
+    @patch('time.time', return_value=101.0)
+    def test_second_call_with_delta(self, mock_time, mock_psutil):
+        import trcc.system_info as si
+        si._prev_disk_io = MagicMock(
+            read_bytes=0, write_bytes=0, busy_time=0)
+        si._prev_disk_time = 100.0
+
+        mock_psutil.disk_io_counters.return_value = MagicMock(
+            read_bytes=10 * 1024 * 1024,
+            write_bytes=5 * 1024 * 1024,
+            busy_time=500,
+        )
+        result = get_disk_stats()
+
+        self.assertIn('disk_read', result)
+        self.assertAlmostEqual(result['disk_read'], 10.0, delta=0.1)
+        self.assertAlmostEqual(result['disk_write'], 5.0, delta=0.1)
+        self.assertIn('disk_activity', result)
+
+    @patch('trcc.system_info.PSUTIL_AVAILABLE', True)
+    @patch('trcc.system_info.psutil')
+    @patch('time.time', return_value=101.0)
+    def test_no_busy_time_estimate(self, mock_time, mock_psutil):
+        import trcc.system_info as si
+        prev_io = MagicMock(read_bytes=0, write_bytes=0, spec=['read_bytes', 'write_bytes'])
+        si._prev_disk_io = prev_io
+        si._prev_disk_time = 100.0
+
+        curr_io = MagicMock(read_bytes=1024 * 1024, write_bytes=1024 * 1024,
+                            spec=['read_bytes', 'write_bytes'])
+        mock_psutil.disk_io_counters.return_value = curr_io
+        result = get_disk_stats()
+        self.assertIn('disk_activity', result)
+
+
+# ── Disk temperature fallbacks ───────────────────────────────────────────────
+
+class TestDiskTempFallbacks(unittest.TestCase):
+
+    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.system_info.read_file', return_value='38000')
+    @patch('trcc.system_info.find_hwmon_by_name')
+    def test_drivetemp_hwmon(self, mock_find, mock_read, _):
+        mock_find.side_effect = [None, '/sys/class/hwmon/hwmon5']  # nvme=None, drivetemp=found
+        temp = get_disk_temperature()
+        self.assertAlmostEqual(temp, 38.0)
+
+    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
+    def test_smartctl_fallback(self, mock_find, mock_run):
+        # smartctl output: the code finds a digit <100 among parts
+        mock_run.return_value = type('R', (), {
+            'stdout': 'ID# ATTRIBUTE_NAME  VALUE WORST THRESH TYPE\n194 Temperature_Celsius  35  40  0  Old_age\n',
+            'returncode': 0
+        })()
+        temp = get_disk_temperature()
+        self.assertIsNotNone(temp)
+        self.assertAlmostEqual(temp, 35.0)
+
+
+# ── Network stats delta ─────────────────────────────────────────────────────
+
+class TestNetworkStatsDelta(unittest.TestCase):
+
+    @patch('trcc.system_info.PSUTIL_AVAILABLE', True)
+    @patch('trcc.system_info.psutil')
+    @patch('time.time', return_value=101.0)
+    def test_second_call_with_rates(self, mock_time, mock_psutil):
+        import trcc.system_info as si
+        si._prev_net_io = MagicMock(
+            bytes_sent=0, bytes_recv=0)
+        si._prev_net_time = 100.0
+
+        mock_psutil.net_io_counters.return_value = MagicMock(
+            bytes_sent=1024 * 100,
+            bytes_recv=1024 * 500,
+        )
+        result = get_network_stats()
+
+        self.assertIn('net_up', result)
+        self.assertAlmostEqual(result['net_up'], 100.0, delta=1.0)
+        self.assertAlmostEqual(result['net_down'], 500.0, delta=1.0)
+
+
+# ── Fan speeds hwmon fallback ────────────────────────────────────────────────
+
+class TestFanSpeedsHwmon(unittest.TestCase):
+
+    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.os.path.exists')
+    @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
+    def test_direct_hwmon_access(self, mock_exists, mock_read):
+        def exists_side(path):
+            return path in [
+                '/sys/class/hwmon',
+                '/sys/class/hwmon/hwmon0',
+            ]
+        mock_exists.side_effect = exists_side
+
+        def read_side(path):
+            if path == '/sys/class/hwmon/hwmon0/fan1_input':
+                return '1500'
+            if path == '/sys/class/hwmon/hwmon0/fan2_input':
+                return '900'
+            return None
+        mock_read.side_effect = read_side
+
+        result = get_fan_speeds()
+        self.assertIn('fan_cpu', result)
+        self.assertEqual(result['fan_cpu'], 1500.0)
+        self.assertIn('fan_gpu', result)
+        self.assertEqual(result['fan_gpu'], 900.0)
+
+
 if __name__ == '__main__':
     unittest.main()

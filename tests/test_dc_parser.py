@@ -791,6 +791,135 @@ class TestParseDisplayElements(unittest.TestCase):
         # Should return empty or partial results without crashing
         self.assertIsInstance(result, list)
 
+    def _build_element_bytes(self, mode=1, mode_sub=0, x=10, y=20,
+                             main_count=0, sub_count=0,
+                             font_name='Arial', font_size=24.0,
+                             font_style=0, alpha=255, r=255, g=128, b=64,
+                             text='') -> bytes:
+        """Build binary data for a single display element."""
+        buf = BytesIO()
+        buf.write(struct.pack('<i', mode))
+        buf.write(struct.pack('<i', mode_sub))
+        buf.write(struct.pack('<i', x))
+        buf.write(struct.pack('<i', y))
+        buf.write(struct.pack('<i', main_count))
+        buf.write(struct.pack('<i', sub_count))
+        # Font name (length-prefixed)
+        name_bytes = font_name.encode('utf-8')
+        buf.write(struct.pack('B', len(name_bytes)))
+        buf.write(name_bytes)
+        buf.write(struct.pack('<f', font_size))
+        # style, unit, charset, A, R, G, B
+        buf.write(struct.pack('BBBBBBB', font_style, 3, 0, alpha, r, g, b))
+        # Text (length-prefixed)
+        text_bytes = text.encode('utf-8')
+        buf.write(struct.pack('B', len(text_bytes)))
+        if text_bytes:
+            buf.write(text_bytes)
+        return buf.getvalue()
+
+    def test_single_valid_element(self):
+        """Parse a single valid element with all fields."""
+        elem_data = self._build_element_bytes(
+            mode=1, x=50, y=100, font_name='Arial', font_size=24.0,
+            r=255, g=128, b=64, text='')
+        data = struct.pack('<i', 1) + elem_data
+        result = parse_display_elements(data, 0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].mode, 1)
+        self.assertEqual(result[0].x, 50)
+        self.assertEqual(result[0].y, 100)
+        self.assertEqual(result[0].font_name, 'Arial')
+        self.assertAlmostEqual(result[0].font_size, 24.0, places=1)
+        self.assertEqual(result[0].color_argb, (255, 255, 128, 64))
+
+    def test_custom_text_element(self):
+        """Parse element with custom text (mode 4)."""
+        elem_data = self._build_element_bytes(mode=4, text='Hello World')
+        data = struct.pack('<i', 1) + elem_data
+        result = parse_display_elements(data, 0)
+        self.assertEqual(result[0].text, 'Hello World')
+        self.assertEqual(result[0].mode, 4)
+
+    def test_multiple_elements(self):
+        """Parse multiple elements."""
+        e1 = self._build_element_bytes(mode=0, x=10, y=10)
+        e2 = self._build_element_bytes(mode=1, x=20, y=30)
+        e3 = self._build_element_bytes(mode=4, x=50, y=60, text='Test')
+        data = struct.pack('<i', 3) + e1 + e2 + e3
+        result = parse_display_elements(data, 0)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0].mode, 0)
+        self.assertEqual(result[1].mode, 1)
+        self.assertEqual(result[2].text, 'Test')
+
+    def test_font_size_clamping(self):
+        """Out-of-range font sizes get clamped to defaults."""
+        e1 = self._build_element_bytes(font_size=0.0)
+        e2 = self._build_element_bytes(font_size=999.0)
+        data = struct.pack('<i', 2) + e1 + e2
+        result = parse_display_elements(data, 0)
+        self.assertEqual(len(result), 2)
+        # Both should be clamped to 24 (default for out-of-range)
+        self.assertEqual(result[0].font_size, 24)
+        self.assertEqual(result[1].font_size, 24)
+
+    def test_nonzero_start_pos(self):
+        """Parse with non-zero start position."""
+        prefix = b'\xFF' * 20  # Garbage prefix
+        elem_data = self._build_element_bytes(mode=2)
+        data = prefix + struct.pack('<i', 1) + elem_data
+        result = parse_display_elements(data, 20)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].mode, 2)
+
+
+class TestValidateThemeEdgeCases(unittest.TestCase):
+    """Additional validate_theme edge cases."""
+
+    def test_validate_corrupt_config(self):
+        """Corrupt config1.dc (valid magic + garbage) → issues."""
+        with TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, 'config1.dc')
+            with open(config_path, 'wb') as f:
+                f.write(b'\xDC' + b'\xFF' * 50)
+            result = validate_theme(tmpdir)
+            # Should not crash, may be valid=True with warnings or valid=False
+            self.assertIsInstance(result, dict)
+            self.assertIn('valid', result)
+
+    def test_validate_custom_display_size(self):
+        """Validation with custom display dimensions."""
+        with TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, 'config1.dc')
+            # Write a minimal valid file
+            buf = BytesIO()
+            buf.write(b'\xdc')
+            buf.write(struct.pack('<ii', 0, 0))
+            for _ in range(8):
+                buf.write(b'\x00')
+            buf.write(struct.pack('<i', 0))
+            for _ in range(13):
+                buf.write(b'\x00')
+                buf.write(struct.pack('<f', 24.0))
+                buf.write(bytes([0, 3, 0, 255, 255, 255, 255]))
+            buf.write(b'\x01\x00')
+            buf.write(struct.pack('<ii', 0, 0))
+            for _ in range(13):
+                buf.write(struct.pack('<ii', 0, 0))
+            while buf.tell() < 100:
+                buf.write(b'\x00')
+            with open(config_path, 'wb') as f:
+                f.write(buf.getvalue())
+
+            with open(os.path.join(tmpdir, '00.png'), 'wb') as f:
+                f.write(b'PNG')
+            with open(os.path.join(tmpdir, 'Theme.png'), 'wb') as f:
+                f.write(b'PNG')
+
+            result = validate_theme(tmpdir, 240, 240)
+            self.assertIsInstance(result, dict)
+
 
 if __name__ == '__main__':
     unittest.main()

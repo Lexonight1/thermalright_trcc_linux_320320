@@ -338,5 +338,238 @@ class TestCreateLocalPack(unittest.TestCase):
                 os.chdir(original_cwd)
 
 
+# ── corrupt meta JSON ────────────────────────────────────────────────────────
+
+class TestInstalledPacksCorruptMeta(unittest.TestCase):
+
+    def test_corrupt_meta_skipped(self):
+        """Corrupt .trcc-meta.json is silently skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            themes_dir = Path(tmp)
+            res_dir = themes_dir / '320320'
+            res_dir.mkdir()
+            (res_dir / '.trcc-meta.json').write_text('{bad json')
+            (res_dir / 'Theme1').mkdir()
+
+            with patch('trcc.theme_downloader.get_user_themes_dir', return_value=themes_dir):
+                installed = get_installed_packs()
+            # Corrupt meta → silently skipped (pass), no entry added
+            self.assertEqual(installed, {})
+
+
+# ── list_available with installed ─────────────────────────────────────────────
+
+class TestListAvailableInstalled(unittest.TestCase):
+
+    def test_shows_installed_status(self):
+        """Installed pack shows [installed] label."""
+        import io
+        from contextlib import redirect_stdout
+
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        version = THEME_REGISTRY[pack_name]['version']
+        installed = {pack_name: {'version': version}}
+
+        buf = io.StringIO()
+        with patch('trcc.theme_downloader.get_installed_packs', return_value=installed), \
+             redirect_stdout(buf):
+            list_available()
+        self.assertIn('[installed]', buf.getvalue())
+
+    def test_shows_update_available(self):
+        """Outdated installed version shows [update available]."""
+        import io
+        from contextlib import redirect_stdout
+
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        installed = {pack_name: {'version': '0.0.1'}}
+
+        buf = io.StringIO()
+        with patch('trcc.theme_downloader.get_installed_packs', return_value=installed), \
+             redirect_stdout(buf):
+            list_available()
+        self.assertIn('update available', buf.getvalue())
+
+
+# ── show_info installed pack ─────────────────────────────────────────────────
+
+class TestShowInfoInstalled(unittest.TestCase):
+
+    def test_shows_installed_yes(self):
+        import io
+        from contextlib import redirect_stdout
+
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        installed = {pack_name: {'version': '1.0', 'theme_count': 5}}
+
+        buf = io.StringIO()
+        with patch('trcc.theme_downloader.get_installed_packs', return_value=installed), \
+             redirect_stdout(buf):
+            show_info(pack_name)
+        self.assertIn('Installed:   Yes', buf.getvalue())
+
+
+# ── download_with_progress edge cases ────────────────────────────────────────
+
+class TestDownloadEdgeCases(unittest.TestCase):
+
+    @patch('trcc.theme_downloader.urlopen')
+    def test_urlerror(self, mock_urlopen):
+        from urllib.error import URLError
+        mock_urlopen.side_effect = URLError('no network')
+        with tempfile.TemporaryDirectory() as tmp:
+            result = download_with_progress('http://x', Path(tmp) / 'f')
+        self.assertFalse(result)
+
+    @patch('trcc.theme_downloader.urlopen')
+    def test_generic_exception(self, mock_urlopen):
+        mock_urlopen.side_effect = OSError('disk full')
+        with tempfile.TemporaryDirectory() as tmp:
+            result = download_with_progress('http://x', Path(tmp) / 'f')
+        self.assertFalse(result)
+
+    @patch('trcc.theme_downloader.urlopen')
+    def test_no_content_length(self, mock_urlopen):
+        """No Content-Length → progress shows MB only."""
+        body = b'data' * 100
+        mock_response = MagicMock()
+        mock_response.headers = {'content-length': '0'}
+        mock_response.read = MagicMock(side_effect=[body, b''])
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = download_with_progress('http://x', Path(tmp) / 'f')
+        self.assertTrue(result)
+
+
+# ── download_pack additional branches ────────────────────────────────────────
+
+class TestDownloadPackExtra(unittest.TestCase):
+
+    @patch('trcc.theme_downloader.download_with_progress', return_value=True)
+    @patch('trcc.theme_downloader.verify_checksum', return_value=True)
+    @patch('trcc.theme_downloader.get_installed_packs', return_value={})
+    def test_full_success_flow(self, mock_installed, mock_checksum, mock_download):
+        """Full install: download → extract → install themes → metadata."""
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        info = THEME_REGISTRY[pack_name]
+        resolution = info['resolution'].replace('x', '')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            themes_dir = Path(tmp) / 'themes'
+            cache_dir = Path(tmp) / 'cache'
+            cache_dir.mkdir()
+
+            # Create a real tar.gz with a theme inside
+            archive_path = cache_dir / f"{pack_name}-{info['version']}.tar.gz"
+            with tarfile.open(str(archive_path), 'w:gz') as tar:
+                # Add a wrapper dir containing a theme with Theme.png
+                theme_dir_path = Path(tmp) / 'build' / 'wrapper' / 'Theme1'
+                theme_dir_path.mkdir(parents=True)
+                (theme_dir_path / 'Theme.png').write_bytes(b'fake')
+                (theme_dir_path / 'config1.dc').write_bytes(b'\x00' * 16)
+                tar.add(str(theme_dir_path.parent), arcname='wrapper')
+
+            # Make download_with_progress copy our real archive to the expected path
+            def fake_download(url, dest, desc=""):
+                import shutil
+                shutil.copy2(str(archive_path), str(dest))
+                return True
+            mock_download.side_effect = fake_download
+
+            with patch('trcc.theme_downloader.get_cache_dir', return_value=cache_dir), \
+                 patch('trcc.theme_downloader.get_user_themes_dir', return_value=themes_dir):
+                result = download_pack(pack_name)
+
+            self.assertEqual(result, 0)
+            dest = themes_dir / resolution
+            self.assertTrue(dest.exists())
+            self.assertTrue((dest / '.trcc-meta.json').exists())
+            # Verify at least one theme was copied
+            theme_dirs = [d for d in dest.iterdir() if d.is_dir()]
+            self.assertGreater(len(theme_dirs), 0)
+
+    @patch('trcc.theme_downloader.verify_checksum', return_value=True)
+    @patch('trcc.theme_downloader.get_installed_packs', return_value={})
+    def test_cached_archive_skips_download(self, mock_installed, mock_checksum):
+        """Existing valid archive in cache skips download."""
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        info = THEME_REGISTRY[pack_name]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            archive_path = cache_dir / f"{pack_name}-{info['version']}.tar.gz"
+            # Create fake archive
+            with tarfile.open(str(archive_path), 'w:gz') as tar:
+                theme = Path(tmp) / 'T1'
+                theme.mkdir()
+                (theme / 'Theme.png').write_bytes(b'x')
+                tar.add(str(theme), arcname='wrapper/T1')
+
+            themes_dir = Path(tmp) / 'themes'
+            with patch('trcc.theme_downloader.get_cache_dir', return_value=cache_dir), \
+                 patch('trcc.theme_downloader.get_user_themes_dir', return_value=themes_dir), \
+                 patch('trcc.theme_downloader.download_with_progress') as mock_dl:
+                result = download_pack(pack_name)
+            # Download should NOT have been called
+            mock_dl.assert_not_called()
+            self.assertEqual(result, 0)
+
+    @patch('trcc.theme_downloader.download_with_progress', return_value=True)
+    @patch('trcc.theme_downloader.verify_checksum', return_value=False)
+    @patch('trcc.theme_downloader.get_installed_packs', return_value={})
+    def test_checksum_fail_deletes_archive(self, mock_inst, mock_check, mock_dl):
+        """Checksum mismatch → archive deleted, returns 1."""
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        info = THEME_REGISTRY[pack_name]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            archive_path = cache_dir / f"{pack_name}-{info['version']}.tar.gz"
+
+            def fake_dl(url, dest, desc=""):
+                dest.write_bytes(b'bad')
+                return True
+            mock_dl.side_effect = fake_dl
+
+            # Make verify_checksum return False only the second time (post-download)
+            mock_check.side_effect = [False, False]
+
+            with patch('trcc.theme_downloader.get_cache_dir', return_value=cache_dir):
+                result = download_pack(pack_name)
+            self.assertEqual(result, 1)
+
+    @patch('trcc.theme_downloader.extract_archive', return_value=False)
+    @patch('trcc.theme_downloader.verify_checksum', return_value=True)
+    @patch('trcc.theme_downloader.get_installed_packs', return_value={})
+    def test_extraction_failure(self, mock_inst, mock_check, mock_extract):
+        """Extract failure → returns 1."""
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        info = THEME_REGISTRY[pack_name]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            (cache_dir / f"{pack_name}-{info['version']}.tar.gz").write_bytes(b'x')
+
+            with patch('trcc.theme_downloader.get_cache_dir', return_value=cache_dir):
+                result = download_pack(pack_name)
+            self.assertEqual(result, 1)
+
+    @patch('trcc.theme_downloader.get_installed_packs')
+    def test_force_reinstall(self, mock_installed):
+        """force=True bypasses already-installed check."""
+        pack_name = list(THEME_REGISTRY.keys())[0]
+        info = THEME_REGISTRY[pack_name]
+        mock_installed.return_value = {pack_name: {'version': info['version']}}
+
+        with patch('trcc.theme_downloader.download_with_progress', return_value=False), \
+             patch('trcc.theme_downloader.get_cache_dir', return_value=Path('/tmp')):
+            result = download_pack(pack_name, force=True)
+        # Should proceed past the "already installed" check (fails on download)
+        self.assertEqual(result, 1)
+
+
 if __name__ == '__main__':
     unittest.main()

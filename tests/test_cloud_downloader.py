@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 
 from trcc.cloud_downloader import (
     CATEGORIES,
@@ -217,6 +218,148 @@ class TestDownloaderCancel(unittest.TestCase):
         dl = CloudThemeDownloader(cache_dir='/tmp/test_trcc')
         dl.cancel()
         self.assertTrue(dl._cancelled)
+
+
+# ── Error handling in _download_file ─────────────────────────────────────────
+
+class TestDownloaderErrorHandling(unittest.TestCase):
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_file_http_404(self, mock_urlopen):
+        mock_urlopen.side_effect = HTTPError(
+            'http://test.com/a001.mp4', 404, 'Not Found', {}, None  # type: ignore[arg-type]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_theme('a999')
+            self.assertIsNone(result)
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_file_http_500(self, mock_urlopen):
+        mock_urlopen.side_effect = HTTPError(
+            'http://test.com/a001.mp4', 500, 'Server Error', {}, None  # type: ignore[arg-type]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_theme('a001')
+            self.assertIsNone(result)
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_file_url_error(self, mock_urlopen):
+        mock_urlopen.side_effect = URLError('Connection refused')
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_theme('a001')
+            self.assertIsNone(result)
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_file_generic_exception(self, mock_urlopen):
+        mock_urlopen.side_effect = OSError('Disk full')
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_theme('a001')
+            self.assertIsNone(result)
+
+
+# ── Download with progress ───────────────────────────────────────────────────
+
+class TestDownloaderProgress(unittest.TestCase):
+
+    def _mock_urlopen(self, data=b'\x00\x00\x01\x00'):
+        response = MagicMock()
+        response.headers = {'content-length': str(len(data))}
+        response.read.side_effect = [data, b'']
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        return response
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_with_progress_callback(self, mock_urlopen):
+        data = b'\x00' * 100
+        mock_urlopen.return_value = self._mock_urlopen(data)
+        progress_calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            dl.download_theme('a001', on_progress=lambda d, t, p: progress_calls.append((d, t, p)))
+
+        self.assertGreater(len(progress_calls), 0)
+        # Last call should be 100%
+        self.assertEqual(progress_calls[-1][2], 100)
+
+    @patch('trcc.cloud_downloader.urlopen')
+    def test_download_no_content_length(self, mock_urlopen):
+        """When content-length is missing, download still succeeds."""
+        response = MagicMock()
+        response.headers = {}  # No content-length
+        response.read.side_effect = [b'\x00' * 50, b'']
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = response
+
+        progress_calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_theme('a001', on_progress=lambda d, t, p: progress_calls.append(p))
+
+        self.assertIsNotNone(result)
+        # No progress calls expected when content-length = 0
+        self.assertEqual(len(progress_calls), 0)
+
+
+# ── Download category and download_all ───────────────────────────────────────
+
+class TestDownloaderCategory(unittest.TestCase):
+
+    @patch.object(CloudThemeDownloader, 'download_theme')
+    def test_download_category(self, mock_dl):
+        mock_dl.return_value = '/tmp/test.mp4'
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            results = dl.download_category('a', max_themes=3)
+        self.assertEqual(len(results), 3)
+        self.assertTrue(all(v == '/tmp/test.mp4' for v in results.values()))
+
+    @patch.object(CloudThemeDownloader, 'download_theme')
+    def test_download_category_with_progress(self, mock_dl):
+        mock_dl.return_value = '/tmp/test.mp4'
+        progress_calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            dl.download_category(
+                'a', max_themes=2,
+                on_progress=lambda cur, total, tid: progress_calls.append((cur, total, tid))
+            )
+        self.assertEqual(len(progress_calls), 2)
+
+    @patch.object(CloudThemeDownloader, 'download_theme')
+    def test_download_category_cancel(self, mock_dl):
+        """Cancel during iteration stops early."""
+        def cancel_after_first(*args, **kwargs):
+            dl._cancelled = True
+            return '/tmp/test.mp4'
+        mock_dl.side_effect = cancel_after_first
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            results = dl.download_category('a')
+        # Should have downloaded only 1 theme before cancel kicked in
+        self.assertEqual(len(results), 1)
+
+    @patch.object(CloudThemeDownloader, 'download_category')
+    def test_download_all(self, mock_cat):
+        mock_cat.return_value = {'a001': '/tmp/a001.mp4'}
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            dl.download_all()
+        mock_cat.assert_called_once_with('all', on_progress=None, force=False)
+
+    @patch.object(CloudThemeDownloader, 'download_theme')
+    def test_download_preview_delegates(self, mock_dl):
+        mock_dl.return_value = '/tmp/a001.mp4'
+        with tempfile.TemporaryDirectory() as tmp:
+            dl = CloudThemeDownloader(cache_dir=tmp)
+            result = dl.download_preview('a001')
+        self.assertEqual(result, '/tmp/a001.mp4')
 
 
 if __name__ == '__main__':

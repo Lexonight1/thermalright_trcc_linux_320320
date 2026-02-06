@@ -406,5 +406,84 @@ class TestVideoPlayerInit(unittest.TestCase):
             VideoPlayer('/fake/video.mp4')
 
 
+# ── _check_ffmpeg ────────────────────────────────────────────────────────────
+
+class TestCheckFfmpeg(unittest.TestCase):
+
+    @patch('subprocess.run')
+    def test_ffmpeg_available(self, mock_run):
+        from trcc.gif_animator import _check_ffmpeg
+        mock_run.return_value = MagicMock(returncode=0)
+        self.assertTrue(_check_ffmpeg())
+
+    @patch('subprocess.run', side_effect=FileNotFoundError)
+    def test_ffmpeg_not_found(self, _):
+        from trcc.gif_animator import _check_ffmpeg
+        self.assertFalse(_check_ffmpeg())
+
+
+# ── GIFAnimator.get_delay out-of-range ───────────────────────────────────────
+
+class TestGIFAnimatorGetDelayEdge(unittest.TestCase):
+
+    def test_delay_out_of_range(self):
+        gif_path = _make_gif(frames=2, durations=[50, 80])
+        try:
+            anim = GIFAnimator(gif_path)
+            anim.current_frame = 999  # beyond range
+            self.assertEqual(anim.get_delay(), 100)  # fallback
+        finally:
+            os.unlink(gif_path)
+
+
+# ── VideoPlayer.extract_frames dispatch ──────────────────────────────────────
+
+class TestExtractFramesDispatch(unittest.TestCase):
+
+    @patch('trcc.gif_animator.OPENCV_AVAILABLE', False)
+    @patch('trcc.gif_animator.FFMPEG_AVAILABLE', False)
+    def test_neither_backend(self):
+        result = VideoPlayer.extract_frames('/fake.mp4', '/tmp/out')
+        self.assertEqual(result, 0)
+
+    @patch('trcc.gif_animator.VideoPlayer._extract_frames_opencv', return_value=10)
+    @patch('trcc.gif_animator.OPENCV_AVAILABLE', True)
+    def test_prefers_opencv(self, mock_extract):
+        result = VideoPlayer.extract_frames('/fake.mp4', '/tmp/out')
+        self.assertEqual(result, 10)
+        mock_extract.assert_called_once()
+
+    @patch('trcc.gif_animator.VideoPlayer._extract_frames_ffmpeg', return_value=5)
+    @patch('trcc.gif_animator.OPENCV_AVAILABLE', False)
+    @patch('trcc.gif_animator.FFMPEG_AVAILABLE', True)
+    def test_falls_back_to_ffmpeg(self, mock_extract):
+        result = VideoPlayer.extract_frames('/fake.mp4', '/tmp/out')
+        self.assertEqual(result, 5)
+        mock_extract.assert_called_once()
+
+
+# ── VideoPlayer._preload_frames_ffmpeg ───────────────────────────────────────
+
+class TestPreloadFramesFfmpeg(unittest.TestCase):
+
+    def test_loads_bmp_files(self):
+        """Create temp dir with BMP files, verify frames loaded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create 3 small BMPs
+            for i in range(3):
+                img = Image.new('RGB', (8, 8), (i * 80, 0, 0))
+                img.save(os.path.join(tmpdir, f'frame_{i:04d}.bmp'))
+
+            player = VideoPlayer.__new__(VideoPlayer)
+            player.frames = []
+            player.frame_count = 0
+            player.target_size = (8, 8)
+            player._temp_dir = tmpdir
+
+            player._preload_frames_ffmpeg()
+            self.assertEqual(player.frame_count, 3)
+            self.assertEqual(len(player.frames), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

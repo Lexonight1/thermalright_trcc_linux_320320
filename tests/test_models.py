@@ -3,7 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from trcc.core.models import (
     DeviceInfo,
@@ -11,9 +11,11 @@ from trcc.core.models import (
     OverlayElement,
     OverlayElementType,
     OverlayModel,
+    PlaybackState,
     ThemeInfo,
     ThemeModel,
     ThemeType,
+    VideoModel,
     VideoState,
 )
 
@@ -276,6 +278,383 @@ class TestOverlayModel(unittest.TestCase):
         model.on_config_changed = mock
         model.add_element(OverlayElement())
         mock.assert_called_once()
+
+
+# =============================================================================
+# ThemeModel – cloud themes + filter
+# =============================================================================
+
+class TestThemeModelCloud(unittest.TestCase):
+    """ThemeModel.load_cloud_themes() with temp mp4 files."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_loads_mp4_files(self):
+        (Path(self.tmpdir) / 'a001.mp4').write_bytes(b'\x00')
+        (Path(self.tmpdir) / 'a002.mp4').write_bytes(b'\x00')
+        model = ThemeModel()
+        model.cloud_web_dir = Path(self.tmpdir)
+        themes = model.load_cloud_themes()
+        self.assertEqual(len(themes), 2)
+
+    def test_cloud_category_filter(self):
+        (Path(self.tmpdir) / 'a001.mp4').write_bytes(b'\x00')
+        (Path(self.tmpdir) / 'b001.mp4').write_bytes(b'\x00')
+        model = ThemeModel()
+        model.cloud_web_dir = Path(self.tmpdir)
+        model.category_filter = 'a'
+        themes = model.load_cloud_themes()
+        self.assertEqual(len(themes), 1)
+        self.assertTrue(themes[0].name.startswith('a'))
+
+    def test_cloud_no_dir_returns_empty(self):
+        model = ThemeModel()
+        model.cloud_web_dir = None
+        self.assertEqual(model.load_cloud_themes(), [])
+
+    def test_cloud_missing_dir_returns_empty(self):
+        model = ThemeModel()
+        model.cloud_web_dir = Path('/nonexistent/cloud/themes')
+        self.assertEqual(model.load_cloud_themes(), [])
+
+    def test_cloud_fires_callback(self):
+        (Path(self.tmpdir) / 'a001.mp4').write_bytes(b'\x00')
+        model = ThemeModel()
+        model.cloud_web_dir = Path(self.tmpdir)
+        mock = MagicMock()
+        model.on_themes_changed = mock
+        model.load_cloud_themes()
+        mock.assert_called_once()
+
+
+class TestThemeModelFilter(unittest.TestCase):
+    """ThemeModel._passes_filter for user mode."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def _make_theme(self, name, files=('00.png',)):
+        d = Path(self.tmpdir) / name
+        d.mkdir()
+        for f in files:
+            (d / f).write_bytes(b'\x89PNG')
+        return d
+
+    def test_filter_user(self):
+        self._make_theme('Normal', ['00.png'])
+        self._make_theme('Custom_1', ['00.png'])
+        model = ThemeModel()
+        model.set_local_directory(Path(self.tmpdir))
+        model.set_filter('user')
+        themes = model.load_local_themes()
+        names = [t.name for t in themes]
+        self.assertIn('Custom_1', names)
+        # 'Normal' type is LOCAL, not USER, and doesn't start with Custom/User
+        self.assertNotIn('Normal', names)
+
+    def test_filter_all(self):
+        self._make_theme('001a', ['00.png'])
+        self._make_theme('Custom_2', ['00.png'])
+        model = ThemeModel()
+        model.set_local_directory(Path(self.tmpdir))
+        model.set_filter('all')
+        themes = model.load_local_themes()
+        self.assertEqual(len(themes), 2)
+
+    def test_set_category(self):
+        model = ThemeModel()
+        model.set_category('b')
+        self.assertEqual(model.category_filter, 'b')
+
+
+# =============================================================================
+# DeviceModel – detect + send
+# =============================================================================
+
+class TestDeviceModelDetect(unittest.TestCase):
+
+    @patch('trcc.scsi_device.find_lcd_devices')
+    def test_detect_devices(self, mock_find):
+        mock_find.return_value = [
+            {'name': 'LCD1', 'path': '/dev/sg0', 'resolution': (320, 320),
+             'vendor': 'T', 'product': 'L', 'model': 'X', 'vid': 1, 'pid': 2, 'device_index': 0},
+        ]
+        model = DeviceModel()
+        devices = model.detect_devices()
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0].name, 'LCD1')
+        self.assertEqual(devices[0].path, '/dev/sg0')
+        # Should auto-select first
+        self.assertIsNotNone(model.selected_device)
+
+    @patch('trcc.scsi_device.find_lcd_devices', side_effect=ImportError)
+    def test_detect_import_error(self, _):
+        model = DeviceModel()
+        devices = model.detect_devices()
+        self.assertEqual(len(devices), 0)
+
+    @patch('trcc.scsi_device.find_lcd_devices')
+    def test_detect_fires_callback(self, mock_find):
+        mock_find.return_value = []
+        model = DeviceModel()
+        mock_cb = MagicMock()
+        model.on_devices_changed = mock_cb
+        model.detect_devices()
+        mock_cb.assert_called_once()
+
+
+class TestDeviceModelSend(unittest.TestCase):
+
+    @patch('trcc.scsi_device.send_image_to_device', return_value=True)
+    def test_send_success(self, mock_send):
+        model = DeviceModel()
+        model.selected_device = DeviceInfo(name='LCD', path='/dev/sg0')
+        result = model.send_image(b'\x00' * 100, 320, 320)
+        self.assertTrue(result)
+        mock_send.assert_called_once()
+
+    def test_send_no_device(self):
+        model = DeviceModel()
+        model.selected_device = None
+        self.assertFalse(model.send_image(b'\x00', 320, 320))
+
+    @patch('trcc.scsi_device.send_image_to_device', return_value=True)
+    def test_send_busy_returns_false(self, _):
+        model = DeviceModel()
+        model.selected_device = DeviceInfo(name='LCD', path='/dev/sg0')
+        model._send_busy = True
+        self.assertFalse(model.send_image(b'\x00', 320, 320))
+
+    @patch('trcc.scsi_device.send_image_to_device', side_effect=Exception('fail'))
+    def test_send_exception_returns_false(self, _):
+        model = DeviceModel()
+        model.selected_device = DeviceInfo(name='LCD', path='/dev/sg0')
+        result = model.send_image(b'\x00', 320, 320)
+        self.assertFalse(result)
+        self.assertFalse(model._send_busy)
+
+    @patch('trcc.scsi_device.send_image_to_device', return_value=True)
+    def test_send_fires_callback(self, _):
+        model = DeviceModel()
+        model.selected_device = DeviceInfo(name='LCD', path='/dev/sg0')
+        mock_cb = MagicMock()
+        model.on_send_complete = mock_cb
+        model.send_image(b'\x00', 320, 320)
+        mock_cb.assert_called_once_with(True)
+
+
+# =============================================================================
+# VideoModel
+# =============================================================================
+
+class TestVideoModel(unittest.TestCase):
+
+    def test_load_with_mock_player(self):
+        model = VideoModel()
+        mock_player = MagicMock()
+        mock_player.frame_count = 100
+        mock_player.fps = 16
+        mock_player.frames = []
+
+        with patch('trcc.gif_animator.VideoPlayer', return_value=mock_player):
+            result = model.load(Path('/tmp/test.mp4'))
+
+        self.assertTrue(result)
+        self.assertEqual(model.state.total_frames, 100)
+        self.assertEqual(model.state.fps, 16)
+
+    def test_load_zt_uses_theme_zt_player(self):
+        model = VideoModel()
+        mock_player = MagicMock()
+        mock_player.frame_count = 50
+        mock_player.fps = 0
+
+        with patch('trcc.gif_animator.ThemeZtPlayer', return_value=mock_player):
+            result = model.load(Path('/tmp/test.zt'))
+
+        self.assertTrue(result)
+        self.assertEqual(model.state.fps, 16)  # Zero fps → default 16
+
+    def test_load_failure(self):
+        model = VideoModel()
+        with patch('trcc.gif_animator.VideoPlayer', side_effect=Exception('bad')):
+            result = model.load(Path('/tmp/corrupt.mp4'))
+        self.assertFalse(result)
+
+    def test_play_pause_stop(self):
+        model = VideoModel()
+        model._player = MagicMock()
+
+        model.play()
+        self.assertEqual(model.state.state, PlaybackState.PLAYING)
+
+        model.pause()
+        self.assertEqual(model.state.state, PlaybackState.PAUSED)
+
+        model.stop()
+        self.assertEqual(model.state.state, PlaybackState.STOPPED)
+        self.assertEqual(model.state.current_frame, 0)
+
+    def test_seek(self):
+        model = VideoModel()
+        model.state.total_frames = 200
+        model.seek(50.0)
+        self.assertEqual(model.state.current_frame, 100)
+
+    def test_seek_clamps(self):
+        model = VideoModel()
+        model.state.total_frames = 100
+        model.seek(150.0)  # Over 100%
+        self.assertEqual(model.state.current_frame, 99)
+
+    def test_get_frame_preloaded(self):
+        model = VideoModel()
+        mock_frame = MagicMock()
+        model.frames = [mock_frame]
+        self.assertEqual(model.get_frame(0), mock_frame)
+
+    def test_get_frame_from_player(self):
+        model = VideoModel()
+        model.frames = []
+        mock_player = MagicMock()
+        mock_player.get_current_frame.return_value = 'frame_data'
+        model._player = mock_player
+        result = model.get_frame(5)
+        self.assertEqual(result, 'frame_data')
+
+    def test_get_frame_none(self):
+        model = VideoModel()
+        self.assertIsNone(model.get_frame())
+
+    def test_advance_frame(self):
+        model = VideoModel()
+        model.state.state = PlaybackState.PLAYING
+        model.state.total_frames = 10
+        model.frames = [MagicMock() for _ in range(10)]
+        frame = model.advance_frame()
+        self.assertIsNotNone(frame)
+        self.assertEqual(model.state.current_frame, 1)
+
+    def test_advance_frame_loops(self):
+        model = VideoModel()
+        model.state.state = PlaybackState.PLAYING
+        model.state.total_frames = 3
+        model.state.current_frame = 2
+        model.state.loop = True
+        model.frames = [MagicMock() for _ in range(3)]
+        model.advance_frame()
+        self.assertEqual(model.state.current_frame, 0)
+
+    def test_advance_frame_stops_at_end(self):
+        model = VideoModel()
+        model.state.state = PlaybackState.PLAYING
+        model.state.total_frames = 3
+        model.state.current_frame = 2
+        model.state.loop = False
+        model.frames = [MagicMock() for _ in range(3)]
+        model.advance_frame()
+        self.assertEqual(model.state.state, PlaybackState.STOPPED)
+
+    def test_advance_not_playing(self):
+        model = VideoModel()
+        model.state.state = PlaybackState.STOPPED
+        self.assertIsNone(model.advance_frame())
+
+    def test_is_playing(self):
+        model = VideoModel()
+        self.assertFalse(model.is_playing)
+        model.state.state = PlaybackState.PLAYING
+        self.assertTrue(model.is_playing)
+
+    def test_state_changed_callback(self):
+        model = VideoModel()
+        model._player = MagicMock()
+        cb = MagicMock()
+        model.on_state_changed = cb
+        model.play()
+        cb.assert_called_once()
+
+    def test_frame_ready_callback(self):
+        model = VideoModel()
+        model.state.state = PlaybackState.PLAYING
+        model.state.total_frames = 5
+        model.frames = [MagicMock() for _ in range(5)]
+        cb = MagicMock()
+        model.on_frame_ready = cb
+        model.advance_frame()
+        cb.assert_called_once()
+
+
+# =============================================================================
+# OverlayModel – renderer + load_from_dc
+# =============================================================================
+
+class TestOverlayModelRenderer(unittest.TestCase):
+
+    @patch('trcc.overlay_renderer.OverlayRenderer')
+    def test_render(self, mock_renderer_cls):
+        mock_renderer = MagicMock()
+        mock_renderer.render.return_value = 'rendered_image'
+        mock_renderer_cls.return_value = mock_renderer
+
+        model = OverlayModel()
+        model.enabled = True
+        elem = OverlayElement(element_type=OverlayElementType.HARDWARE, metric_key='cpu_temp')
+        model.add_element(elem)
+
+        result = model.render({'cpu_temp': 42})
+        self.assertEqual(result, 'rendered_image')
+
+    def test_render_disabled(self):
+        model = OverlayModel()
+        model.enabled = False
+        model.background = 'bg_image'
+        self.assertEqual(model.render(), 'bg_image')
+
+    def test_set_background(self):
+        model = OverlayModel()
+        model._renderer = MagicMock()
+        model.set_background('new_bg')
+        model._renderer.set_background.assert_called_once_with('new_bg')
+
+    @patch('trcc.overlay_renderer.OverlayRenderer')
+    def test_load_from_dc(self, mock_renderer_cls):
+        mock_renderer_cls.return_value = MagicMock()
+
+        # Create a minimal valid dc file
+        import struct
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.dc', delete=False) as f:
+            dc_path = f.name
+
+        model = OverlayModel()
+        with patch('trcc.dc_parser.parse_dc_file') as mock_parse, \
+             patch('trcc.dc_parser.dc_to_overlay_config') as mock_convert:
+            mock_convert.return_value = {
+                'hw_0': {'enabled': True, 'x': 10, 'y': 20, 'color': (255, 0, 0),
+                         'font_size': 16, 'metric': 'cpu_temp', 'format': '{value}°C'},
+            }
+            result = model.load_from_dc(Path(dc_path))
+
+        import os
+        os.unlink(dc_path)
+        self.assertTrue(result)
+        self.assertEqual(len(model.elements), 1)
+        self.assertEqual(model.elements[0].x, 10)
+
+    def test_load_from_dc_failure(self):
+        model = OverlayModel()
+        result = model.load_from_dc(Path('/nonexistent/config1.dc'))
+        self.assertFalse(result)
 
 
 if __name__ == '__main__':

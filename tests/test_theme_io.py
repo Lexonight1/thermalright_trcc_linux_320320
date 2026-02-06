@@ -217,5 +217,92 @@ class TestExportImportRoundtrip(unittest.TestCase):
             import_theme(bad_path, os.path.join(self.tmpdir, 'out'))
 
 
+class TestExportImportVideo(unittest.TestCase):
+    """Video/Theme.zt round-trip."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def _make_theme_zt(self) -> str:
+        """Create a minimal Theme.zt file with 2 frames."""
+        zt_path = os.path.join(self.tmpdir, 'Theme.zt')
+        with open(zt_path, 'wb') as f:
+            f.write(struct.pack('B', 0xDC))  # Header
+            f.write(struct.pack('<i', 2))     # 2 frames
+            # Timestamps
+            f.write(struct.pack('<i', 0))
+            f.write(struct.pack('<i', 62))
+            # Frame data
+            frame1 = b'\x00\x01\x02\x03'
+            frame2 = b'\x04\x05\x06\x07\x08'
+            f.write(struct.pack('<i', len(frame1)))
+            f.write(frame1)
+            f.write(struct.pack('<i', len(frame2)))
+            f.write(frame2)
+        return zt_path
+
+    def test_export_with_theme_zt(self):
+        """Export with Theme.zt embeds video frames in .tr."""
+        zt_path = self._make_theme_zt()
+        tr_path = os.path.join(self.tmpdir, 'video.tr')
+
+        export_theme(
+            output_path=tr_path,
+            overlay_elements=[], show_system_info=False,
+            show_background=True, show_screenshot=False,
+            direction=0, ui_mode=4, mode=0,
+            hide_screenshot_bg=True, screenshot_rect=(0, 0, 320, 320),
+            show_mask=False, mask_center=(160, 160),
+            mask_image=None, background_image=None,
+            theme_zt_path=zt_path,
+        )
+
+        self.assertTrue(os.path.exists(tr_path))
+        self.assertGreater(os.path.getsize(tr_path), 100)
+
+    def test_import_theme_zt_roundtrip(self):
+        """Export with Theme.zt, then import and verify video extraction."""
+        zt_path = self._make_theme_zt()
+        tr_path = os.path.join(self.tmpdir, 'video.tr')
+        out_dir = os.path.join(self.tmpdir, 'imported')
+
+        export_theme(
+            output_path=tr_path,
+            overlay_elements=[], show_system_info=False,
+            show_background=True, show_screenshot=False,
+            direction=0, ui_mode=4, mode=0,
+            hide_screenshot_bg=True, screenshot_rect=(0, 0, 320, 320),
+            show_mask=False, mask_center=(160, 160),
+            mask_image=None, background_image=None,
+            theme_zt_path=zt_path,
+        )
+
+        result = import_theme(tr_path, out_dir)
+        self.assertTrue(result['has_video'])
+        self.assertTrue(os.path.exists(os.path.join(out_dir, 'Theme.zt')))
+
+        # Verify extracted .zt file structure
+        with open(os.path.join(out_dir, 'Theme.zt'), 'rb') as f:
+            header = f.read(1)
+            self.assertEqual(header, b'\xDC')
+            frame_count = struct.unpack('<i', f.read(4))[0]
+            self.assertEqual(frame_count, 2)
+
+    def test_alternative_header_dc_dc(self):
+        """A .tr file starting with 0xDC 0xDC returns default config."""
+        alt_path = os.path.join(self.tmpdir, 'alt.tr')
+        with open(alt_path, 'wb') as f:
+            f.write(bytes([0xDC, 0xDC]) + b'\x00' * 200)
+
+        result = import_theme(alt_path, os.path.join(self.tmpdir, 'out'))
+        # Should return defaults without crashing
+        self.assertIn('show_system_info', result)
+        self.assertEqual(result['elements'], [])
+
+
 if __name__ == '__main__':
     unittest.main()

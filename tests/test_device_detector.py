@@ -32,6 +32,8 @@ from trcc.device_detector import (
     find_usb_devices,
     get_default_device,
     get_device_path,
+    main,
+    print_device_info,
     run_command,
     usb_reset_device,
 )
@@ -555,6 +557,191 @@ class TestDeviceModelMapping(unittest.TestCase):
         device_info = KNOWN_DEVICES[(0x0402, 0x3922)]
         self.assertEqual(device_info["button_image"], "A1FROZEN_WARFRAME")
         self.assertEqual(device_info["model"], "FROZEN_WARFRAME")
+
+
+# ── find_scsi_device_by_usb_path additional methods ─────────────────────────
+
+class TestScsiMethodFallbacks(unittest.TestCase):
+
+    @patch('trcc.device_detector.run_command', return_value=None)
+    @patch('os.path.exists')
+    @patch('builtins.open')
+    def test_sysfs_non_usblcd_skipped(self, mock_open_fn, mock_exists, _):
+        """sg0 exists but vendor is NOT USBLCD → continues to next."""
+        mock_exists.side_effect = lambda p: 'sg0' in p
+        mock_open_fn.return_value.__enter__.return_value.read.return_value = 'SomeOther\n'
+        result = find_scsi_device_by_usb_path('1-2')
+        self.assertIsNone(result)
+
+    @patch('trcc.device_detector.run_command', return_value=None)
+    @patch('os.path.exists', return_value=True)
+    @patch('builtins.open', side_effect=IOError("permission"))
+    def test_sysfs_ioerror(self, *_):
+        """IOError reading vendor file → continues."""
+        result = find_scsi_device_by_usb_path('1-2')
+        self.assertIsNone(result)
+
+    @patch('trcc.device_detector.run_command')
+    @patch('os.path.exists', return_value=False)
+    def test_method3_lsscsi_t(self, _, mock_run):
+        """Methods 1 & 2 fail, Method 3 (lsscsi -t) finds device."""
+        mock_run.side_effect = [
+            None,  # lsscsi -g
+            '[0:0:0:0]  usb:1-2           /dev/sg0\n',  # lsscsi -t
+        ]
+        result = find_scsi_device_by_usb_path('1-2')
+        self.assertEqual(result, '/dev/sg0')
+
+    @patch('trcc.device_detector.run_command')
+    @patch('os.path.exists', return_value=False)
+    def test_method4_plain_lsscsi(self, _, mock_run):
+        """Methods 1-3 fail, Method 4 (plain lsscsi) finds USBLCD."""
+        mock_run.side_effect = [
+            None,  # lsscsi -g
+            None,  # lsscsi -t
+            '[0:0:0:0]  disk    USBLCD   LCD-PANEL   /dev/sg1\n',  # lsscsi
+        ]
+        result = find_scsi_device_by_usb_path('1-2')
+        self.assertEqual(result, '/dev/sg1')
+
+
+# ── usb_reset_device additional branches ─────────────────────────────────────
+
+class TestUsbResetFallbacks(unittest.TestCase):
+
+    @patch('time.sleep')
+    @patch('builtins.open')
+    @patch('os.path.exists')
+    def test_authorized_permission_error(self, mock_exists, mock_open_fn, _):
+        """authorized file exists but write raises PermissionError."""
+        mock_exists.side_effect = lambda p: True
+        mock_open_fn.return_value.__enter__.return_value.read.return_value = '1\n'
+        mock_open_fn.return_value.__enter__.return_value.write.side_effect = PermissionError
+
+        result = usb_reset_device('1-2.3')
+        # Falls through to Method 2 → also fails → False
+        self.assertIsInstance(result, bool)
+
+    @patch('time.sleep')
+    @patch('os.readlink', return_value='/sys/bus/usb/drivers/usb')
+    @patch('builtins.open')
+    @patch('os.path.exists')
+    def test_unbind_bind_method(self, mock_exists, mock_open_fn, mock_readlink, _):
+        """Authorized does not exist, falls through to unbind/bind."""
+        def exists_side(p):
+            if 'busnum' in p or 'devnum' in p:
+                return True
+            if 'authorized' in p:
+                return False
+            if 'driver' in p:
+                return True
+            return True
+        mock_exists.side_effect = exists_side
+
+        mock_file = MagicMock()
+        mock_file.read.return_value = '1\n'
+        mock_open_fn.return_value.__enter__.return_value = mock_file
+
+        result = usb_reset_device('1-2.3')
+        self.assertIsInstance(result, bool)
+
+    def test_top_level_exception(self):
+        """Outer exception handler returns False."""
+        with patch('os.path.exists', side_effect=RuntimeError("boom")):
+            result = usb_reset_device('1-2.3')
+        self.assertFalse(result)
+
+
+# ── print_device_info ────────────────────────────────────────────────────────
+
+class TestPrintDeviceInfo(unittest.TestCase):
+
+    def test_prints_device_fields(self):
+        import io
+        from contextlib import redirect_stdout
+
+        device = DetectedDevice(
+            vid=0x87CD, pid=0x70DB,
+            vendor_name='Thermalright', product_name='LCD Panel',
+            usb_path='1-2', scsi_device='/dev/sg0',
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            print_device_info(device)
+        output = buf.getvalue()
+        self.assertIn('Thermalright', output)
+        self.assertIn('87CD', output)
+        self.assertIn('/dev/sg0', output)
+
+    def test_prints_none_scsi(self):
+        import io
+        from contextlib import redirect_stdout
+
+        device = DetectedDevice(
+            vid=0x87CD, pid=0x70DB,
+            vendor_name='Thermalright', product_name='LCD Panel',
+            usb_path='1-2',
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            print_device_info(device)
+        self.assertIn('Not found', buf.getvalue())
+
+
+# ── main() CLI ───────────────────────────────────────────────────────────────
+
+class TestMainCLI(unittest.TestCase):
+
+    @patch('trcc.device_detector.detect_devices')
+    def test_all_flag_no_devices(self, mock_detect):
+        mock_detect.return_value = []
+        with patch('sys.argv', ['prog', '--all']):
+            result = main()
+        self.assertEqual(result, 1)
+
+    @patch('trcc.device_detector.detect_devices')
+    def test_all_flag_with_devices(self, mock_detect):
+        mock_detect.return_value = [
+            DetectedDevice(vid=0x87CD, pid=0x70DB,
+                           vendor_name='Thermalright',
+                           product_name='LCD', usb_path='1-2',
+                           scsi_device='/dev/sg0'),
+        ]
+        with patch('sys.argv', ['prog', '--all']):
+            result = main()
+        self.assertEqual(result, 0)
+
+    @patch('trcc.device_detector.get_default_device')
+    def test_path_only_with_device(self, mock_get):
+        mock_get.return_value = DetectedDevice(
+            vid=0x87CD, pid=0x70DB,
+            vendor_name='Thermalright', product_name='LCD',
+            usb_path='1-2', scsi_device='/dev/sg0')
+        with patch('sys.argv', ['prog', '--path-only']):
+            result = main()
+        self.assertEqual(result, 0)
+
+    @patch('trcc.device_detector.get_default_device', return_value=None)
+    def test_path_only_no_device(self, _):
+        with patch('sys.argv', ['prog', '--path-only']):
+            result = main()
+        self.assertEqual(result, 1)
+
+    @patch('trcc.device_detector.get_default_device')
+    def test_default_prints_info(self, mock_get):
+        mock_get.return_value = DetectedDevice(
+            vid=0x87CD, pid=0x70DB,
+            vendor_name='Thermalright', product_name='LCD',
+            usb_path='1-2', scsi_device='/dev/sg0')
+        with patch('sys.argv', ['prog']):
+            result = main()
+        self.assertEqual(result, 0)
+
+    @patch('trcc.device_detector.get_default_device', return_value=None)
+    def test_default_no_device(self, _):
+        with patch('sys.argv', ['prog']):
+            result = main()
+        self.assertEqual(result, 1)
 
 
 if __name__ == '__main__':
