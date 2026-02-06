@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.1
+
+### Test Suite (298 tests)
+- Added test_dc_writer (18 tests): binary write, roundtrip, overlay_config_to_theme, carousel, .tr export/import
+- Added test_paths (25 tests): config persistence, per-device config, path helpers, resolution/temp unit
+- Added test_sysinfo_config (18 tests): config load/save, defaults, auto_map
+- Added test_device_implementations (25 tests): RGB565 conversion, resolution, commands, registry
+- Added test_scsi_device (18 tests): CRC32, header building, frame chunking
+- Added test_models (30 tests): ThemeInfo, ThemeModel, DeviceModel, VideoState, OverlayModel
+- Added test_theme_io (14 tests): C# string encoding, .tr export/import roundtrip
+- Removed 7 dead test files (1490 lines) importing non-existent modules
+- Fixed 3 RGBA→RGB assertion mismatches in overlay renderer tests
+- Existing tests: test_dc_parser (133), test_device_detector (17), test_overlay_renderer (25)
+
+### Bug Fixes
+- Fixed `dc_writer.py`: `overlay_config_to_theme()` and `import_theme()` called `DisplayElement()` without required positional args — runtime crash
+- Fixed `theme_io.py`: `export_theme()` missing `bg_len` write when no background image — caused import to read past EOF
+
 ## v1.1.0
 
 - Per-device configuration — each LCD remembers its theme, brightness, rotation, overlay, and carousel

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository:** https://github.com/Lexonight1/thermalright-trcc-linux
 
-**Current version: 1.1.0** (see `src/trcc/__version__.py`)
+**Current version: 1.1.1** (see `src/trcc/__version__.py`)
 
 **Status: Feature-complete** — 100% Windows feature parity achieved.
 
@@ -28,6 +28,25 @@ Semantic versioning: MAJOR.MINOR.PATCH
 - MAJOR: Breaking changes
 - MINOR: New features, backward compatible
 - PATCH: Bug fixes only
+
+## Test Suite
+
+298 tests across 10 test files — `pytest tests/`
+
+| Test file | Module covered | Tests |
+|-----------|---------------|-------|
+| test_dc_parser | dc_parser | 133 |
+| test_dc_writer | dc_writer | 18 |
+| test_device_detector | device_detector | 17 |
+| test_overlay_renderer | overlay_renderer | 25 |
+| test_paths | paths | 25 |
+| test_sysinfo_config | sysinfo_config | 18 |
+| test_device_implementations | device_implementations | 25 |
+| test_scsi_device | scsi_device | 18 |
+| test_models | core/models | 30 |
+| test_theme_io | theme_io | 14 |
+
+**Not tested** (GUI/heavy I/O): qt_components/*, gif_animator, lcd_driver, cli, cloud_downloader, theme_downloader, sensor_enumerator, system_info
 
 ## Commands
 
