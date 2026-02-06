@@ -31,33 +31,45 @@ Semantic versioning: MAJOR.MINOR.PATCH
 
 ## Test Suite
 
-623 tests across 21 test files — `QT_QPA_PLATFORM=offscreen pytest tests/`
+**880 tests** across 21 test files, **53% coverage** (10045 stmts, 4549 miss)
 
-| Test file | Module covered | Tests |
-|-----------|---------------|-------|
-| test_dc_parser | dc_parser | 133 |
-| test_dc_writer | dc_writer | 18 |
-| test_device_detector | device_detector | 17 |
-| test_overlay_renderer | overlay_renderer | 25 |
-| test_paths | paths | 25 |
-| test_sysinfo_config | sysinfo_config | 18 |
-| test_device_implementations | device_implementations | 25 |
-| test_scsi_device | scsi_device | 18 |
-| test_models | core/models | 30 |
-| test_theme_io | theme_io | 14 |
-| test_gif_animator | gif_animator | 28 |
-| test_system_info | system_info | 35 |
-| test_sensor_enumerator | sensor_enumerator | 20 |
-| test_lcd_driver | lcd_driver | 15 |
-| test_cloud_downloader | cloud_downloader | 27 |
-| test_theme_downloader | theme_downloader | 30 |
-| test_cli | cli | 26 |
-| test_controllers | core/controllers | 43 |
-| test_qt_constants | qt_components/constants | 24 |
-| test_qt_base | qt_components/base | 27 |
-| test_qt_widgets | qt_components widgets+assets | 45 |
+Run: `pytest tests/` or with coverage: `pytest tests/ --cov=src/trcc --cov-report=term-missing`
+
+| Test file | Module covered | Tests | Coverage |
+|-----------|---------------|-------|----------|
+| test_dc_parser | dc_parser | ~135 | 77% |
+| test_dc_writer | dc_writer | ~30 | 94% |
+| test_device_detector | device_detector | ~25 | 90% |
+| test_overlay_renderer | overlay_renderer | 25 | 71% |
+| test_paths | paths | 25 | 93% |
+| test_sysinfo_config | sysinfo_config | 18 | 100% |
+| test_device_implementations | device_implementations | ~29 | 92% |
+| test_scsi_device | scsi_device | ~35 | 97% |
+| test_models | core/models | ~67 | 96% |
+| test_theme_io | theme_io | ~17 | 95% |
+| test_gif_animator | gif_animator | 56 | 50% |
+| test_system_info | system_info | ~50 | 88% |
+| test_sensor_enumerator | sensor_enumerator | ~35 | 74% |
+| test_lcd_driver | lcd_driver | ~25 | 94% |
+| test_cloud_downloader | cloud_downloader | ~38 | 88% |
+| test_theme_downloader | theme_downloader | 41 | 90% |
+| test_cli | cli | 48 | 86% |
+| test_controllers | core/controllers | 43 | 46% |
+| test_qt_constants | qt_components/constants | 24 | 100% |
+| test_qt_base | qt_components/base | 27 | 83% |
+| test_qt_widgets | qt_components widgets+assets | 45 | varies |
 
 Qt tests require `QT_QPA_PLATFORM=offscreen` (headless, no display server).
+
+### Testing Patterns & Gotchas
+
+- **Patch at definition site**: Functions imported locally inside methods (e.g., `from ..scsi_device import func` inside a class method) must be patched at the definition module (`trcc.scsi_device.func`), NOT the importing module
+- **Local time import**: `system_info.py` imports `time` locally inside `get_disk_stats()`/`get_network_stats()` → patch `time.time` directly, not `trcc.system_info.time`
+- **sorted() on MagicMock**: `sorted(path.glob('*'))` fails because MagicMock lacks `__lt__` → use `PurePosixPath` objects for hwmon test fixtures
+- **GIFAnimator constructor**: `__init__(self, gif_path)` — only takes `gif_path`, no `size` parameter
+- **dc_writer overlay_config format**: `font` must be dict `{'name': 'Arial'}` not string; `color` must be hex `'#FFFFFF'` not RGB tuple
+- **smartctl output parsing**: Code splits lines and checks `part.isdigit()` → mock output needs digits as separate whitespace-delimited tokens
+- **cloud_downloader cancel**: `download_category` resets `_cancelled = False` → use `side_effect` to set flag after first download call
 
 ## Commands
 
@@ -293,35 +305,49 @@ Categories by filename prefix: a=Gallery, b=Tech, c=HUD, d=Light, e=Nature, y=Ae
 Prioritized list of remaining work:
 
 ### 1. ~~More Test Coverage~~ ✓ Done
-- ~~test_theme_downloader.py~~ — 30 tests (registry, download, checksum, extract, install, remove)
-- ~~test_cli.py~~ — 26 tests (arg parsing, dispatch, settings, color parsing, metrics)
-- ~~test_controllers.py~~ — 43 tests (Theme/Device/Video/Overlay/FormCZTV controllers)
+- ~~Baseline 705 tests / 45% → 880 tests / 53%~~ (5 coverage sprints, committed `1fe3ec7`)
+- 14 test files expanded across sprints 1-5
+- All non-Qt backend modules now 74-97% covered
 
-### 2. Coverage Reporting
-- Add `pytest-cov` to CI workflow (`.github/workflows/tests.yml`)
-- Target: measure actual line coverage, add badge to README
-- `pip install pytest-cov` → `pytest --cov=trcc --cov-report=term-missing`
+### 2. ~~CI/CD~~ ✓ Done
+- GitHub Actions workflow in `.github/workflows/tests.yml`
+- pytest + pyright checks
 
-### 3. Type Checking
-- Run `pyright` or `mypy --strict` across codebase
-- Add type hints to functions missing them (system_info, sensor_enumerator especially)
-- Consider adding to CI as a separate job
+### 3. ~~Type Checking~~ ✓ Done
+- pyright basic mode: 0 errors across full codebase
 
-### 4. Stable Branch Sync
-- stable is at `26e11a9`, main is at `78f2ddf` (3 commits ahead)
-- Fast-forward stable after next milestone
+### 4. Coverage Push to 60%+
+- Best remaining targets (testable without Qt display):
+  - `controllers.py` (46% → most impactful, 555 stmts)
+  - `gif_animator.py` (50% → video playback paths)
+  - `overlay_renderer.py` (71% → text rendering branches)
+  - `sensor_enumerator.py` (74% → discovery edge cases)
+  - `dc_parser.py` (77% → large uncovered parse_display_elements block L326-440)
+- Qt modules at 0-27% would need `QT_QPA_PLATFORM=offscreen` + heavy mocking
 
-### 5. Version Bump → 1.2.0
+### 5. Linting / Formatting
+- Add `ruff` for consistent style across codebase
+- Auto-fix and enforce in CI
+
+### 6. Type Annotation Hardening
+- Move pyright from basic → strict on key modules
+- Add missing type hints (system_info, sensor_enumerator especially)
+
+### 7. Integration Tests
+- End-to-end device detection → theme loading → LCD write pipeline (mocked hardware)
+
+### 8. Version Bump → 1.2.0
 - Current: 1.1.1
-- Bump when: coverage reporting + type checking are in place
+- Bump when: coverage 60%+ and linting in place
 - Update: `pyproject.toml`, `src/trcc/__version__.py`, `doc/CHANGELOG.md`
 
-### 6. Packaging & Release
+### 9. Packaging & Release
 - Build wheel: `python -m build`
+- Verify `pip install .` works cleanly, entry points
 - Create GitHub Release with .whl artifact
 - Consider PyPI publish
 
-### 7. README Polish
+### 10. README Polish
 - Add CI badge (tests passing)
 - Add coverage badge
 - Screenshot/demo GIF
