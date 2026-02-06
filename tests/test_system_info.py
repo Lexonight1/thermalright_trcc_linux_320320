@@ -44,6 +44,7 @@ class TestFindHwmon(unittest.TestCase):
         mock_read.side_effect = side_effect
 
         result = find_hwmon_by_name('coretemp')
+        assert result is not None
         self.assertIn('hwmon2', result)
 
     @patch('trcc.system_info.os.path.exists', return_value=False)
@@ -62,6 +63,7 @@ class TestGetCpuTemperature(unittest.TestCase):
         mock_read.return_value = '45000'
 
         temp = get_cpu_temperature()
+        assert temp is not None
         self.assertAlmostEqual(temp, 45.0)
 
     @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
@@ -71,6 +73,7 @@ class TestGetCpuTemperature(unittest.TestCase):
             'stdout': 'temp1_input: 52.0\n', 'returncode': 0
         })()
         temp = get_cpu_temperature()
+        assert temp is not None
         self.assertAlmostEqual(temp, 52.0)
 
 
@@ -83,7 +86,7 @@ class TestGetCpuUsage(unittest.TestCase):
         m = mock_open(read_data=stat_line)
         with patch('builtins.open', m):
             usage = get_cpu_usage()
-            self.assertIsNotNone(usage)
+            assert usage is not None
             self.assertGreater(usage, 0)
             self.assertLessEqual(usage, 100)
 
@@ -95,6 +98,7 @@ class TestGetCpuFrequency(unittest.TestCase):
     @patch('trcc.system_info.read_file', return_value='3500000')
     def test_reads_cpufreq(self, _):
         freq = get_cpu_frequency()
+        assert freq is not None
         self.assertAlmostEqual(freq, 3500.0)
 
     @patch('trcc.system_info.read_file', return_value=None)
@@ -103,6 +107,7 @@ class TestGetCpuFrequency(unittest.TestCase):
         m = mock_open(read_data=cpuinfo)
         with patch('builtins.open', m):
             freq = get_cpu_frequency()
+            assert freq is not None
             self.assertAlmostEqual(freq, 4200.123)
 
 
@@ -121,14 +126,14 @@ class TestMemoryMetrics(unittest.TestCase):
         m = mock_open(read_data=self._meminfo())
         with patch('builtins.open', m):
             usage = get_memory_usage()
-            self.assertIsNotNone(usage)
+            assert usage is not None
             self.assertAlmostEqual(usage, 50.0)
 
     def test_memory_available_mb(self):
         m = mock_open(read_data=self._meminfo())
         with patch('builtins.open', m):
             avail = get_memory_available()
-            self.assertIsNotNone(avail)
+            assert avail is not None
             self.assertAlmostEqual(avail, 8000000 / 1024.0)
 
 

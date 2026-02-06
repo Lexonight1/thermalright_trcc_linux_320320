@@ -190,6 +190,7 @@ class TestSensorEnumeratorReadOne(unittest.TestCase):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:k10temp:temp1': '/fake'}
         val = enum.read_one('hwmon:k10temp:temp1')
+        assert val is not None
         self.assertAlmostEqual(val, 72.5)
 
     @patch('trcc.sensor_enumerator._read_sysfs', return_value=None)

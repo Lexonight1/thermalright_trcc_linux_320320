@@ -172,7 +172,7 @@ class TestDownloaderDownload(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             dl = CloudThemeDownloader(cache_dir=tmp)
             result = dl.download_theme('a001')
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertTrue(Path(result).exists())
 
     @patch('trcc.cloud_downloader.urlopen')

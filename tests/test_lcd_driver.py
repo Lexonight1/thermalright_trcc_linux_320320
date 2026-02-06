@@ -3,6 +3,7 @@
 import binascii
 import struct
 import unittest
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from trcc.lcd_driver import LCDDriver
@@ -149,7 +150,9 @@ class TestLCDDriverFrameOps(unittest.TestCase):
 
     def test_create_solid_color(self):
         driver = self._make_driver()
-        driver.implementation.rgb_to_bytes.return_value = b'\xFF\x00'
+        assert driver.implementation is not None
+        impl = cast(MagicMock, driver.implementation)
+        impl.rgb_to_bytes.return_value = b'\xFF\x00'
         data = driver.create_solid_color(255, 0, 0)
         # 320*320 pixels * 2 bytes each
         self.assertEqual(len(data), 320 * 320 * 2)
@@ -164,7 +167,9 @@ class TestLCDDriverFrameOps(unittest.TestCase):
     @patch('trcc.lcd_driver.LCDDriver._scsi_write', return_value=True)
     def test_send_frame_pads_short_data(self, mock_write):
         driver = self._make_driver()
-        driver.implementation.get_frame_chunks.return_value = [(0x10, 100)]
+        assert driver.implementation is not None
+        impl = cast(MagicMock, driver.implementation)
+        impl.get_frame_chunks.return_value = [(0x10, 100)]
         driver.send_frame(b'\x00' * 50)
         # Should pad to 100 bytes
         args = mock_write.call_args
