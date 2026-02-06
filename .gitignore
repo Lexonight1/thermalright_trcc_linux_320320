@@ -69,14 +69,9 @@ src/data/Theme4621920/
 src/data/Theme4801280/
 src/data/Theme/
 
-# Cloud theme video cache
-src/data/videos/
-
-# Downloaded cloud themes (MP4s, full theme packs — too large for git)
-src/data/cloud_themes/
-
-# Downloaded cloud masks
-src/data/cloud_masks/
+# Cloud theme MP4s (downloaded on-demand, too large for git)
+# PNGs in Web/ are bundled previews and SHOULD be tracked
+src/data/Web/**/*.mp4
 
 # Dev tooling artifacts
 src/data/settings.json

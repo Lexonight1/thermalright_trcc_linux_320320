@@ -81,6 +81,23 @@ def get_theme_dir(width: int, height: int) -> str:
     return os.path.join(DATA_DIR, f'Theme{width}{height}')
 
 
+def get_web_dir(width: int, height: int) -> str:
+    """Get cloud theme Web directory for a resolution.
+
+    Matches Windows layout: Data/USBLCD/Web/{W}{H}/
+    Contains bundled preview PNGs + on-demand downloaded MP4s.
+    """
+    return os.path.join(DATA_DIR, 'Web', f'{width}{height}')
+
+
+def get_web_masks_dir(width: int, height: int) -> str:
+    """Get cloud masks directory for a resolution.
+
+    Matches Windows layout: Data/USBLCD/Web/zt{W}{H}/
+    """
+    return os.path.join(DATA_DIR, 'Web', f'zt{width}{height}')
+
+
 def find_resource(filename: str, search_paths: list = None) -> str | None:
     """Find a resource file in search paths.
 

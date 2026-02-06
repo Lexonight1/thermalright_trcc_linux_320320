@@ -48,6 +48,7 @@ from .uc_image_cut import UCImageCut
 from .uc_info_module import UCInfoModule
 from .uc_activity_sidebar import UCActivitySidebar
 from ..dc_writer import CarouselConfig, write_carousel_config, read_carousel_config
+from ..paths import get_web_dir, get_web_masks_dir
 
 # Language code mapping: system locale -> Windows asset suffix
 LOCALE_TO_LANG = {
@@ -439,13 +440,13 @@ class TRCCMainWindowMVC(QMainWindow):
             # Load carousel config for new resolution
             self._load_carousel_config(theme_dir)
 
-        # Cloud themes — per-resolution videos directory
-        videos_dir = self._get_videos_dir(width, height)
+        # Cloud themes — per-resolution Web directory (matches Windows Web/{W}{H}/)
+        web_dir = Path(get_web_dir(width, height))
 
-        self.uc_theme_web.set_videos_directory(videos_dir)
+        self.uc_theme_web.set_web_directory(web_dir)
         self.uc_theme_web.set_resolution(f'{width}x{height}')
 
-        masks_dir = self._data_dir / 'cloud_masks' / f'zt{width}{height}'
+        masks_dir = Path(get_web_masks_dir(width, height))
         self.uc_theme_mask.set_mask_directory(masks_dir)
         self.uc_theme_mask.set_resolution(f'{width}x{height}')
 
@@ -614,26 +615,6 @@ class TRCCMainWindowMVC(QMainWindow):
         # Sync about panel
         self.uc_about.set_language(lang)
 
-    def _get_videos_dir(self, w: int, h: int) -> Path:
-        """Get cloud theme videos directory for a resolution.
-
-        Checks per-resolution bundled dir first, then flat fallback (for
-        backwards compat with existing 320x320 installs), then user cache.
-        """
-        # Per-resolution bundled: src/data/videos/{W}{H}/
-        per_res = self._data_dir / 'videos' / f'{w}{h}'
-        if per_res.exists():
-            return per_res
-
-        # Flat bundled: src/data/videos/ (only valid for 320x320 legacy)
-        flat = self._data_dir / 'videos'
-        if (w, h) == (320, 320) and flat.exists():
-            return flat
-
-        # User-downloaded cloud cache: ~/.trcc/cloud_themes/{W}{H}/
-        cache = Path.home() / '.trcc' / 'cloud_themes' / f'{w}{h}'
-        return cache
-
     def _init_theme_directories(self):
         """Initialize theme browser directories."""
         w, h = self.controller.lcd_width, self.controller.lcd_height
@@ -644,12 +625,12 @@ class TRCCMainWindowMVC(QMainWindow):
             # Load carousel config (Theme.dc) after themes are loaded
             self._load_carousel_config(theme_dir)
 
-        videos_dir = self._get_videos_dir(w, h)
+        web_dir = Path(get_web_dir(w, h))
 
-        self.uc_theme_web.set_videos_directory(videos_dir)
+        self.uc_theme_web.set_web_directory(web_dir)
         self.uc_theme_web.set_resolution(f'{w}x{h}')
 
-        masks_dir = self._data_dir / 'cloud_masks' / f'zt{w}{h}'
+        masks_dir = Path(get_web_masks_dir(w, h))
         self.uc_theme_mask.set_mask_directory(masks_dir)
         self.uc_theme_mask.set_resolution(f'{w}x{h}')
 
@@ -970,9 +951,10 @@ class TRCCMainWindowMVC(QMainWindow):
 
     def _on_load_video_clicked(self):
         """Handle load video → open file dialog → show video cutter."""
-        videos_dir = self._data_dir / 'videos'
+        w, h = self.controller.lcd_width, self.controller.lcd_height
+        web_dir = get_web_dir(w, h)
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Video", str(videos_dir),
+            self, "Open Video", web_dir,
             "Video Files (*.mp4 *.avi *.mov *.gif);;All Files (*)"
         )
         if path:

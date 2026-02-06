@@ -20,7 +20,7 @@ from .models import (
     VideoState, VideoModel, PlaybackState,
     OverlayElement, OverlayModel,
 )
-from ..paths import get_saved_resolution, save_resolution
+from ..paths import get_saved_resolution, save_resolution, get_web_dir, get_web_masks_dir
 
 
 class ThemeController:
@@ -55,13 +55,13 @@ class ThemeController:
 
     def set_directories(self,
                         local_dir: Optional[Path] = None,
-                        videos_dir: Optional[Path] = None,
+                        web_dir: Optional[Path] = None,
                         masks_dir: Optional[Path] = None):
         """Set theme directories."""
         if local_dir:
             self.model.set_local_directory(local_dir)
-        if videos_dir or masks_dir:
-            self.model.set_cloud_directories(videos_dir, masks_dir)
+        if web_dir or masks_dir:
+            self.model.set_cloud_directories(web_dir, masks_dir)
 
     def load_local_themes(self, resolution: Tuple[int, int] = (320, 320)):
         """Load local themes from directory."""
@@ -510,12 +510,12 @@ class FormCZTVController:
 
         # Set theme directories
         theme_dir = data_dir / f'Theme{self.lcd_width}{self.lcd_height}'
-        videos_dir = data_dir / 'videos'
-        masks_dir = data_dir / 'cloud_masks' / f'zt{self.lcd_width}{self.lcd_height}'
+        web_dir = Path(get_web_dir(self.lcd_width, self.lcd_height))
+        masks_dir = Path(get_web_masks_dir(self.lcd_width, self.lcd_height))
 
         self.themes.set_directories(
             local_dir=theme_dir if theme_dir.exists() else None,
-            videos_dir=videos_dir if videos_dir.exists() else None,
+            web_dir=web_dir if web_dir.exists() else None,
             masks_dir=masks_dir,
         )
 
@@ -540,11 +540,11 @@ class FormCZTVController:
         # Reload theme directories for new resolution
         if hasattr(self, '_data_dir') and self._data_dir:
             theme_dir = self._data_dir / f'Theme{width}{height}'
-            masks_dir = self._data_dir / 'cloud_masks' / f'zt{width}{height}'
-            videos_dir = self._data_dir / 'videos'
+            web_dir = Path(get_web_dir(width, height))
+            masks_dir = Path(get_web_masks_dir(width, height))
             self.themes.set_directories(
                 local_dir=theme_dir if theme_dir.exists() else None,
-                videos_dir=videos_dir if videos_dir.exists() else None,
+                web_dir=web_dir if web_dir.exists() else None,
                 masks_dir=masks_dir,
             )
             self.themes.load_local_themes((width, height))

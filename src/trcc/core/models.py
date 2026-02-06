@@ -17,8 +17,8 @@ from enum import Enum, auto
 class ThemeType(Enum):
     """Type of theme."""
     LOCAL = auto()      # Local theme from Theme{resolution}/ directory
-    CLOUD = auto()      # Cloud theme (video) from videos/ directory
-    MASK = auto()       # Mask overlay from cloud_masks/ directory
+    CLOUD = auto()      # Cloud theme (video) from Web/{W}{H}/ directory
+    MASK = auto()       # Mask overlay from Web/zt{W}{H}/ directory
     USER = auto()       # User-created theme
 
 
@@ -110,7 +110,7 @@ class ThemeModel:
 
     # Directories
     local_theme_dir: Optional[Path] = None
-    cloud_videos_dir: Optional[Path] = None
+    cloud_web_dir: Optional[Path] = None
     cloud_masks_dir: Optional[Path] = None
 
     # Callbacks for view updates
@@ -121,9 +121,9 @@ class ThemeModel:
         """Set local themes directory."""
         self.local_theme_dir = path
 
-    def set_cloud_directories(self, videos_dir: Path, masks_dir: Path):
+    def set_cloud_directories(self, web_dir: Path, masks_dir: Path):
         """Set cloud theme directories."""
-        self.cloud_videos_dir = videos_dir
+        self.cloud_web_dir = web_dir
         self.cloud_masks_dir = masks_dir
 
     def load_local_themes(self, resolution: Tuple[int, int] = (320, 320)) -> List[ThemeInfo]:
@@ -156,11 +156,11 @@ class ThemeModel:
         """Load cloud video themes."""
         self.themes.clear()
 
-        if not self.cloud_videos_dir or not self.cloud_videos_dir.exists():
+        if not self.cloud_web_dir or not self.cloud_web_dir.exists():
             return self.themes
 
-        for video_file in sorted(self.cloud_videos_dir.glob('*.mp4')):
-            preview_path = self.cloud_videos_dir / f"{video_file.stem}.png"
+        for video_file in sorted(self.cloud_web_dir.glob('*.mp4')):
+            preview_path = self.cloud_web_dir / f"{video_file.stem}.png"
             theme = ThemeInfo.from_video(
                 video_file,
                 preview_path if preview_path.exists() else None

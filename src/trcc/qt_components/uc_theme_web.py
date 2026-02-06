@@ -5,7 +5,7 @@ Matches Windows TRCC.DCUserControl.UCThemeWeb (732x652)
 Shows cloud theme thumbnails with category filtering and on-demand download.
 
 Windows behavior:
-- Shows PNG thumbnails of all cached cloud themes
+- Preview PNGs are bundled in Web/{resolution}/ (shipped with installer)
 - Clicking a thumbnail downloads the .mp4 if not cached, then plays it
 - DownLoadFile() with status label "Downloading..."
 """
@@ -69,7 +69,7 @@ class UCThemeWeb(BaseThemeBrowser):
     Cloud themes browser panel.
 
     Windows size: 732x652
-    Shows all known cloud themes; downloads on-demand when clicked.
+    Preview PNGs are bundled; MP4s downloaded on-demand when clicked.
     """
 
     CMD_THEME_SELECTED = 16
@@ -80,11 +80,9 @@ class UCThemeWeb(BaseThemeBrowser):
 
     def __init__(self, parent=None):
         self.current_category = 'all'
-        self.videos_directory = None
+        self.web_directory = None
         self._resolution = "320x320"
         self._downloading = False  # Windows isDownLoad guard
-        self._cancel_previews = threading.Event()
-        self._preview_thread = None
         super().__init__(parent)
 
     def _create_filter_buttons(self):
@@ -106,9 +104,9 @@ class UCThemeWeb(BaseThemeBrowser):
     def _no_items_message(self) -> str:
         return "No cloud themes found\n\nDownload with: trcc download themes-320"
 
-    def set_videos_directory(self, path):
-        """Set the videos directory and load themes."""
-        self.videos_directory = Path(path) if path else None
+    def set_web_directory(self, path):
+        """Set the Web directory (bundled PNGs + downloaded MP4s) and load themes."""
+        self.web_directory = Path(path) if path else None
         self.load_themes()
 
     def set_resolution(self, resolution: str):
@@ -125,45 +123,49 @@ class UCThemeWeb(BaseThemeBrowser):
         self.invoke_delegate(self.CMD_CATEGORY_CHANGED, category)
 
     def load_themes(self):
-        """Load cloud themes: show cached + known non-cached."""
-        self._cancel_preview_downloads()
+        """Load cloud themes from bundled PNGs in Web directory.
+
+        Matches Windows CheakWebFile(): scan local directory for .png files,
+        show them as thumbnails. MP4s are downloaded on-demand when clicked.
+        """
         self._clear_grid()
 
-        if not self.videos_directory:
+        if not self.web_directory:
             self._show_empty_message()
             return
 
         # Ensure directory exists
-        self.videos_directory.mkdir(parents=True, exist_ok=True)
+        self.web_directory.mkdir(parents=True, exist_ok=True)
 
-        # Find cached themes (have .mp4 locally)
+        # Find cached MP4s (already downloaded)
         cached = set()
-        for mp4 in self.videos_directory.glob('*.mp4'):
+        for mp4 in self.web_directory.glob('*.mp4'):
             cached.add(mp4.stem)
 
-        # Get all known theme IDs from cloud_downloader
-        try:
-            from ..cloud_downloader import get_themes_by_category
-            known_ids = get_themes_by_category(self.current_category)
-        except ImportError:
-            # Fallback: only show cached themes
-            known_ids = sorted(cached)
+        # Scan for bundled preview PNGs (matches Windows CheakWebFile)
+        known_ids = []
+        for png in sorted(self.web_directory.glob('*.png')):
+            theme_id = png.stem
+            # Filter by category (matches Windows switch on mode)
+            if self.current_category != 'all':
+                if self.current_category not in theme_id:
+                    continue
+            known_ids.append(theme_id)
 
         themes = []
         for theme_id in known_ids:
             is_local = theme_id in cached
-            preview_path = self.videos_directory / f"{theme_id}.png"
+            preview_path = self.web_directory / f"{theme_id}.png"
 
             themes.append({
                 'id': theme_id,
                 'name': theme_id,
-                'video': str(self.videos_directory / f"{theme_id}.mp4") if is_local else None,
+                'video': str(self.web_directory / f"{theme_id}.mp4") if is_local else None,
                 'preview': str(preview_path) if preview_path.exists() else None,
                 'is_local': is_local,
             })
 
         self._populate_grid(themes)
-        self._start_preview_downloads()
 
     def _on_item_clicked(self, item_info: dict):
         """Handle click — play cached themes, download non-cached ones."""
@@ -182,8 +184,8 @@ class UCThemeWeb(BaseThemeBrowser):
             self._download_cloud_theme(item_info['id'])
 
     def _download_cloud_theme(self, theme_id: str):
-        """Download a cloud theme video (Windows DownLoadFile pattern)."""
-        if not self.videos_directory:
+        """Download a cloud theme MP4 (Windows DownLoadFile pattern)."""
+        if not self.web_directory:
             return
 
         self._downloading = True
@@ -195,12 +197,11 @@ class UCThemeWeb(BaseThemeBrowser):
 
                 downloader = CloudThemeDownloader(
                     resolution=self._resolution,
-                    cache_dir=str(self.videos_directory)
+                    cache_dir=str(self.web_directory)
                 )
                 result = downloader.download_theme(theme_id)
 
                 if result:
-                    self._extract_preview(theme_id)
                     QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, True))
                 else:
                     QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, False))
@@ -210,19 +211,6 @@ class UCThemeWeb(BaseThemeBrowser):
 
         thread = threading.Thread(target=download_task, daemon=True)
         thread.start()
-
-    def _extract_preview(self, theme_id: str):
-        """Try to extract a PNG preview from a downloaded MP4 via FFmpeg."""
-        try:
-            mp4_path = self.videos_directory / f"{theme_id}.mp4"
-            png_path = self.videos_directory / f"{theme_id}.png"
-            if mp4_path.exists() and not png_path.exists():
-                subprocess.run([
-                    'ffmpeg', '-i', str(mp4_path),
-                    '-vframes', '1', '-y', str(png_path)
-                ], capture_output=True, timeout=10)
-        except Exception:
-            pass
 
     def _on_download_complete(self, theme_id: str, success: bool):
         """Handle download completion — refresh and auto-select."""
@@ -235,53 +223,6 @@ class UCThemeWeb(BaseThemeBrowser):
                 if item.get('id') == theme_id:
                     self._on_item_clicked(item)
                     break
-
-    def _cancel_preview_downloads(self):
-        """Cancel any ongoing background preview downloads."""
-        self._cancel_previews.set()
-        self._preview_thread = None
-
-    def _start_preview_downloads(self):
-        """Download missing preview PNGs in the background."""
-        if not self.videos_directory or not self.items:
-            return
-
-        # Collect theme IDs that need previews
-        missing = [item['id'] for item in self.items if not item.get('preview')]
-        if not missing:
-            return
-
-        self._cancel_previews = threading.Event()
-        videos_dir = str(self.videos_directory)
-        resolution = self._resolution
-
-        def download_previews():
-            try:
-                from ..cloud_downloader import CloudThemeDownloader
-                downloader = CloudThemeDownloader(
-                    resolution=resolution,
-                    cache_dir=videos_dir
-                )
-                for theme_id in missing:
-                    if self._cancel_previews.is_set():
-                        return
-                    result = downloader.download_preview_png(theme_id)
-                    if result:
-                        QTimer.singleShot(0, lambda tid=theme_id, path=result:
-                                          self._on_preview_downloaded(tid, path))
-            except Exception as e:
-                print(f"[!] Preview download error: {e}")
-
-        self._preview_thread = threading.Thread(target=download_previews, daemon=True)
-        self._preview_thread.start()
-
-    def _on_preview_downloaded(self, theme_id: str, preview_path: str):
-        """Update the thumbnail widget after its preview PNG was downloaded."""
-        for widget in self.item_widgets:
-            if isinstance(widget, CloudThemeThumbnail) and widget.item_info.get('id') == theme_id:
-                widget.item_info['preview'] = preview_path
-                widget._load_thumbnail()
-                break
 
     def get_selected_theme(self):
         return self.selected_item
