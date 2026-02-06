@@ -20,14 +20,8 @@ from pathlib import Path
 from PyQt6.QtCore import QSize, pyqtSignal
 from PyQt6.QtGui import QMovie
 
-from .base import BaseThemeBrowser, BaseThumbnail, pil_to_pixmap
-from .constants import Colors, Layout, Sizes
-
-try:
-    from PIL import Image, ImageDraw
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+from .base import BaseThemeBrowser, BaseThumbnail
+from .constants import Layout, Sizes
 
 
 def _ensure_thumb_gif(mp4_path: str, size: int = Sizes.THUMB_IMAGE) -> str | None:
@@ -88,21 +82,6 @@ class CloudThemeThumbnail(BaseThumbnail):
         # Fall back to static PNG
         super()._load_thumbnail()
 
-    def _show_placeholder(self):
-        """Show download placeholder for non-cached themes."""
-        if not PIL_AVAILABLE:
-            return
-        try:
-            size = (Sizes.THUMB_IMAGE, Sizes.THUMB_IMAGE)
-            img = Image.new('RGB', size, color=Colors.PLACEHOLDER_BG)
-            draw = ImageDraw.Draw(img)
-            theme_id = self.item_info.get('id', self.item_info.get('name', '?'))
-            text = f"⬇\n{theme_id}" if not self.is_local else theme_id
-            draw.text((size[0] // 2, size[1] // 2),
-                     text, fill=(100, 100, 100), anchor='mm', align='center')
-            self.thumb_label.setPixmap(pil_to_pixmap(img))
-        except Exception:
-            pass
 
 
 class UCThemeWeb(BaseThemeBrowser):

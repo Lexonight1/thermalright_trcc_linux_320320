@@ -16,14 +16,12 @@ from PyQt6.QtGui import (
     QFont,
     QPainter,
     QPen,
-    QPixmap,
 )
-from PyQt6.QtWidgets import QApplication, QWidget
 
-from .screen_capture import grab_full_screen
+from .screen_capture import BaseScreenOverlay
 
 
-class EyedropperOverlay(QWidget):
+class EyedropperOverlay(BaseScreenOverlay):
     """Full-screen overlay for picking a pixel color.
 
     Shows a frozen screenshot with a magnified preview near the cursor.
@@ -51,31 +49,11 @@ class EyedropperOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.CrossCursor)
-
-        self._screenshot: QPixmap = QPixmap()
         self._current_color = QColor(0, 0, 0)
         self._cursor_pos = QPoint()
 
-    def show(self):
-        """Capture screen then show fullscreen overlay."""
-        self._screenshot = grab_full_screen()
-        if self._screenshot.isNull():
-            self.cancelled.emit()
-            return
-
-        screen = QApplication.primaryScreen()
-        if screen:
-            self.setGeometry(screen.geometry())
-
-        self.showFullScreen()
-        self.raise_()
-        self.activateWindow()
+    def _emit_cancel(self):
+        self.cancelled.emit()
 
     def paintEvent(self, event):
         if self._screenshot.isNull():
@@ -102,10 +80,6 @@ class EyedropperOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._accept()
         else:
-            self._cancel()
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
             self._cancel()
 
     def _update_color_at_cursor(self):
@@ -196,10 +170,4 @@ class EyedropperOverlay(QWidget):
             self._current_color.green(),
             self._current_color.blue(),
         )
-        self.deleteLater()
-
-    def _cancel(self):
-        """Cancel and close."""
-        self.hide()
-        self.cancelled.emit()
         self.deleteLater()

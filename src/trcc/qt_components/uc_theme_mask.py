@@ -12,11 +12,10 @@ from pathlib import Path
 
 from PyQt6.QtCore import QTimer, pyqtSignal
 
-from .base import BaseThemeBrowser, BaseThumbnail, pil_to_pixmap
-from .constants import Colors, Sizes
+from .base import BaseThemeBrowser, BaseThumbnail
 
 try:
-    from PIL import Image
+    import PIL  # noqa: F401 — PIL_AVAILABLE guard
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -30,22 +29,6 @@ class MaskThumbnail(BaseThumbnail):
 
     def _get_image_path(self, info: dict) -> str | None:
         return info.get('preview')
-
-    def _show_placeholder(self):
-        if not PIL_AVAILABLE:
-            return
-        try:
-            size = (Sizes.THUMB_IMAGE, Sizes.THUMB_IMAGE)
-            img = Image.new('RGB', size, color=Colors.PLACEHOLDER_BG)
-            from PIL import ImageDraw
-            draw = ImageDraw.Draw(img)
-            mask_name = self.item_info.get('name', '?')
-            text = f"⬇\n{mask_name}" if not self.is_local else mask_name
-            draw.text((size[0] // 2, size[1] // 2),
-                     text, fill=(100, 100, 100), anchor='mm', align='center')
-            self.thumb_label.setPixmap(pil_to_pixmap(img))
-        except Exception as e:
-            print(f"[!] Failed to create placeholder: {e}")
 
 
 class UCThemeMask(BaseThemeBrowser):

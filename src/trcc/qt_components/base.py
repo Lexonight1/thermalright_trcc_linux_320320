@@ -394,8 +394,21 @@ class BaseThumbnail(ClickableFrame):
             self._show_placeholder()
 
     def _show_placeholder(self):
-        """Override to show a custom placeholder when image is missing."""
-        pass
+        """Show a labeled placeholder when thumbnail image is missing."""
+        if not PIL_AVAILABLE:
+            return
+        try:
+            from PIL import ImageDraw
+            size = (Sizes.THUMB_IMAGE, Sizes.THUMB_IMAGE)
+            img = Image.new('RGB', size, color=Colors.PLACEHOLDER_BG)
+            draw = ImageDraw.Draw(img)
+            name = self._get_display_name(self.item_info)
+            text = f"\u2b07\n{name}" if not self.is_local else name
+            draw.text((size[0] // 2, size[1] // 2),
+                     text, fill=(100, 100, 100), anchor='mm', align='center')
+            self.thumb_label.setPixmap(pil_to_pixmap(img))
+        except Exception:
+            pass
 
     def _update_style(self):
         cls_name = type(self).__name__

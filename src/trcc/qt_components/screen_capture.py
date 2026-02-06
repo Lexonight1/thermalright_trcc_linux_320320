@@ -128,7 +128,55 @@ def grab_screen_region(x: int, y: int, w: int, h: int) -> QPixmap:
     return QPixmap()
 
 
-class ScreenCaptureOverlay(QWidget):
+class BaseScreenOverlay(QWidget):
+    """Fullscreen frozen-screenshot overlay base.
+
+    Captures the screen, goes fullscreen, handles ESC cancel.
+    Subclasses override ``_emit_cancel()`` and implement their own
+    ``paintEvent`` / mouse interaction.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self._screenshot: QPixmap = QPixmap()
+
+    def show(self):
+        """Capture screen then show fullscreen overlay."""
+        self._screenshot = grab_full_screen()
+        if self._screenshot.isNull():
+            self._emit_cancel()
+            return
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            self.setGeometry(screen.geometry())
+
+        self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel()
+
+    def _cancel(self):
+        """Close overlay and emit cancel signal."""
+        self.hide()
+        self._emit_cancel()
+        self.deleteLater()
+
+    def _emit_cancel(self):
+        """Emit the appropriate cancel signal. Override in subclasses."""
+        raise NotImplementedError
+
+
+class ScreenCaptureOverlay(BaseScreenOverlay):
     """Full-screen overlay for selecting a screen region.
 
     Shows a frozen screenshot. User draws a selection rectangle.
@@ -153,34 +201,12 @@ class ScreenCaptureOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.CrossCursor)
-
-        self._screenshot: QPixmap = QPixmap()
         self._selecting = False
         self._start = QPoint()
         self._end = QPoint()
 
-    def show(self):
-        """Capture screen then show fullscreen overlay."""
-        self._screenshot = grab_full_screen()
-        if self._screenshot.isNull():
-            self.captured.emit(None)
-            return
-
-        # Go fullscreen on the primary screen
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.geometry()
-            self.setGeometry(geo)
-
-        self.showFullScreen()
-        self.raise_()
-        self.activateWindow()
+    def _emit_cancel(self):
+        self.captured.emit(None)
 
     def paintEvent(self, event):
         if self._screenshot.isNull():
@@ -260,10 +286,6 @@ class ScreenCaptureOverlay(QWidget):
             else:
                 self.update()
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
-            self._cancel()
-
     def _selection_rect(self) -> QRect:
         """Normalized rectangle from start/end points."""
         return QRect(self._start, self._end).normalized()
@@ -279,10 +301,4 @@ class ScreenCaptureOverlay(QWidget):
             self.captured.emit(pil_img)
         except Exception:
             self.captured.emit(None)
-        self.deleteLater()
-
-    def _cancel(self):
-        """Close without capturing."""
-        self.hide()
-        self.captured.emit(None)
         self.deleteLater()
