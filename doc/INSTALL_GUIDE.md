@@ -302,6 +302,8 @@ The interface has several main areas:
 
 Shows your connected Thermalright cooler(s). Click a device to select it. The blue highlighted device is the one currently being controlled.
 
+Each device remembers its own settings (theme, brightness, rotation). Switching devices restores that device's configuration automatically.
+
 - **Sensor** button: Opens a live system info display
 - **About** button: Settings (LCD resolution, language, auto-start, temperature units)
 

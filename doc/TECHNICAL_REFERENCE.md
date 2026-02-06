@@ -202,6 +202,9 @@ src/trcc/
 2. lsscsi → map USB to /dev/sgX
 3. sysfs → verify USBLCD vendor
 4. FBL query → detect resolution (or use default 320x320)
+5. Sort by /dev/sgX path, assign 0-based device_index
+6. Build device key: "{index}:{vid:04x}_{pid:04x}"
+7. Restore per-device config (theme, brightness, rotation)
 ```
 
 ## Video Playback
@@ -231,12 +234,42 @@ The Linux port matches Windows behavior by using FFmpeg via subprocess for frame
 
 ## Configuration
 
-Settings stored in `~/.config/trcc/config.json`:
+Settings stored in `~/.config/trcc/config.json`.
+
+### Global settings
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `temp_unit` | int | 0=Celsius, 1=Fahrenheit |
+| `resolution` | [int,int] | LCD resolution |
+
+### Per-device settings
+
+Stored under `"devices"` keyed by `"{ordinal}:{vid:04x}_{pid:04x}"` (e.g. `"0:87cd_70db"`).
+Ordinal is 0-based index assigned by sorting detected devices by `/dev/sgX` path.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `theme_path` | string | Last selected theme directory or video file |
+| `brightness_level` | int | 1=25%, 2=50%, 3=100% |
+| `rotation` | int | 0, 90, 180, or 270 degrees |
 
 ```json
 {
-  "selected_device": "/dev/sg0",
-  "resolution": "320x320"
+  "temp_unit": 0,
+  "resolution": [320, 320],
+  "devices": {
+    "0:87cd_70db": {
+      "theme_path": "/home/user/.trcc/data/Theme320320/003a",
+      "brightness_level": 2,
+      "rotation": 0
+    },
+    "1:87cd_70db": {
+      "theme_path": "/home/user/.trcc/data/Theme320320/001b",
+      "brightness_level": 3,
+      "rotation": 90
+    }
+  }
 }
 ```
 

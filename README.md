@@ -34,6 +34,7 @@ Built with PyQt6, matching the original Windows UI pixel-for-pixel. **Feature-co
 - **System info dashboard** — 77+ hardware sensors (CPU, GPU, RAM, disk, network, fans)
 - **Sensor customization** — Reassign any sensor to any dashboard slot via picker dialog
 - **Multi-device support** — Detect and switch between multiple connected LCDs
+- **Per-device config** — Each LCD remembers its own theme, brightness, and rotation
 - **Multi-resolution** — 240x240, 320x320, 480x480, 640x480 (SCSI/RGB565 protocol)
 - **LCD rotation** — 0/90/180/270 degree display rotation
 
@@ -149,7 +150,7 @@ src/trcc/
 ├── cloud_downloader.py          # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
 ├── theme_io.py                  # Theme export/import (.tr format)
-├── paths.py                     # XDG data/config, .7z archive extraction
+├── paths.py                     # XDG data/config, per-device config, .7z extraction
 ├── __version__.py               # Version info
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement
@@ -184,6 +185,7 @@ src/trcc/
 ## Changelog
 
 ### v1.1.0
+- Per-device configuration — each LCD remembers its theme, brightness, and rotation
 - Carousel mode — auto-rotate through up to 6 themes on a timer
 - Theme export/import — save/load themes as `.tr` files
 - Video trimmer — trim videos and export as `Theme.zt` frame packages

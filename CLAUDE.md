@@ -72,7 +72,7 @@ src/trcc/
 ├── system_info.py          # CPU/GPU/RAM/disk sensor collection
 ├── cloud_downloader.py     # Cloud theme HTTP fetch
 ├── theme_downloader.py     # Theme pack download manager
-├── paths.py                # XDG data/config path resolution
+├── paths.py                # XDG data/config, per-device config, .7z extraction
 ├── core/
 │   ├── models.py           # ThemeInfo, DeviceInfo, VideoState, OverlayElement
 │   └── controllers.py      # FormCZTVController, ThemeController, DeviceController, etc.
@@ -195,6 +195,36 @@ FFmpeg is the default (matches Windows). Key settings:
 - Preload frames into memory (matches Windows Theme.zt pattern)
 - Threaded SCSI send with busy flag
 - Time-based frame selection with `time.perf_counter()`
+
+## Per-Device Configuration
+
+Devices keyed by ordinal + USB ID: `"{index}:{vid:04x}_{pid:04x}"` (e.g. `"0:87cd_70db"`).
+Ordinal assigned by sorting detected devices by `/dev/sgX` path.
+
+**Per-device settings** (persisted to `~/.config/trcc/config.json` under `"devices"` key):
+- `theme_path` — last selected theme directory or video path
+- `brightness_level` — 1/2/3 (maps to 25%/50%/100%)
+- `rotation` — 0/90/180/270
+
+**Global settings** (top-level keys): `temp_unit`, `resolution`
+
+Config structure:
+```json
+{
+  "temp_unit": 0,
+  "resolution": [320, 320],
+  "devices": {
+    "0:87cd_70db": {
+      "theme_path": "/path/to/Theme320320/003a",
+      "brightness_level": 2,
+      "rotation": 0
+    }
+  }
+}
+```
+
+Key functions in `paths.py`: `device_config_key()`, `get_device_config()`, `save_device_setting()`.
+DeviceInfo dataclass fields: `model`, `vid`, `pid`, `device_index`.
 
 ## DC File Formats
 
