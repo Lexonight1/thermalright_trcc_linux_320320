@@ -101,7 +101,8 @@ src/trcc/
 |------|------|
 | **Windows decompiled C#** | `/home/ignorant/Downloads/TRCCCAPEN/TRCC_decompiled/` |
 | **GUI assets** | `src/assets/gui/` (PNG button/background images) |
-| **Theme data** | `src/data/Theme320320/` (local themes, not tracked in git) |
+| **Theme data** | `src/data/Theme*.7z` (archives, tracked in git; extracted at runtime) |
+| **Mask data** | `src/data/Web/zt*.7z` (cloud mask archives, tracked in git) |
 
 ## Architecture
 
@@ -128,15 +129,23 @@ BottomBar:    y=680                  # Rotation/Brightness/Save/Export/Import
 
 **Background Images**: Use `QPalette` + `QBrush(pixmap)` + `setAutoFillBackground(True)`. Never use `setStyleSheet()` on containers — it blocks palette propagation to children.
 
-**Theme Directory Structure**:
+**Theme Data (7z Archives)**:
+
+Default themes and cloud masks ship as `.7z` archives in `src/data/`. On resolution detection, `ensure_themes_extracted()` and `ensure_web_masks_extracted()` in `paths.py` extract the matching archive in-place using `py7zr` (with CLI `7z` fallback). Archives are tracked in git; extracted dirs are gitignored.
+
 ```
-src/data/Theme320320/
-├── Theme1/
-│   ├── 00.png         # Background (sent to LCD)
-│   ├── 01.png         # Mask overlay
-│   ├── config1.dc     # Overlay configuration
-│   └── Theme.png      # Preview thumbnail only
+src/data/
+├── Theme320320.7z     # → extracts to Theme320320/Theme1..Theme5/
+├── Web/zt320320.7z    # → extracts to Web/zt320320/000a..023e/
+└── Theme320320/
+    └── Theme1/
+        ├── 00.png         # Background (sent to LCD)
+        ├── 01.png         # Mask overlay
+        ├── config1.dc     # Overlay configuration
+        └── Theme.png      # Preview thumbnail only
 ```
+
+To regenerate archives: `python tools/pack_theme_archives.py`
 
 **Tab Buttons**: Button order (0=Local, 1=Mask, 2=Cloud, 3=Settings) differs from panel order (0=Local, 1=Cloud, 2=Mask, 3=Settings). Mapping: `{0:0, 1:2, 2:1, 3:3}`.
 

@@ -38,7 +38,8 @@ Built with PyQt6, matching the original Windows UI pixel-for-pixel. **Feature-co
 - **LCD rotation** — 0/90/180/270 degree display rotation
 
 ### General
-- **5 starter themes** included per resolution
+- **5 starter themes** included per resolution (shipped as `.7z` archives, extracted on first use)
+- **120 cloud mask overlays** per resolution (bundled as `.7z` archives)
 - **Localization** — English, Chinese (Simplified/Traditional), German, Spanish, French, Portuguese, Russian, Japanese
 - **Auto-start** — Optional launch at login via XDG autostart
 - **System tray** — Minimize to tray (optional, requires `pystray`)
@@ -81,7 +82,7 @@ pip install -e .
 
 Or install dependencies manually:
 ```bash
-pip install Pillow psutil requests       # Core
+pip install Pillow psutil requests py7zr  # Core
 pip install PyQt6                        # GUI (required)
 pip install pystray                      # Optional: system tray
 pip install pynvml                       # Optional: NVIDIA GPU sensors
@@ -148,7 +149,7 @@ src/trcc/
 ├── cloud_downloader.py          # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
 ├── theme_io.py                  # Theme export/import (.tr format)
-├── paths.py                     # XDG data/config path resolution
+├── paths.py                     # XDG data/config, .7z archive extraction
 ├── __version__.py               # Version info
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement

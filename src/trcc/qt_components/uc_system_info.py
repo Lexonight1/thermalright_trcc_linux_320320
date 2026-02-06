@@ -37,14 +37,7 @@ COLUMNS = 4
 ROWS_PER_PAGE = 3
 PANELS_PER_PAGE = COLUMNS * ROWS_PER_PAGE  # 12
 
-# Row positions within each panel (label, value, selector button)
-LABEL_POSITIONS = [
-    (39, 55, 96, 19),
-    (39, 90, 96, 19),
-    (39, 125, 96, 19),
-    (39, 160, 96, 19),
-]
-
+# Row positions within each panel (value label x, selector button)
 VALUE_POSITIONS = [
     (240, 52),   # Row 0
     (240, 86),   # Row 1
@@ -85,7 +78,6 @@ class SystemInfoPanel(QWidget):
         self._selected = False
         self._color = CATEGORY_COLORS.get(config.category_id, '#888888')
         self._value_labels: list[QLabel] = []
-        self._row_labels: list[QLabel] = []
         self._selector_btns: list[QPushButton] = []
 
         # Load background image
@@ -100,23 +92,11 @@ class SystemInfoPanel(QWidget):
         # Load selector button image
         self._sel_pixmap = load_pixmap('A数据选择.png', 16, 30)
 
-        # Row labels and value labels
-        label_font = QFont('Arial', 9)
+        # Value labels and selector buttons (row labels are baked into the PNG)
         value_font = QFont('Arial', 10)
 
         for i in range(4):
-            # Row label
-            lx, ly, lw, lh = LABEL_POSITIONS[i]
-            lbl = QLabel(self)
-            lbl.setFont(label_font)
-            lbl.setStyleSheet("color: #C0C0C0; background: transparent;")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            lbl.setGeometry(lx, ly, lw, lh)
-            if i < len(config.sensors):
-                lbl.setText(config.sensors[i].label)
-            self._row_labels.append(lbl)
-
-            # Value label (right-aligned)
+            # Value label (right-aligned, shows live readings)
             vx, vy = VALUE_POSITIONS[i]
             vlbl = QLabel('--', self)
             vlbl.setFont(value_font)
@@ -189,8 +169,7 @@ class SystemInfoPanel(QWidget):
 
     def update_binding(self, row: int, binding: SensorBinding):
         """Update a row's sensor binding after picker selection."""
-        if row < len(self._row_labels):
-            self._row_labels[row].setText(binding.label)
+        pass  # Row labels are baked into the PNG backgrounds
 
     def set_selected(self, selected: bool):
         """Set selection state (white border when selected)."""

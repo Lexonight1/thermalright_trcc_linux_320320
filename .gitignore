@@ -56,23 +56,10 @@ src/data/Theme*/Theme[1-5]/
 !src/data/Theme*.7z
 
 # Non-SCSI resolution theme dirs (USBLCDNEW/HID only — not supported yet)
-src/data/Theme240320/
-src/data/Theme320240/
-src/data/Theme360360/
-src/data/Theme480480y/
-src/data/Theme480640/
-src/data/Theme480800/
-src/data/Theme480854/
-src/data/Theme540960/
-src/data/Theme7201600/
-src/data/Theme800480/
-src/data/Theme854480/
-src/data/Theme960540/
-src/data/Theme1280480/
-src/data/Theme1920462/
-src/data/Theme4621920/
-src/data/Theme4801280/
-src/data/Theme/
+src/data/Theme320320/
+src/data/Web/320320
+src/data/Web/zt320320
+
 
 # Cloud theme cache (PNGs extracted from .7z at runtime, MP4s downloaded on-demand)
 # .7z archives ARE tracked in git

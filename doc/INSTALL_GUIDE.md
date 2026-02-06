@@ -139,6 +139,7 @@ sudo zypper install grim python3-gobject python3-dbus-python python3-gstreamer
 | `sg3_utils` | Sends data to the LCD over USB (SCSI commands) |
 | `PyQt6` / `python3-pyqt6` | The graphical user interface (GUI) toolkit |
 | `ffmpeg` | Video and GIF playback on the LCD |
+| `p7zip` / `7zip` | Extracts bundled theme `.7z` archives (optional if `py7zr` is installed) |
 | `grim` | Screen capture on Wayland desktops (optional) |
 | `python3-gobject` / `python3-dbus` | PipeWire screen capture for GNOME/KDE Wayland (optional) |
 
@@ -176,7 +177,7 @@ From inside the `thermalright-trcc-linux` folder, install the Python packages:
 pip install -e .
 ```
 
-**What this does:** Installs TRCC and its Python dependencies (Pillow for image processing, psutil for system sensors, requests for cloud themes). The `-e` flag means "editable" - if you update the code later (with `git pull`), you don't need to reinstall.
+**What this does:** Installs TRCC and its Python dependencies (Pillow for image processing, psutil for system sensors, requests for cloud themes, py7zr for extracting bundled theme archives). The `-e` flag means "editable" - if you update the code later (with `git pull`), you don't need to reinstall.
 
 > **Note:** Some distributions require using a virtual environment. If the `pip install` command shows an "externally-managed-environment" error, use one of these approaches:
 >

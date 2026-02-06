@@ -32,19 +32,33 @@ The Windows app uses FBL values to identify display resolution. FBL mapping:
 | 192 | 1920x462 | Ultrawide |
 | 224 | 854x480/960x540/800x480 | Depends on pm |
 
-### Theme Directories
+### Theme Directories & Archives
 
-Pre-rendered themes organized by resolution in `data/`:
-- `Theme320320/` - 320x320 displays (5 themes)
-- `Theme480480/` - 480x480 displays
-- `Theme240240/` - 240x240 displays
-- etc.
+Themes are shipped as `.7z` archives and extracted on first use when the app detects the LCD resolution:
 
-Each theme contains:
-- `00.png` - Display state 0
-- `01.png` - Display state 1
+```
+src/data/
+├── Theme240240.7z          # Default themes (Theme1-5), extracted → Theme240240/
+├── Theme320320.7z
+├── Theme480480.7z
+├── Theme640480.7z
+└── Web/
+    ├── 240240.7z           # Cloud preview PNGs
+    ├── 320320.7z
+    ├── zt240240.7z         # Cloud mask themes (000a-023e), extracted → zt240240/
+    ├── zt320320.7z
+    └── ...
+```
+
+Extraction uses `py7zr` (Python) with a fallback to the system `7z` CLI command. Logic is in `paths.py:ensure_themes_extracted()` and `ensure_web_masks_extracted()`.
+
+Each theme subdirectory contains:
+- `00.png` - Background image (sent to LCD)
+- `01.png` - Mask overlay
 - `config1.dc` - Theme configuration
-- `Theme.png` - Preview image
+- `Theme.png` - Preview thumbnail
+
+Mask-only themes (in `zt*/` directories) omit `00.png`.
 
 ## Protocol
 
@@ -153,7 +167,7 @@ src/trcc/
 ├── cloud_downloader.py          # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
 ├── theme_io.py                  # Theme export/import (.tr format)
-├── paths.py                     # XDG data/config path resolution
+├── paths.py                     # XDG data/config, .7z archive extraction
 ├── __version__.py               # Version info
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement

@@ -8,6 +8,7 @@ Windows behavior:
 - Preview PNGs are bundled in Web/{resolution}/ (shipped with installer)
 - Clicking a thumbnail downloads the .mp4 if not cached, then plays it
 - DownLoadFile() with status label "Downloading..."
+- Downloaded themes show animated thumbnail previews from the MP4
 """
 
 import subprocess
@@ -15,8 +16,8 @@ import threading
 from pathlib import Path
 
 from PyQt6.QtWidgets import QPushButton
-from PyQt6.QtCore import pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import pyqtSignal, QSize
+from PyQt6.QtGui import QIcon, QMovie
 
 from .base import BaseThemeBrowser, BaseThumbnail, pil_to_pixmap
 from .assets import load_pixmap
@@ -29,18 +30,64 @@ except ImportError:
     PIL_AVAILABLE = False
 
 
+def _ensure_thumb_gif(mp4_path: str, size: int = Sizes.THUMB_IMAGE) -> str | None:
+    """Create a 120x120 animated GIF from an MP4 via ffmpeg (cached).
+
+    Returns path to the GIF, or None if ffmpeg fails.
+    """
+    gif_path = Path(mp4_path).with_suffix('.gif')
+    if gif_path.exists():
+        return str(gif_path)
+    try:
+        subprocess.run([
+            'ffmpeg', '-i', mp4_path,
+            '-vf', f'scale={size}:{size}:force_original_aspect_ratio=decrease,'
+                   f'pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:black,'
+                   'fps=8',
+            '-loop', '0', '-y', str(gif_path),
+        ], capture_output=True, timeout=30)
+        if gif_path.exists():
+            return str(gif_path)
+    except Exception:
+        pass
+    return None
+
+
 class CloudThemeThumbnail(BaseThumbnail):
-    """Cloud theme thumbnail. Shows download icon for non-cached themes."""
+    """Cloud theme thumbnail.
+
+    Downloaded themes play an animated GIF (generated from MP4 via ffmpeg).
+    Non-downloaded themes show static preview PNG with download indicator.
+    """
 
     def __init__(self, item_info: dict, parent=None):
         self.is_local = item_info.get('is_local', True)
+        self._movie = None  # QMovie for animated GIF playback
         super().__init__(item_info, parent)
 
     def _get_display_name(self, info: dict) -> str:
         return info.get('id', info.get('name', 'Unknown'))
 
     def _get_image_path(self, info: dict) -> str | None:
+        video = info.get('video')
+        if video and Path(video).exists():
+            return None  # handled by _load_thumbnail via QMovie
         return info.get('preview')
+
+    def _load_thumbnail(self):
+        """Load thumbnail — animated GIF from MP4 or static PNG."""
+        video = self.item_info.get('video')
+        if video and Path(video).exists():
+            gif_path = _ensure_thumb_gif(video)
+            if gif_path:
+                self._movie = QMovie(gif_path)
+                self._movie.setScaledSize(
+                    QSize(Sizes.THUMB_IMAGE, Sizes.THUMB_IMAGE))
+                self.thumb_label.setMovie(self._movie)
+                self._movie.start()
+                return
+        # Fall back to static PNG
+        super()._load_thumbnail()
 
     def _get_extra_style(self) -> str | None:
         if not self.is_local:
@@ -84,6 +131,7 @@ class UCThemeWeb(BaseThemeBrowser):
         self._resolution = "320x320"
         self._downloading = False  # Windows isDownLoad guard
         super().__init__(parent)
+        self.download_finished.connect(self._on_download_complete)
 
     def _create_filter_buttons(self):
         """Seven category buttons matching Windows positions."""
@@ -232,12 +280,12 @@ class UCThemeWeb(BaseThemeBrowser):
 
                 if result:
                     self._extract_preview(theme_id)
-                    QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, True))
+                    self.download_finished.emit(theme_id, True)
                 else:
-                    QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, False))
+                    self.download_finished.emit(theme_id, False)
             except Exception as e:
                 print(f"[!] Cloud theme download failed: {e}")
-                QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, False))
+                self.download_finished.emit(theme_id, False)
 
         thread = threading.Thread(target=download_task, daemon=True)
         thread.start()
@@ -258,7 +306,6 @@ class UCThemeWeb(BaseThemeBrowser):
     def _on_download_complete(self, theme_id: str, success: bool):
         """Handle download completion — refresh and auto-select."""
         self._downloading = False
-        self.download_finished.emit(theme_id, success)
         if success:
             self.load_themes()
             # Auto-select the newly downloaded theme

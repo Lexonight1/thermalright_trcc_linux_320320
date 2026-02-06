@@ -10,6 +10,18 @@ import sys
 import os
 
 
+def _ensure_extracted(driver):
+    """Extract theme/mask archives for the driver's detected resolution."""
+    try:
+        if driver.implementation:
+            w, h = driver.implementation.resolution
+            from trcc.paths import ensure_themes_extracted, ensure_web_masks_extracted
+            ensure_themes_extracted(w, h)
+            ensure_web_masks_extracted(w, h)
+    except Exception:
+        pass  # Non-fatal — themes are optional for CLI commands
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -253,6 +265,7 @@ def test_display(device=None, loop=False):
             device = _get_selected_device()
         
         driver = LCDDriver(device_path=device)
+        _ensure_extracted(driver)
         
         colors = [
             ((255, 0, 0), "Red"),
@@ -299,6 +312,7 @@ def send_image(image_path, device=None):
             device = _get_selected_device()
         
         driver = LCDDriver(device_path=device)
+        _ensure_extracted(driver)
         frame = driver.load_image(image_path)
         driver.send_frame(frame)
         print(f"Sent {image_path} to {driver.device_path}")
@@ -327,6 +341,7 @@ def send_color(hex_color, device=None):
             device = _get_selected_device()
         
         driver = LCDDriver(device_path=device)
+        _ensure_extracted(driver)
         frame = driver.create_solid_color(r, g, b)
         driver.send_frame(frame)
         print(f"Sent color #{hex_color} to {driver.device_path}")
@@ -346,6 +361,7 @@ def reset_device(device=None):
 
         print(f"Resetting LCD device...")
         driver = LCDDriver(device_path=device)
+        _ensure_extracted(driver)
         print(f"  Device: {driver.device_path}")
 
         # Send test frame (red) - this will auto-init if needed
