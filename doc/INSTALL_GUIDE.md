@@ -397,7 +397,7 @@ sudo swupd bundle-add devpkg-pipewire
 If you have `git` installed (most distros include it):
 
 ```bash
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 ```
 
@@ -585,7 +585,7 @@ which sg_raw
 #### Step 2 — Clone TRCC
 
 ```bash
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 ```
 
@@ -689,7 +689,7 @@ distrobox enter trcc
 
 # Inside the container — normal Fedora commands work
 sudo dnf install python3-pip sg3_utils python3-pyqt6 ffmpeg
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install -e .
 
@@ -749,7 +749,7 @@ passwd
 sudo pacman -S --needed sg3_utils python-pip python-pyqt6 ffmpeg
 
 # Clone and install
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install --break-system-packages -e .
 
@@ -775,7 +775,7 @@ distrobox enter trcc
 
 # Inside the container
 sudo pacman -S python-pip sg3_utils python-pyqt6 ffmpeg
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install -e .
 exit
@@ -806,7 +806,7 @@ apx subsystems create --name trcc-system --stack fedora
 apx trcc-system install python3-pip sg3_utils python3-pyqt6 ffmpeg
 
 # Clone and install
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 
 # Enter the subsystem and install
@@ -837,7 +837,7 @@ Covers: ChromeOS with Linux development environment enabled (Crostini / Debian c
 sudo apt update
 sudo apt install python3-pip python3-venv sg3-utils python3-pyqt6 ffmpeg
 
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install --break-system-packages -e .
 ```
@@ -863,7 +863,7 @@ Asahi Linux uses the Fedora Asahi Remix. Follow the standard [Fedora instruction
 
 ```bash
 sudo dnf install python3-pip sg3_utils python3-pyqt6 ffmpeg
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install -e .
 sudo trcc setup-udev
@@ -883,7 +883,7 @@ TRCC works on ARM64 (aarch64) systems. The SCSI protocol and LCD communication a
 # Raspberry Pi OS / Armbian (Debian-based)
 sudo apt install python3-pip python3-venv sg3-utils python3-pyqt6 ffmpeg
 
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 pip install -e .
 sudo trcc setup-udev

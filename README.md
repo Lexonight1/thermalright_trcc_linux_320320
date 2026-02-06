@@ -33,7 +33,7 @@ Built with PyQt6, matching the original Windows UI pixel-for-pixel. **Feature-co
 
 ```bash
 # 1. Clone the repo
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
 cd thermalright-trcc-linux
 
 # 2. Install system deps (Fedora example — see Install Guide for other distros)
