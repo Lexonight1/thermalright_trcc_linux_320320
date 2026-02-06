@@ -13,7 +13,7 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer, pyqtSignal
 
 from .base import BaseThemeBrowser, BaseThumbnail, pil_to_pixmap
-from .constants import Colors, Sizes, Styles
+from .constants import Colors, Sizes
 
 try:
     from PIL import Image
@@ -26,16 +26,10 @@ class MaskThumbnail(BaseThumbnail):
     """Cloud mask thumbnail with non-local (dashed border) state."""
 
     def __init__(self, mask_info, parent=None):
-        self.is_local = mask_info.get('is_local', True)
         super().__init__(mask_info, parent)
 
     def _get_image_path(self, info: dict) -> str | None:
         return info.get('preview')
-
-    def _get_extra_style(self) -> str | None:
-        if not self.is_local:
-            return Styles.thumb_non_local(type(self).__name__)
-        return None
 
     def _show_placeholder(self):
         if not PIL_AVAILABLE:

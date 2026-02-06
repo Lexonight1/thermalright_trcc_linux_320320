@@ -328,6 +328,7 @@ class BaseThumbnail(ClickableFrame):
     def __init__(self, item_info: dict, parent=None):
         super().__init__(parent)
         self.item_info = item_info
+        self.is_local: bool = item_info.get('is_local', True)
         self.selected = False
 
         self.setFixedSize(Sizes.THUMB_W, Sizes.THUMB_H)
@@ -366,7 +367,9 @@ class BaseThumbnail(ClickableFrame):
         return info.get('thumbnail')
 
     def _get_extra_style(self) -> str | None:
-        """Return additional stylesheet for non-standard states (e.g., non-local)."""
+        """Return dashed-border style for non-local (downloadable) items."""
+        if not self.is_local:
+            return Styles.thumb_non_local(type(self).__name__)
         return None
 
     def _load_thumbnail(self):

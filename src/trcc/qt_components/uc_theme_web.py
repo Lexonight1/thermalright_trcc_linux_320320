@@ -21,7 +21,7 @@ from PyQt6.QtCore import QSize, pyqtSignal
 from PyQt6.QtGui import QMovie
 
 from .base import BaseThemeBrowser, BaseThumbnail, pil_to_pixmap
-from .constants import Colors, Layout, Sizes, Styles
+from .constants import Colors, Layout, Sizes
 
 try:
     from PIL import Image, ImageDraw
@@ -61,7 +61,6 @@ class CloudThemeThumbnail(BaseThumbnail):
     """
 
     def __init__(self, item_info: dict, parent=None):
-        self.is_local = item_info.get('is_local', True)
         self._movie = None  # QMovie for animated GIF playback
         super().__init__(item_info, parent)
 
@@ -88,11 +87,6 @@ class CloudThemeThumbnail(BaseThumbnail):
                 return
         # Fall back to static PNG
         super()._load_thumbnail()
-
-    def _get_extra_style(self) -> str | None:
-        if not self.is_local:
-            return Styles.thumb_non_local(type(self).__name__)
-        return None
 
     def _show_placeholder(self):
         """Show download placeholder for non-cached themes."""
