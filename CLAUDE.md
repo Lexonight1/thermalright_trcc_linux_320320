@@ -31,7 +31,7 @@ Semantic versioning: MAJOR.MINOR.PATCH
 
 ## Test Suite
 
-298 tests across 10 test files — `pytest tests/`
+423 tests across 15 test files — `pytest tests/`
 
 | Test file | Module covered | Tests |
 |-----------|---------------|-------|
@@ -45,8 +45,13 @@ Semantic versioning: MAJOR.MINOR.PATCH
 | test_scsi_device | scsi_device | 18 |
 | test_models | core/models | 30 |
 | test_theme_io | theme_io | 14 |
+| test_gif_animator | gif_animator | 28 |
+| test_system_info | system_info | 35 |
+| test_sensor_enumerator | sensor_enumerator | 20 |
+| test_lcd_driver | lcd_driver | 15 |
+| test_cloud_downloader | cloud_downloader | 27 |
 
-**Not tested** (GUI/heavy I/O): qt_components/*, gif_animator, lcd_driver, cli, cloud_downloader, theme_downloader, sensor_enumerator, system_info
+**Not tested** (GUI/heavy I/O): qt_components/*, cli, theme_downloader, core/controllers
 
 ## Commands
 
@@ -276,6 +281,44 @@ DeviceInfo dataclass fields: `model`, `vid`, `pid`, `device_index`.
 - China: `http://www.czhorde.com/tr/bj{resolution}/`
 
 Categories by filename prefix: a=Gallery, b=Tech, c=HUD, d=Light, e=Nature, y=Aesthetic
+
+## Next Steps (Roadmap)
+
+Prioritized list of remaining work:
+
+### 1. More Test Coverage
+- **test_theme_downloader.py** — theme pack download manager (last untested non-GUI module)
+- **test_cli.py** — CLI arg parsing and subcommand dispatch (mock heavy I/O)
+- **test_controllers.py** — core/controllers.py MVC logic (GUI-independent, testable)
+
+### 2. Coverage Reporting
+- Add `pytest-cov` to CI workflow (`.github/workflows/tests.yml`)
+- Target: measure actual line coverage, add badge to README
+- `pip install pytest-cov` → `pytest --cov=trcc --cov-report=term-missing`
+
+### 3. Type Checking
+- Run `pyright` or `mypy --strict` across codebase
+- Add type hints to functions missing them (system_info, sensor_enumerator especially)
+- Consider adding to CI as a separate job
+
+### 4. Stable Branch Sync
+- stable is at `26e11a9`, main is at `78f2ddf` (3 commits ahead)
+- Fast-forward stable after next milestone
+
+### 5. Version Bump → 1.2.0
+- Current: 1.1.1
+- Bump when: coverage reporting + type checking are in place
+- Update: `pyproject.toml`, `src/trcc/__version__.py`, `doc/CHANGELOG.md`
+
+### 6. Packaging & Release
+- Build wheel: `python -m build`
+- Create GitHub Release with .whl artifact
+- Consider PyPI publish
+
+### 7. README Polish
+- Add CI badge (tests passing)
+- Add coverage badge
+- Screenshot/demo GIF
 
 ## See Also
 

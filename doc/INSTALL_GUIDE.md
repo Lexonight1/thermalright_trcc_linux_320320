@@ -15,11 +15,12 @@ A beginner-friendly guide to getting Thermalright LCD Control Center running on 
 7. [Step 4 - Set Up Device Permissions](#step-4---set-up-device-permissions)
 8. [Step 5 - Connect Your Cooler](#step-5---connect-your-cooler)
 9. [Step 6 - Run TRCC](#step-6---run-trcc)
-10. [Using the GUI](#using-the-gui)
-11. [Command Line Usage](#command-line-usage)
-12. [Troubleshooting](#troubleshooting)
-13. [Wayland-Specific Notes](#wayland-specific-notes)
-14. [Uninstalling](#uninstalling)
+10. [Bazzite / Fedora Atomic Install](#bazzite--fedora-atomic-install)
+11. [Using the GUI](#using-the-gui)
+12. [Command Line Usage](#command-line-usage)
+13. [Troubleshooting](#troubleshooting)
+14. [Wayland-Specific Notes](#wayland-specific-notes)
+15. [Uninstalling](#uninstalling)
 
 ---
 
@@ -129,6 +130,24 @@ sudo zypper install python3-pip sg3_utils python3-qt6 ffmpeg
 
 # Optional (screen capture on Wayland, system tray)
 sudo zypper install grim python3-gobject python3-dbus-python python3-gstreamer
+```
+
+### Bazzite / Fedora Atomic (Universal Blue)
+
+Bazzite is an immutable Fedora-based distro. You can't use `dnf` directly — system packages are layered with `rpm-ostree` and require a reboot. See the [dedicated Bazzite section](#bazzite--fedora-atomic-install) below for the full walkthrough.
+
+Quick version if you know what you're doing:
+
+```bash
+# Layer the one system package that MUST be on the host (SCSI device access)
+rpm-ostree install sg3_utils
+systemctl reboot
+
+# Everything else runs in a Python venv
+python3 -m venv ~/trcc-env
+source ~/trcc-env/bin/activate
+pip install PyQt6 ffmpeg-python pillow psutil py7zr
+pip install -e .
 ```
 
 ### What each package does
@@ -291,6 +310,185 @@ The application window will appear, showing the same interface as the Windows ve
 > ```bash
 > trcc gui --decorated
 > ```
+
+---
+
+## Bazzite / Fedora Atomic Install
+
+Bazzite, Aurora, Bluefin, and other Universal Blue / Fedora Atomic desktops use an **immutable root filesystem**. Standard `dnf install` doesn't work — you layer packages with `rpm-ostree` (requires reboot) or install userspace tools via `brew`, `pip`, or containers.
+
+This section walks through the full process.
+
+### Why it's different
+
+| Normal Fedora | Bazzite / Fedora Atomic |
+|---------------|-------------------------|
+| `sudo dnf install pkg` | `rpm-ostree install pkg` + reboot |
+| Packages available immediately | Layered packages available after reboot |
+| System Python is writable | System Python is read-only — use a venv |
+
+The goal is to layer as little as possible onto the base image and do everything else in a Python virtual environment.
+
+### Step 1 — Layer `sg3_utils`
+
+`sg3_utils` provides the `sg_raw` command that TRCC uses to send SCSI commands to the LCD over USB. This **must** be on the host system (not inside a container) because it needs direct access to `/dev/sg*` devices.
+
+```bash
+rpm-ostree install sg3_utils
+systemctl reboot
+```
+
+After rebooting, verify it's available:
+
+```bash
+which sg_raw
+```
+
+> **Note:** If you want to avoid layering and rebooting, you can also use `brew install sg3_utils` on Bazzite (Homebrew is pre-installed). However, the `rpm-ostree` approach is more reliable for system-level hardware tools.
+
+### Step 2 — Clone TRCC
+
+```bash
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
+cd thermalright-trcc-linux
+```
+
+### Step 3 — Create a Python virtual environment
+
+Bazzite's system Python is read-only, so a venv is **required** (not optional like on normal Fedora):
+
+```bash
+python3 -m venv ~/trcc-env
+source ~/trcc-env/bin/activate
+```
+
+Install TRCC and its dependencies inside the venv:
+
+```bash
+pip install -e .
+```
+
+This pulls in PyQt6, Pillow, psutil, py7zr, and everything else TRCC needs.
+
+> **Tip:** Add the activation to your shell profile so it's automatic:
+> ```bash
+> echo 'alias trcc-env="source ~/trcc-env/bin/activate"' >> ~/.bashrc
+> ```
+
+### Step 4 — Install FFmpeg (for video/GIF playback)
+
+Bazzite ships FFmpeg by default. Verify with:
+
+```bash
+ffmpeg -version
+```
+
+If for some reason it's missing:
+
+```bash
+brew install ffmpeg
+```
+
+### Step 5 — Set up device permissions
+
+Udev rules live on the host filesystem and work the same as on normal Fedora:
+
+```bash
+source ~/trcc-env/bin/activate
+sudo PYTHONPATH=src python3 -m trcc.cli setup-udev
+```
+
+Or if installed via pip:
+
+```bash
+sudo ~/trcc-env/bin/trcc setup-udev
+```
+
+Then **unplug and replug** your cooler's USB cable.
+
+### Step 6 — Run TRCC
+
+```bash
+source ~/trcc-env/bin/activate
+trcc gui
+```
+
+### Optional: Create a desktop shortcut
+
+So you don't need to activate the venv manually each time:
+
+```bash
+mkdir -p ~/.local/share/applications
+cat > ~/.local/share/applications/trcc.desktop << 'EOF'
+[Desktop Entry]
+Name=TRCC LCD Control
+Comment=Thermalright LCD Control Center
+Exec=bash -c 'source ~/trcc-env/bin/activate && trcc gui'
+Icon=preferences-desktop-display
+Terminal=false
+Type=Application
+Categories=Utility;System;
+EOF
+```
+
+### Optional: Wayland screen capture
+
+Bazzite uses Wayland (KDE or GNOME) by default. For screen cast / eyedropper features, install the PipeWire bindings inside your venv:
+
+```bash
+source ~/trcc-env/bin/activate
+pip install dbus-python PyGObject
+```
+
+> **Note:** `pipewire` and `pipewire-devel` are already included in Bazzite's base image.
+
+### Alternative: Distrobox approach
+
+If you prefer full isolation, you can run TRCC inside a Distrobox container. This avoids layering anything with `rpm-ostree`:
+
+```bash
+# Create a Fedora container
+distrobox create --name trcc --image fedora:latest
+distrobox enter trcc
+
+# Inside the container — normal Fedora commands work
+sudo dnf install python3-pip sg3_utils ffmpeg
+git clone https://github.com/Lexonight1/thermalright-trcc-linux.git
+cd thermalright-trcc-linux
+pip install -e .
+
+# Set up device permissions (must run on the host)
+exit
+sudo distrobox-host-exec trcc setup-udev
+# Unplug and replug USB cable
+
+# Run the GUI from the container
+distrobox enter trcc -- trcc gui
+```
+
+> **Caveat:** The udev rules and USB quirk still need to be set up on the **host** system. The Distrobox container can access `/dev/sg*` devices through the host, but permissions must be configured on the host side. You may need to run `setup-udev` directly on the host rather than through `distrobox-host-exec`.
+
+### Uninstalling on Bazzite
+
+```bash
+# Remove the venv
+rm -rf ~/trcc-env
+
+# Remove the cloned repo
+rm -rf ~/thermalright-trcc-linux
+
+# Remove desktop shortcut (if created)
+rm ~/.local/share/applications/trcc.desktop
+
+# Unlayer sg3_utils (optional)
+rpm-ostree uninstall sg3_utils
+systemctl reboot
+
+# Remove udev rules (optional)
+sudo rm /etc/udev/rules.d/99-trcc-lcd.rules
+sudo rm /etc/modprobe.d/trcc-lcd.conf
+sudo udevadm control --reload-rules
+```
 
 ---
 
