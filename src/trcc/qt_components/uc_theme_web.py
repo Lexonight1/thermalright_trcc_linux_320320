@@ -122,11 +122,38 @@ class UCThemeWeb(BaseThemeBrowser):
         self.load_themes()
         self.invoke_delegate(self.CMD_CATEGORY_CHANGED, category)
 
-    def load_themes(self):
-        """Load cloud themes from bundled PNGs in Web directory.
+    def _ensure_previews_extracted(self):
+        """Extract preview PNGs from .7z archive if not already extracted."""
+        if not self.web_directory:
+            return
+        # Check if PNGs already exist
+        if list(self.web_directory.glob('*.png')):
+            return
+        # Look for .7z archive next to the directory (Web/{resolution}.7z)
+        archive = self.web_directory.parent / f"{self.web_directory.name}.7z"
+        if not archive.exists():
+            return
+        try:
+            import py7zr
+            with py7zr.SevenZipFile(str(archive), 'r') as z:
+                z.extractall(str(self.web_directory))
+        except ImportError:
+            # Fallback to 7z command
+            try:
+                subprocess.run(
+                    ['7z', 'x', str(archive), f'-o{self.web_directory}', '-y'],
+                    capture_output=True, timeout=30
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
-        Matches Windows CheakWebFile(): scan local directory for .png files,
-        show them as thumbnails. MP4s are downloaded on-demand when clicked.
+    def load_themes(self):
+        """Load cloud themes from preview PNGs in Web directory.
+
+        PNGs are extracted from bundled .7z archives on first load.
+        MP4s are downloaded on-demand when user clicks a thumbnail.
         """
         self._clear_grid()
 
@@ -137,16 +164,18 @@ class UCThemeWeb(BaseThemeBrowser):
         # Ensure directory exists
         self.web_directory.mkdir(parents=True, exist_ok=True)
 
+        # Extract PNGs from .7z if needed
+        self._ensure_previews_extracted()
+
         # Find cached MP4s (already downloaded)
         cached = set()
         for mp4 in self.web_directory.glob('*.mp4'):
             cached.add(mp4.stem)
 
-        # Scan for bundled preview PNGs (matches Windows CheakWebFile)
+        # Scan for preview PNGs (matches Windows CheakWebFile)
         known_ids = []
         for png in sorted(self.web_directory.glob('*.png')):
             theme_id = png.stem
-            # Filter by category (matches Windows switch on mode)
             if self.current_category != 'all':
                 if self.current_category not in theme_id:
                     continue
@@ -202,6 +231,7 @@ class UCThemeWeb(BaseThemeBrowser):
                 result = downloader.download_theme(theme_id)
 
                 if result:
+                    self._extract_preview(theme_id)
                     QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, True))
                 else:
                     QTimer.singleShot(0, lambda: self._on_download_complete(theme_id, False))
@@ -211,6 +241,19 @@ class UCThemeWeb(BaseThemeBrowser):
 
         thread = threading.Thread(target=download_task, daemon=True)
         thread.start()
+
+    def _extract_preview(self, theme_id: str):
+        """Extract first frame from MP4 as PNG preview via FFmpeg."""
+        try:
+            mp4_path = self.web_directory / f"{theme_id}.mp4"
+            png_path = self.web_directory / f"{theme_id}.png"
+            if mp4_path.exists() and not png_path.exists():
+                subprocess.run([
+                    'ffmpeg', '-i', str(mp4_path),
+                    '-vframes', '1', '-y', str(png_path)
+                ], capture_output=True, timeout=10)
+        except Exception:
+            pass
 
     def _on_download_complete(self, theme_id: str, success: bool):
         """Handle download completion — refresh and auto-select."""
