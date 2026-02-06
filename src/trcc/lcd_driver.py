@@ -14,9 +14,11 @@ from typing import Optional
 try:
     from .device_detector import DetectedDevice, detect_devices, get_default_device
     from .device_implementations import LCDDeviceImplementation, get_implementation
+    from .paths import require_sg_raw
 except ImportError:
     from trcc.device_detector import DetectedDevice, detect_devices, get_default_device  # type: ignore[no-redef]
     from trcc.device_implementations import LCDDeviceImplementation, get_implementation  # type: ignore[no-redef]
+    from trcc.paths import require_sg_raw  # type: ignore[no-redef]
 
 
 class LCDDriver:
@@ -97,10 +99,16 @@ class LCDDriver:
         crc = self._crc32(header_16)
         return header_16 + struct.pack('<I', crc)
 
+    @staticmethod
+    def _check_sg_raw():
+        """Verify sg_raw is available, raise helpful error if not."""
+        require_sg_raw()
+
     def _scsi_read(self, cdb: bytes, length: int) -> bytes:
         """Execute SCSI READ command"""
         if not self.device_path:
             raise RuntimeError("No device path available")
+        self._check_sg_raw()
 
         cdb_hex = ' '.join(f'{b:02x}' for b in cdb)
         cmd = ['sg_raw', '-r', str(length), self.device_path] + cdb_hex.split()
@@ -112,6 +120,7 @@ class LCDDriver:
         """Execute SCSI WRITE command"""
         if not self.device_path:
             raise RuntimeError("No device path available")
+        self._check_sg_raw()
 
         cdb = list(header[:16])
         cdb_hex = ' '.join(f'{b:02x}' for b in cdb)

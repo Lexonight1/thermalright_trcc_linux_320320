@@ -726,28 +726,28 @@ class TestShowInfoMetrics(unittest.TestCase):
 
 class TestSetupUdevNonDry(unittest.TestCase):
 
-    @patch('os.system')
+    @patch('trcc.cli.subprocess.run')
     @patch('os.path.exists', return_value=True)
     @patch('os.geteuid', return_value=0)
     @patch('builtins.open', new_callable=unittest.mock.mock_open)
-    def test_root_writes_files(self, mock_open, mock_euid, mock_exists, mock_system):
+    def test_root_writes_files(self, mock_open, mock_euid, mock_exists, mock_subproc):
         result = setup_udev(dry_run=False)
         self.assertEqual(result, 0)
         # Should write udev rules and modprobe config
         self.assertGreaterEqual(mock_open.call_count, 2)
-        mock_system.assert_any_call("udevadm control --reload-rules")
-        mock_system.assert_any_call("udevadm trigger")
+        mock_subproc.assert_any_call(["udevadm", "control", "--reload-rules"], check=False)
+        mock_subproc.assert_any_call(["udevadm", "trigger"], check=False)
 
     @patch('os.geteuid', return_value=1000)
     def test_non_root_returns_1(self, _):
         result = setup_udev(dry_run=False)
         self.assertEqual(result, 1)
 
-    @patch('os.system')
+    @patch('trcc.cli.subprocess.run')
     @patch('os.path.exists', return_value=False)
     @patch('os.geteuid', return_value=0)
     @patch('builtins.open', new_callable=unittest.mock.mock_open)
-    def test_root_no_sysfs_quirks(self, mock_open, mock_euid, mock_exists, mock_system):
+    def test_root_no_sysfs_quirks(self, mock_open, mock_euid, mock_exists, mock_subproc):
         """No quirks_sysfs file → skip writing quirks."""
         result = setup_udev(dry_run=False)
         self.assertEqual(result, 0)

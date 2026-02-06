@@ -22,7 +22,7 @@ except ImportError:
         return str(value)
 
 # Use centralized path definitions
-from trcc.paths import ASSETS_DIR
+from trcc.paths import FONTS_DIR, FONT_SEARCH_DIRS
 
 
 class OverlayRenderer:
@@ -228,31 +228,25 @@ class OverlayRenderer:
                 self.font_cache[key] = ImageFont.truetype(path, size)
                 return self.font_cache[key]
 
-        home = os.path.expanduser("~")
-        fonts_dir = os.path.join(ASSETS_DIR, "fonts")
+        # Build font search list from centralized FONT_SEARCH_DIRS
+        # Priority: bundled MSYH → Noto CJK → Noto Sans → DejaVu
+        bold_suffix = '-Bold' if bold else ''
+        bold_style = 'Bold' if bold else 'Regular'
+        msyh_name = 'MSYHBD.TTC' if bold else 'MSYH.TTC'
+        msyh_lower = msyh_name.lower()
 
-        # Default fallback chain
-        paths = [
-            # Bundled fonts - Microsoft YaHei (matches Windows TRCC)
-            os.path.join(fonts_dir, "MSYHBD.TTC" if bold else "MSYH.TTC"),
-            os.path.join(fonts_dir, "msyhbd.ttc" if bold else "msyh.ttc"),
-            # User local fonts
-            f"{home}/.local/share/fonts/{'MSYHBD.TTC' if bold else 'MSYH.TTC'}",
-            f"{home}/.local/share/fonts/{'msyhbd.ttc' if bold else 'msyh.ttc'}",
-            f"{home}/.fonts/{'MSYHBD.TTC' if bold else 'MSYH.TTC'}",
-            f"{home}/.fonts/{'msyhbd.ttc' if bold else 'msyh.ttc'}",
-            # System fonts - Noto Sans CJK
-            "/usr/share/fonts/google-noto-sans-cjk-vf-fonts/NotoSansCJK-VF.ttc",
-            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            # System fonts - Noto Sans
-            "/usr/share/fonts/google-noto-vf/NotoSans[wght].ttf",
-            f"/usr/share/fonts/google-noto/NotoSans-{'Bold' if bold else 'Regular'}.ttf",
-            f"/usr/share/fonts/truetype/noto/NotoSans-{'Bold' if bold else 'Regular'}.ttf",
-            # Fallback - DejaVu
-            f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if bold else ''}.ttf",
-            f"/usr/share/fonts/dejavu-sans-fonts/DejaVuSans{'-Bold' if bold else ''}.ttf",
+        # Preferred font filenames in priority order
+        font_filenames = [
+            msyh_name, msyh_lower,                                    # Microsoft YaHei (bundled)
+            'NotoSansCJK-VF.ttc', 'NotoSansCJK-Regular.ttc',        # Noto CJK
+            f'NotoSans[wght].ttf', f'NotoSans-{bold_style}.ttf',    # Noto Sans
+            f'DejaVuSans{bold_suffix}.ttf',                          # DejaVu
         ]
+
+        paths = []
+        for font_dir in FONT_SEARCH_DIRS:
+            for fname in font_filenames:
+                paths.append(os.path.join(font_dir, fname))
 
         for path in paths:
             if os.path.exists(path):
@@ -277,16 +271,9 @@ class OverlayRenderer:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        # Manual scan: bundled assets, user local, /usr/local
-        home = os.path.expanduser("~")
-        scan_dirs = [
-            os.path.join(ASSETS_DIR, "fonts"),
-            os.path.join(home, '.local/share/fonts'),
-            os.path.join(home, '.fonts'),
-            '/usr/local/share/fonts',
-        ]
+        # Manual scan using centralized cross-distro font search dirs
         name_lower = font_name.lower().replace(' ', '')
-        for font_dir in scan_dirs:
+        for font_dir in FONT_SEARCH_DIRS:
             if not os.path.isdir(font_dir):
                 continue
             for fname in os.listdir(font_dir):

@@ -7,6 +7,7 @@ Entry points for the trcc-linux package.
 
 import argparse
 import os
+import subprocess
 import sys
 
 
@@ -494,8 +495,8 @@ def setup_udev(dry_run=False):
             print(f"Applied quirks: {quirks_param}")
 
         # Reload udev
-        os.system("udevadm control --reload-rules")
-        os.system("udevadm trigger")
+        subprocess.run(["udevadm", "control", "--reload-rules"], check=False)
+        subprocess.run(["udevadm", "trigger"], check=False)
         print("\nDone. Replug your LCD USB cable for changes to take effect.")
         return 0
 

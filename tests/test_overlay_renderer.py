@@ -667,11 +667,9 @@ class TestResolveFontPath(unittest.TestCase):
             # Create fake font file
             open(os.path.join(tmpdir, 'DejaVuSans.ttf'), 'w').close()
             with patch('subprocess.run', side_effect=FileNotFoundError), \
-                 patch('trcc.overlay_renderer.ASSETS_DIR', tmpdir), \
-                 patch('os.path.expanduser', return_value='/fake/home'):
-                # Patch scan_dirs to include our tmpdir
+                 patch('trcc.overlay_renderer.FONT_SEARCH_DIRS', [tmpdir]):
                 result = renderer._resolve_font_path('DejaVu Sans')
-            # Should find it in ASSETS_DIR/fonts or tmpdir itself
+            # Should find it in our patched search dir
             if result:
                 self.assertIn('DejaVu', result)
 

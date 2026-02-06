@@ -8,8 +8,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -323,3 +324,71 @@ def save_device_setting(key: str, setting: str, value):
     dev_cfg = devices.setdefault(key, {})
     dev_cfg[setting] = value
     save_config(config)
+
+
+# =========================================================================
+# Cross-distro compatibility helpers
+# =========================================================================
+
+_SG_RAW_INSTALL_HELP = (
+    "sg_raw not found. Install sg3_utils for your distro:\n"
+    "  Fedora/RHEL:    sudo dnf install sg3_utils\n"
+    "  Ubuntu/Debian:  sudo apt install sg3-utils\n"
+    "  Arch:           sudo pacman -S sg3_utils\n"
+    "  openSUSE:       sudo zypper install sg3_utils\n"
+    "  Void:           sudo xbps-install sg3_utils\n"
+    "  Alpine:         sudo apk add sg3_utils\n"
+    "  Gentoo:         sudo emerge sg3_utils\n"
+    "  NixOS:          add sg3_utils to environment.systemPackages"
+)
+
+
+def require_sg_raw():
+    """Verify sg_raw is available; raise FileNotFoundError with install help if not."""
+    if not shutil.which('sg_raw'):
+        raise FileNotFoundError(_SG_RAW_INSTALL_HELP)
+
+
+def find_scsi_devices() -> List[str]:
+    """List available /dev/sg* devices by scanning sysfs dynamically.
+
+    Unlike a hardcoded range(16), this reads the actual entries in
+    /sys/class/scsi_generic/ so it works on systems with any number of
+    SCSI devices.
+    """
+    sysfs = '/sys/class/scsi_generic'
+    if not os.path.isdir(sysfs):
+        return []
+    devices = []
+    for entry in sorted(os.listdir(sysfs)):
+        if entry.startswith('sg'):
+            devices.append(entry)
+    return devices
+
+
+# Font search directories across distros.
+# Order: bundled assets → user local → distro-specific system paths.
+_HOME = os.path.expanduser('~')
+FONTS_DIR = os.path.join(ASSETS_DIR, 'fonts')
+
+FONT_SEARCH_DIRS: List[str] = [
+    FONTS_DIR,                                          # bundled
+    os.path.join(_HOME, '.local/share/fonts'),          # XDG user fonts
+    os.path.join(_HOME, '.fonts'),                      # legacy user fonts
+    '/usr/local/share/fonts',                           # manually installed
+    '/usr/share/fonts/truetype',                        # Debian, Ubuntu, Mint
+    '/usr/share/fonts/truetype/dejavu',                 # Debian DejaVu
+    '/usr/share/fonts/truetype/noto',                   # Debian Noto
+    '/usr/share/fonts/opentype/noto',                   # Debian Noto OpenType
+    '/usr/share/fonts/google-noto-sans-cjk-vf-fonts',  # Fedora Noto CJK
+    '/usr/share/fonts/google-noto-vf',                  # Fedora Noto VF
+    '/usr/share/fonts/google-noto',                     # Fedora Noto
+    '/usr/share/fonts/dejavu-sans-fonts',               # Fedora DejaVu
+    '/usr/share/fonts/TTF',                             # Arch, Void, Garuda
+    '/usr/share/fonts/noto',                            # Alpine, Gentoo
+    '/usr/share/fonts/noto-cjk',                        # openSUSE
+    '/usr/share/fonts/dejavu',                          # Alpine, openSUSE
+    '/run/current-system/sw/share/fonts/truetype',      # NixOS
+    '/run/current-system/sw/share/fonts/opentype',      # NixOS
+    '/gnu/store/fonts',                                 # Guix (approx)
+]
