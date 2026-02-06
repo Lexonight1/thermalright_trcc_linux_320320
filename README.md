@@ -23,17 +23,89 @@ Resolutions: 240x240, 320x320, 480x480, 640x480
 
 ## Install
 
-See the **[Install Guide](doc/INSTALL_GUIDE.md)** for step-by-step instructions covering 25+ Linux distributions including Fedora, Ubuntu, Debian, Arch, openSUSE, NixOS, Void, Gentoo, SteamOS, Bazzite, and more.
+Find your distro, copy the block, paste in terminal. After it finishes: **unplug and replug the USB cable**, then run `trcc gui`.
 
-**Quick start (Fedora):**
+If your distro doesn't package PyQt6, just drop it from the system install line — `pip install -e .` will pull it from PyPI automatically.
+
+See the **[Install Guide](doc/INSTALL_GUIDE.md)** for troubleshooting, optional deps, immutable distros, and more.
+
+### Fedora / Nobara
 
 ```bash
-git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git
-cd thermalright-trcc-linux
-sudo dnf install sg3_utils python3-pyqt6 ffmpeg
-pip install -e .
-sudo trcc setup-udev    # then unplug & replug USB cable
-trcc gui
+sudo dnf install sg3_utils python3-pyqt6 ffmpeg && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Ubuntu / Debian / Mint / Pop!_OS
+
+```bash
+sudo apt install sg3-utils python3-pyqt6 ffmpeg python3-pip && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Arch / Manjaro / EndeavourOS / CachyOS / Garuda
+
+```bash
+sudo pacman -S sg3_utils python-pyqt6 ffmpeg python-pip && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### openSUSE
+
+```bash
+sudo zypper install sg3_utils python3-qt6 ffmpeg python3-pip && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Void Linux
+
+```bash
+sudo xbps-install sg3_utils python3-PyQt6 ffmpeg python3-pip && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Gentoo
+
+```bash
+sudo emerge --ask sg3_utils dev-python/PyQt6 media-video/ffmpeg dev-python/pip && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Alpine
+
+```bash
+sudo apk add sg3_utils py3-pyqt6 ffmpeg py3-pip python3 && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev
+```
+
+### Bazzite / Fedora Atomic / Aurora / Bluefin
+
+```bash
+rpm-ostree install sg3_utils && echo "Reboot now, then run the next block" && systemctl reboot
+```
+After reboot:
+```bash
+git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && python3 -m venv ~/trcc-env && source ~/trcc-env/bin/activate && pip install -e . && sudo ~/trcc-env/bin/trcc setup-udev
+```
+Launch: `source ~/trcc-env/bin/activate && trcc gui`
+
+### SteamOS (Steam Deck)
+
+Switch to Desktop Mode, open Konsole:
+```bash
+sudo steamos-readonly disable && sudo pacman -S --needed sg3_utils python-pip python-pyqt6 ffmpeg && git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e . && sudo trcc setup-udev && sudo steamos-readonly enable
+```
+
+### NixOS
+
+Add to `/etc/nixos/configuration.nix`, then `sudo nixos-rebuild switch`:
+```nix
+environment.systemPackages = with pkgs; [
+  python3 python3Packages.pip python3Packages.pyqt6 python3Packages.pillow
+  python3Packages.psutil sg3_utils ffmpeg p7zip
+];
+services.udev.extraRules = ''
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0666"
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0666"
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0666"
+'';
+```
+Then:
+```bash
+git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git && cd thermalright-trcc-linux && pip install --break-system-packages -e .
 ```
 
 ## Support
