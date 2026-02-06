@@ -17,16 +17,15 @@ from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
-    QIcon,
     QPainter,
     QPalette,
     QPen,
     QPixmap,
 )
-from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QWidget
+from PyQt6.QtWidgets import QLabel, QProgressBar, QWidget
 
 from .assets import load_pixmap
-from .constants import Styles
+from .base import make_icon_button
 
 # Try OpenCV for preview
 try:
@@ -305,38 +304,22 @@ class UCVideoCut(QWidget):
         self._progress.setVisible(False)
 
         # Fit mode buttons
-        self._btn_height_fit = self._make_btn(
-            BTN_HEIGHT_FIT, 'P高度适应.png', "H", self._on_height_fit)
-        self._btn_width_fit = self._make_btn(
-            BTN_WIDTH_FIT, 'P宽度适应.png', "W", self._on_width_fit)
-        self._btn_rotate = self._make_btn(
-            BTN_ROTATE, 'P旋转.png', "R", self._on_rotate)
-        self._btn_export = self._make_btn(
-            BTN_EXPORT, 'P裁减.png', "OK", self._on_export)
+        self._btn_height_fit = make_icon_button(
+            self, BTN_HEIGHT_FIT, 'P高度适应.png', "H", self._on_height_fit)
+        self._btn_width_fit = make_icon_button(
+            self, BTN_WIDTH_FIT, 'P宽度适应.png', "W", self._on_width_fit)
+        self._btn_rotate = make_icon_button(
+            self, BTN_ROTATE, 'P旋转.png', "R", self._on_rotate)
+        self._btn_export = make_icon_button(
+            self, BTN_EXPORT, 'P裁减.png', "OK", self._on_export)
 
         # Preview button
-        self._btn_preview = self._make_btn(
-            BTN_PREVIEW, 'P0预览.png', "\u25b6", self._on_preview_toggle)
+        self._btn_preview = make_icon_button(
+            self, BTN_PREVIEW, 'P0预览.png', "\u25b6", self._on_preview_toggle)
 
         # Close button
-        self._btn_close = self._make_btn(
-            BTN_CLOSE, 'P关闭按钮.png', "\u2715", self._on_close)
-
-    def _make_btn(self, rect, img_name, fallback, handler):
-        """Create an image button with text fallback."""
-        btn = QPushButton(self)
-        btn.setGeometry(*rect)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        pix = load_pixmap(img_name, rect[2], rect[3])
-        if not pix.isNull():
-            btn.setIcon(QIcon(pix))
-            btn.setIconSize(QSize(rect[2], rect[3]))
-            btn.setStyleSheet(Styles.FLAT_BUTTON_HOVER)
-        else:
-            btn.setText(fallback)
-            btn.setStyleSheet(Styles.TEXT_BUTTON)
-        btn.clicked.connect(handler)
-        return btn
+        self._btn_close = make_icon_button(
+            self, BTN_CLOSE, 'P关闭按钮.png', "\u2715", self._on_close)
 
     # =========================================================================
     # Painting

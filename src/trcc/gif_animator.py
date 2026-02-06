@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from PIL import Image
@@ -43,7 +44,71 @@ if not OPENCV_AVAILABLE and not FFMPEG_AVAILABLE:
     print("    Install OpenCV: pip3 install opencv-python")
     print("    Or install FFmpeg: sudo dnf install ffmpeg / sudo apt install ffmpeg")
 
-class GIFAnimator:
+
+class AbstractMediaPlayer(ABC):
+    """Base class for frame-based media players.
+
+    Provides common playback state and frame navigation logic
+    shared by GIF, video, and Theme.zt animation players.
+    """
+
+    def __init__(self):
+        self.frames: list = []
+        self.frame_count: int = 0
+        self.current_frame: int = 0
+        self.playing: bool = False
+        self.loop: bool = True
+
+    def play(self):
+        """Start playing."""
+        self.playing = True
+
+    def pause(self):
+        """Pause playback."""
+        self.playing = False
+
+    def stop(self):
+        """Stop and reset to beginning."""
+        self.playing = False
+        self.current_frame = 0
+
+    def reset(self):
+        """Reset to first frame."""
+        self.current_frame = 0
+
+    def is_playing(self):
+        """Check if currently playing."""
+        return self.playing
+
+    def get_current_frame(self):
+        """Get current frame."""
+        if 0 <= self.current_frame < len(self.frames):
+            return self.frames[self.current_frame]
+        return self.frames[0] if self.frames else None
+
+    def next_frame(self):
+        """Advance to next frame and return it."""
+        self.current_frame += 1
+        if self.current_frame >= self.frame_count:
+            if self.loop:
+                self.current_frame = 0
+            else:
+                self.current_frame = self.frame_count - 1
+                self.playing = False
+        return self.get_current_frame()
+
+    @abstractmethod
+    def get_delay(self) -> int:
+        """Get delay for current frame in milliseconds."""
+        ...
+
+    @abstractmethod
+    def close(self):
+        """Release resources."""
+        ...
+
+
+class GIFAnimator(AbstractMediaPlayer):
     """Handles GIF animation playback"""
 
     def __init__(self, gif_path):
@@ -53,11 +118,11 @@ class GIFAnimator:
         Args:
             gif_path: Path to GIF file
         """
+        super().__init__()
         self.gif_path = gif_path
         self.image = Image.open(gif_path)
 
         # Get frame count
-        self.frame_count = 0
         try:
             while True:
                 self.image.seek(self.frame_count)
@@ -65,9 +130,8 @@ class GIFAnimator:
         except EOFError:
             pass
 
-        self.current_frame = 0
-        self.frames = []
         self.delays = []  # ms per frame
+        self.speed_multiplier = 1.0  # Speed control (1.0 = normal)
 
         # Extract all frames and delays
         self._extract_frames()
@@ -76,10 +140,6 @@ class GIFAnimator:
         if self.image:
             self.image.close()
             self.image = None
-
-        self.playing = False
-        self.loop = True
-        self.speed_multiplier = 1.0  # Speed control (1.0 = normal)
 
     def _extract_frames(self):
         """Extract all frames and their delays"""
@@ -114,10 +174,6 @@ class GIFAnimator:
             return self.frames[frame_index]
         return self.frames[0]
 
-    def get_current_frame(self):
-        """Get current frame"""
-        return self.get_frame()
-
     def get_delay(self, frame_index=None):
         """
         Get delay for a frame (in ms)
@@ -135,31 +191,6 @@ class GIFAnimator:
             return int(self.delays[frame_index] / self.speed_multiplier)
         return 100
 
-    def next_frame(self):
-        """Advance to next frame"""
-        self.current_frame += 1
-
-        if self.current_frame >= self.frame_count:
-            if self.loop:
-                self.current_frame = 0
-            else:
-                self.current_frame = self.frame_count - 1
-                self.playing = False
-
-        return self.get_current_frame()
-
-    def reset(self):
-        """Reset to first frame"""
-        self.current_frame = 0
-
-    def play(self):
-        """Start playing"""
-        self.playing = True
-
-    def pause(self):
-        """Pause playback"""
-        self.playing = False
-
     def set_speed(self, multiplier):
         """
         Set playback speed
@@ -168,10 +199,6 @@ class GIFAnimator:
             multiplier: Speed multiplier (0.5 = half speed, 2.0 = double speed)
         """
         self.speed_multiplier = max(0.1, min(10.0, multiplier))
-
-    def is_playing(self):
-        """Check if animation is playing"""
-        return self.playing
 
     def is_last_frame(self):
         """Check if on last frame"""
@@ -249,7 +276,7 @@ class GIFThemeLoader:
         return animator.frame_count
 
 
-class VideoPlayer:
+class VideoPlayer(AbstractMediaPlayer):
     """
     Video player using OpenCV or FFmpeg for frame extraction.
     Supports MP4, AVI, MKV, MOV, and other common formats.
@@ -271,15 +298,11 @@ class VideoPlayer:
                              "  pip3 install opencv-python\n"
                              "  OR: sudo dnf install ffmpeg")
 
+        super().__init__()
         self.video_path = video_path
         self.target_size = target_size
         self.cap = None
-        self.frames = []
-        self.frame_count = 0
-        self.current_frame = 0
         self.fps = 30
-        self.playing = False
-        self.loop = True
         self.speed_multiplier = 1.0
         self.preload = True  # Preload frames for smooth playback (matches Windows Theme.zt pattern)
         # Prefer FFmpeg (matches Windows TRCC which uses ffmpeg to extract frames)
@@ -498,43 +521,9 @@ class VideoPlayer:
         """Get delay between frames in milliseconds"""
         return int((1000 / self.fps) / self.speed_multiplier)
 
-    def next_frame(self):
-        """Advance to next frame"""
-        self.current_frame += 1
-
-        if self.current_frame >= self.frame_count:
-            if self.loop:
-                self.current_frame = 0
-            else:
-                self.current_frame = self.frame_count - 1
-                self.playing = False
-
-        return self.get_current_frame()
-
-    def reset(self):
-        """Reset to first frame"""
-        self.current_frame = 0
-
-    def play(self):
-        """Start playing"""
-        self.playing = True
-
-    def pause(self):
-        """Pause playback"""
-        self.playing = False
-
-    def stop(self):
-        """Stop and reset"""
-        self.playing = False
-        self.current_frame = 0
-
     def set_speed(self, multiplier):
         """Set playback speed (0.5 = half, 2.0 = double)"""
         self.speed_multiplier = max(0.1, min(10.0, multiplier))
-
-    def is_playing(self):
-        """Check if video is playing"""
-        return self.playing
 
     def seek(self, frame_index):
         """Seek to specific frame"""
@@ -693,7 +682,7 @@ class VideoPlayer:
         return extracted
 
 
-class ThemeZtPlayer:
+class ThemeZtPlayer(AbstractMediaPlayer):
     """
     Plays Theme.zt animation files.
 
@@ -717,13 +706,10 @@ class ThemeZtPlayer:
         import io
         import struct
 
+        super().__init__()
         self.zt_path = zt_path
         self.target_size = target_size
-        self.frames = []
         self.timestamps = []
-        self.current_frame = 0
-        self.playing = False
-        self.loop = True
 
         # Parse Theme.zt file
         with open(zt_path, 'rb') as f:
@@ -770,44 +756,17 @@ class ThemeZtPlayer:
                 delay = self.delays[-1] if self.delays else 42  # ~24fps default
             self.delays.append(max(1, delay))
 
-    def play(self):
-        """Start playback."""
-        self.playing = True
-
-    def pause(self):
-        """Pause playback."""
-        self.playing = False
-
-    def stop(self):
-        """Stop and reset to beginning."""
-        self.playing = False
-        self.current_frame = 0
-
-    def is_playing(self):
-        """Check if playing."""
-        return self.playing
+    def get_current_frame(self):
+        """Get current frame as PIL Image (copy to prevent mutation)."""
+        if 0 <= self.current_frame < len(self.frames):
+            return self.frames[self.current_frame].copy()
+        return None
 
     def get_delay(self):
         """Get delay for current frame in ms."""
         if self.current_frame < len(self.delays):
             return self.delays[self.current_frame]
         return 42  # ~24fps default
-
-    def get_current_frame(self):
-        """Get current frame as PIL Image."""
-        if 0 <= self.current_frame < len(self.frames):
-            return self.frames[self.current_frame].copy()
-        return None
-
-    def next_frame(self):
-        """Advance to next frame."""
-        self.current_frame += 1
-        if self.current_frame >= len(self.frames):
-            if self.loop:
-                self.current_frame = 0
-            else:
-                self.current_frame = len(self.frames) - 1
-                self.playing = False
 
     def seek(self, position):
         """Seek to position (0.0-1.0)."""

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QIcon, QImage, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
@@ -273,6 +273,38 @@ def create_image_button(parent, x, y, w, h, normal_img, active_img,
             QPushButton:hover {{ background: {Colors.DEVICE_NORMAL_TOP}; color: white; }}
         """)
 
+    return btn
+
+
+def make_icon_button(parent, rect, img_name, fallback, handler):
+    """Create an icon button with text fallback.
+
+    Used by cut panels (UCImageCut, UCVideoCut) for toolbar buttons.
+
+    Args:
+        parent: Parent widget
+        rect: (x, y, w, h) geometry tuple
+        img_name: Image filename for icon
+        fallback: Text to show if image not found
+        handler: Click handler to connect
+
+    Returns:
+        QPushButton
+    """
+    from .assets import load_pixmap
+
+    btn = QPushButton(parent)
+    btn.setGeometry(*rect)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    pix = load_pixmap(img_name, rect[2], rect[3])
+    if not pix.isNull():
+        btn.setIcon(QIcon(pix))
+        btn.setIconSize(QSize(rect[2], rect[3]))
+        btn.setStyleSheet(Styles.FLAT_BUTTON_HOVER)
+    else:
+        btn.setText(fallback)
+        btn.setStyleSheet(Styles.TEXT_BUTTON)
+    btn.clicked.connect(handler)
     return btn
 
 

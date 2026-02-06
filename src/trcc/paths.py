@@ -140,62 +140,42 @@ def _extract_7z(archive: str, target_dir: str) -> bool:
     return False
 
 
-def ensure_themes_extracted(width: int, height: int) -> bool:
-    """Extract default themes from .7z archive if not already present.
+def _ensure_extracted(target_dir: str, archive: str, check_fn) -> bool:
+    """Check if content exists via check_fn; if not, extract archive.
 
-    Looks for src/data/Theme{W}{H}.7z beside the theme directory and extracts
-    it in-place when the directory is missing or empty. Uses py7zr if available,
-    falling back to the system 7z command.
+    Args:
+        target_dir: Directory to extract into
+        archive: Path to .7z archive
+        check_fn: Callable(str) -> bool to test if extraction is needed
 
-    Returns True if themes are available (already existed or freshly extracted).
+    Returns True if content is available (already existed or freshly extracted).
     """
-    theme_dir = get_theme_dir(width, height)
-    archive = theme_dir + '.7z'
-
-    if _has_actual_themes(theme_dir):
+    if check_fn(target_dir):
         return True
     if not os.path.isfile(archive):
         return False
+    return _extract_7z(archive, target_dir)
 
-    return _extract_7z(archive, theme_dir)
+
+def ensure_themes_extracted(width: int, height: int) -> bool:
+    """Extract default themes from .7z archive if not already present."""
+    theme_dir = get_theme_dir(width, height)
+    return _ensure_extracted(theme_dir, theme_dir + '.7z', _has_actual_themes)
 
 
 def ensure_web_extracted(width: int, height: int) -> bool:
-    """Extract cloud theme previews from .7z archive if not already present.
-
-    Looks for src/data/Web/{W}{H}.7z beside the web directory and extracts
-    it in-place when the directory is missing or empty.
-
-    Returns True if previews are available (already existed or freshly extracted).
-    """
+    """Extract cloud theme previews from .7z archive if not already present."""
     web_dir = get_web_dir(width, height)
-    archive = web_dir + '.7z'
-
-    if os.path.isdir(web_dir) and os.listdir(web_dir):
-        return True
-    if not os.path.isfile(archive):
-        return False
-
-    return _extract_7z(archive, web_dir)
+    return _ensure_extracted(
+        web_dir, web_dir + '.7z',
+        lambda d: os.path.isdir(d) and bool(os.listdir(d)),
+    )
 
 
 def ensure_web_masks_extracted(width: int, height: int) -> bool:
-    """Extract cloud mask themes from .7z archive if not already present.
-
-    Looks for src/data/Web/zt{W}{H}.7z beside the masks directory and extracts
-    it in-place when the directory is missing or empty.
-
-    Returns True if masks are available (already existed or freshly extracted).
-    """
+    """Extract cloud mask themes from .7z archive if not already present."""
     masks_dir = get_web_masks_dir(width, height)
-    archive = masks_dir + '.7z'
-
-    if _has_actual_themes(masks_dir):
-        return True
-    if not os.path.isfile(archive):
-        return False
-
-    return _extract_7z(archive, masks_dir)
+    return _ensure_extracted(masks_dir, masks_dir + '.7z', _has_actual_themes)
 
 
 def find_resource(filename: str, search_paths: Optional[list] = None) -> Optional[str]:

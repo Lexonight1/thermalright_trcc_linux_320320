@@ -7,21 +7,21 @@ images to LCD target resolution.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
-    QIcon,
     QImage,
     QPainter,
     QPalette,
     QPen,
     QPixmap,
 )
-from PyQt6.QtWidgets import QPushButton, QWidget
+from PyQt6.QtWidgets import QWidget
+
+from .base import make_icon_button
 
 from .assets import load_pixmap
-from .constants import Styles
 
 try:
     from PIL import Image as PILImage
@@ -109,31 +109,16 @@ class UCImageCut(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        self._btn_height_fit = self._make_btn(
-            BTN_HEIGHT_FIT, 'P高度适应.png', "H", self._on_height_fit)
-        self._btn_width_fit = self._make_btn(
-            BTN_WIDTH_FIT, 'P宽度适应.png', "W", self._on_width_fit)
-        self._btn_rotate = self._make_btn(
-            BTN_ROTATE, 'P旋转.png', "R", self._on_rotate)
-        self._btn_ok = self._make_btn(
-            BTN_OK, 'P裁减.png', "OK", self._on_ok)
-        self._btn_close = self._make_btn(
-            BTN_CLOSE, 'P关闭按钮.png', "\u2715", self._on_close)
-
-    def _make_btn(self, rect, img_name, fallback, handler):
-        btn = QPushButton(self)
-        btn.setGeometry(*rect)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        pix = load_pixmap(img_name, rect[2], rect[3])
-        if not pix.isNull():
-            btn.setIcon(QIcon(pix))
-            btn.setIconSize(QSize(rect[2], rect[3]))
-            btn.setStyleSheet(Styles.FLAT_BUTTON_HOVER)
-        else:
-            btn.setText(fallback)
-            btn.setStyleSheet(Styles.TEXT_BUTTON)
-        btn.clicked.connect(handler)
-        return btn
+        self._btn_height_fit = make_icon_button(
+            self, BTN_HEIGHT_FIT, 'P高度适应.png', "H", self._on_height_fit)
+        self._btn_width_fit = make_icon_button(
+            self, BTN_WIDTH_FIT, 'P宽度适应.png', "W", self._on_width_fit)
+        self._btn_rotate = make_icon_button(
+            self, BTN_ROTATE, 'P旋转.png', "R", self._on_rotate)
+        self._btn_ok = make_icon_button(
+            self, BTN_OK, 'P裁减.png', "OK", self._on_ok)
+        self._btn_close = make_icon_button(
+            self, BTN_CLOSE, 'P关闭按钮.png', "\u2715", self._on_close)
 
     # =========================================================================
     # Public API
