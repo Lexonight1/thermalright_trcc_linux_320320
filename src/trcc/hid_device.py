@@ -10,13 +10,33 @@ Type 3 — VID 0x0416, PID 0x53E6  ("ALi" variant)
 
 The ``UsbTransport`` ABC abstracts the raw USB I/O so that:
   • Tests can inject a mock transport (no real hardware needed).
-  • A real libusb/pyusb backend can be swapped in later.
+  • ``PyUsbTransport`` provides real USB via pyusb (libusb backend).
+  • ``HidApiTransport`` provides an alternative via HIDAPI.
+
+Linux dependencies (install one):
+  • pyusb:  ``pip install pyusb``  (needs libusb1 — ``apt install libusb-1.0-0``)
+  • hidapi: ``pip install hidapi`` (needs libhidapi — ``apt install libhidapi-dev``)
 """
 
 import struct
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Set
+
+# Optional USB backends — graceful import
+try:
+    import usb.core
+    import usb.util
+    PYUSB_AVAILABLE = True
+except ImportError:
+    PYUSB_AVAILABLE = False
+
+try:
+    import hid as hidapi
+    HIDAPI_AVAILABLE = True
+except ImportError:
+    HIDAPI_AVAILABLE = False
 
 
 # =========================================================================
@@ -56,6 +76,16 @@ USB_BULK_ALIGNMENT = 512
 
 # Default timeout (ms)
 DEFAULT_TIMEOUT_MS = 100
+
+# Timing delays from C# (Thread.Sleep calls in USBLCDNEW.exe)
+DELAY_PRE_INIT_S = 0.050    # Sleep(50)  — before sending init packet
+DELAY_POST_INIT_S = 0.200   # Sleep(200) — after async init write+read
+DELAY_FRAME_TYPE2_S = 0.001  # Sleep(1)  — between Type 2 frames
+DELAY_FRAME_TYPE3_S = 0.0    # Type 3 has no inter-frame delay (write+ACK is blocking)
+
+# USB configuration values from C# (SetConfiguration / ClaimInterface)
+USB_CONFIGURATION = 1
+USB_INTERFACE = 0
 
 
 # =========================================================================
@@ -196,14 +226,29 @@ class HidDeviceType2:
     def handshake(self) -> DeviceInfo:
         """Perform the init handshake.
 
-        Sends init packet on Ep02, reads response on Ep01, validates,
-        and returns :class:`DeviceInfo`.
+        Matches C# ThreadSendDeviceDataH flow::
+
+            Thread.Sleep(50);
+            SubmitAsyncTransfer(write, Ep02);
+            SubmitAsyncTransfer(read,  Ep01);
+            Thread.Sleep(200);
+            Wait(write); Wait(read);
+
+        Python does sequential write→read (equivalent for non-overlapping I/O).
 
         Raises:
             RuntimeError: If the handshake fails.
         """
         init_pkt = self.build_init_packet()
+
+        # C#: Thread.Sleep(50) before init
+        time.sleep(DELAY_PRE_INIT_S)
+
         self.transport.write(EP_WRITE_02, init_pkt, DEFAULT_TIMEOUT_MS)
+
+        # C#: Thread.Sleep(200) after submitting both transfers
+        time.sleep(DELAY_POST_INIT_S)
+
         resp = self.transport.read(EP_READ_01, TYPE2_RESPONSE_SIZE, DEFAULT_TIMEOUT_MS)
 
         if not self.validate_response(resp):
@@ -226,7 +271,7 @@ class HidDeviceType2:
         parse it).
 
         The total transfer length is rounded up to the next 512-byte
-        boundary.
+        boundary (C#: ``num2 / 512 * 512 + (num2 % 512 != 0 ? 512 : 0)``).
 
         Returns the padded packet ready for USB bulk write.
         """
@@ -239,6 +284,9 @@ class HidDeviceType2:
 
     def send_frame(self, image_data: bytes) -> bool:
         """Send one image frame to the device.
+
+        Matches C# frame loop: synchronous Transfer() to Ep02,
+        then Thread.Sleep(1).
 
         Args:
             image_data: Raw image bytes (JPEG or other format the
@@ -255,6 +303,10 @@ class HidDeviceType2:
 
         packet = self.build_frame_packet(image_data)
         transferred = self.transport.write(EP_WRITE_02, packet, DEFAULT_TIMEOUT_MS)
+
+        # C#: Thread.Sleep(1) after frame transfer
+        time.sleep(DELAY_FRAME_TYPE2_S)
+
         return transferred > 0
 
 
@@ -332,14 +384,27 @@ class HidDeviceType3:
     def handshake(self) -> DeviceInfo:
         """Perform the init handshake.
 
-        Sends init packet on Ep02, reads response on Ep01, validates,
-        and returns :class:`DeviceInfo`.
+        Matches C# ThreadSendDeviceDataALi flow::
+
+            Thread.Sleep(50);
+            SubmitAsyncTransfer(write, Ep02);
+            SubmitAsyncTransfer(read,  Ep01);
+            Thread.Sleep(200);
+            Wait(write); Wait(read);
 
         Raises:
             RuntimeError: If the handshake fails.
         """
         init_pkt = self.build_init_packet()
+
+        # C#: Thread.Sleep(50) before init
+        time.sleep(DELAY_PRE_INIT_S)
+
         self.transport.write(EP_WRITE_02, init_pkt, DEFAULT_TIMEOUT_MS)
+
+        # C#: Thread.Sleep(200) after submitting both transfers
+        time.sleep(DELAY_POST_INIT_S)
+
         resp = self.transport.read(EP_READ_01, TYPE3_RESPONSE_SIZE, DEFAULT_TIMEOUT_MS)
 
         if not self.validate_response(resp):
@@ -355,12 +420,11 @@ class HidDeviceType3:
     def build_frame_packet(image_data: bytes) -> bytes:
         """Build a frame packet from raw image data.
 
-        16-byte prefix::
+        Matches C# frame construction::
 
-            [0xF5, 0x01, 0x01, 0x00,
-             0xBC, 0xFF, 0xB6, 0xC8,
-             0x00, 0x00, 0x00, 0x00,
-             0x00, 0x20, 0x03, 0x00]   # bytes[12:16] = 204800 LE
+            first = [0xF5,0x01,0x01,0x00, 0xBC,0xFF,0xB6,0xC8,
+                     0,0,0,0, 0,0x20,0x03,0]    // 16-byte prefix
+            first = first.Concat(array2).ToArray()  // + 204800 data
 
         Data is padded/truncated to exactly 204800 bytes.
         Total packet = 204816 bytes.
@@ -380,6 +444,11 @@ class HidDeviceType3:
     def send_frame(self, image_data: bytes) -> bool:
         """Send one image frame and read ACK.
 
+        Matches C# frame loop::
+
+            usbEndpointWriter.Write(first, 100, out transferLength);  // sync write
+            usbEndpointReader.Read(first, 0, 16, 100, out transferLength2);  // sync read ACK
+
         Args:
             image_data: Raw image bytes.
 
@@ -397,7 +466,7 @@ class HidDeviceType3:
         if transferred == 0:
             return False
 
-        # Read 16-byte ACK (C# does: usbEndpointReader.Read(first, 0, 16, 100, ...))
+        # C#: usbEndpointReader.Read(first, 0, 16, 100, out transferLength2)
         ack = self.transport.read(EP_READ_01, TYPE3_ACK_SIZE, DEFAULT_TIMEOUT_MS)
         return len(ack) > 0
 
@@ -451,3 +520,261 @@ def send_image_to_hid_device(
         _initialized_transports.discard(transport_id)
         _device_handlers.pop(transport_id, None)
         return False
+
+
+# =========================================================================
+# Real transport: PyUSB  (libusb backend)
+# =========================================================================
+# Matches C# LibUsbDotNet flow:
+#   UsbDevice.OpenUsbDevice(finder)
+#   SetConfiguration(1)
+#   ClaimInterface(0)
+#   OpenEndpointReader(Ep01) / OpenEndpointWriter(Ep02)
+#   ...
+#   ReleaseInterface(0)
+#   Close()
+
+class PyUsbTransport(UsbTransport):
+    """Real USB transport using pyusb (libusb backend).
+
+    Follows the exact C# LibUsbDotNet sequence:
+    1. Find device by VID/PID
+    2. SetConfiguration(1)
+    3. ClaimInterface(0)
+    4. Bulk read/write to endpoints
+
+    Requires: ``pip install pyusb`` + ``apt install libusb-1.0-0``
+    """
+
+    def __init__(self, vid: int, pid: int, serial: Optional[str] = None):
+        if not PYUSB_AVAILABLE:
+            raise ImportError(
+                "pyusb is not installed. Install with: pip install pyusb\n"
+                "Also need libusb: apt install libusb-1.0-0 (Debian/Ubuntu) "
+                "or dnf install libusb1 (Fedora)"
+            )
+        self._vid = vid
+        self._pid = pid
+        self._serial = serial
+        self._device = None
+        self._is_open = False
+
+    def open(self) -> None:
+        """Find USB device and claim interface.
+
+        C# equivalent::
+
+            UsbDeviceFinder finder = new UsbDeviceFinder(vid, pid, serial);
+            usbDevice = UsbDevice.OpenUsbDevice(finder);
+            usbDevice.SetConfiguration(1);
+            usbDevice.ClaimInterface(0);
+        """
+        kwargs = {'idVendor': self._vid, 'idProduct': self._pid}
+        if self._serial:
+            kwargs['serial_number'] = self._serial
+
+        self._device = usb.core.find(**kwargs)
+        if self._device is None:
+            raise RuntimeError(
+                f"USB device not found: VID={self._vid:#06x} PID={self._pid:#06x}"
+            )
+
+        # Detach kernel driver if active (Linux-specific, matches C# ClaimInterface)
+        if self._device.is_kernel_driver_active(USB_INTERFACE):
+            self._device.detach_kernel_driver(USB_INTERFACE)
+
+        # C#: SetConfiguration(1), ClaimInterface(0)
+        self._device.set_configuration(USB_CONFIGURATION)
+        usb.util.claim_interface(self._device, USB_INTERFACE)
+        self._is_open = True
+
+    def close(self) -> None:
+        """Release interface and close.
+
+        C# equivalent::
+
+            usbDevice.ReleaseInterface(0);
+            usbDevice.Close();
+            UsbDevice.Exit();
+        """
+        if self._device is not None:
+            try:
+                usb.util.release_interface(self._device, USB_INTERFACE)
+            except Exception:
+                pass
+            try:
+                usb.util.dispose_resources(self._device)
+            except Exception:
+                pass
+            self._device = None
+        self._is_open = False
+
+    def write(self, endpoint: int, data: bytes, timeout: int = DEFAULT_TIMEOUT_MS) -> int:
+        """Bulk write.
+
+        C# equivalent::
+
+            usbEndpointWriter.Transfer(data, 0, length, timeout, out transferred);
+        """
+        if not self._is_open or self._device is None:
+            raise RuntimeError("Transport not open")
+        return self._device.write(endpoint, data, timeout=timeout)
+
+    def read(self, endpoint: int, length: int, timeout: int = DEFAULT_TIMEOUT_MS) -> bytes:
+        """Bulk read.
+
+        C# equivalent::
+
+            usbEndpointReader.Read(buffer, 0, length, timeout, out transferred);
+        """
+        if not self._is_open or self._device is None:
+            raise RuntimeError("Transport not open")
+        data = self._device.read(endpoint, length, timeout=timeout)
+        return bytes(data)
+
+    @property
+    def is_open(self) -> bool:
+        return self._is_open
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+# =========================================================================
+# Real transport: HIDAPI
+# =========================================================================
+# Alternative backend for devices that also expose an HID interface.
+# Some USB LCD devices enumerate as HID — HIDAPI can access them
+# without needing root or udev rules on some distros.
+
+class HidApiTransport(UsbTransport):
+    """USB transport using HIDAPI (hidapi library).
+
+    This is an alternative to PyUSB for devices that expose HID
+    interfaces.  HIDAPI uses the OS HID driver, which may not require
+    root access.
+
+    Note: HIDAPI read/write are report-based (max 64 bytes per
+    report for interrupt endpoints).  For bulk transfers > 64 bytes,
+    PyUsbTransport is preferred.  This transport splits large writes
+    into report-sized chunks.
+
+    Requires: ``pip install hidapi`` + ``apt install libhidapi-dev``
+    """
+
+    def __init__(self, vid: int, pid: int, serial: Optional[str] = None):
+        if not HIDAPI_AVAILABLE:
+            raise ImportError(
+                "hidapi is not installed. Install with: pip install hidapi\n"
+                "Also need libhidapi: apt install libhidapi-dev (Debian/Ubuntu) "
+                "or dnf install hidapi-devel (Fedora)"
+            )
+        self._vid = vid
+        self._pid = pid
+        self._serial = serial
+        self._device = None
+        self._is_open = False
+
+    def open(self) -> None:
+        """Open HID device by VID/PID."""
+        kwargs = {'vid': self._vid, 'pid': self._pid}
+        if self._serial:
+            kwargs['serial'] = self._serial
+        self._device = hidapi.Device(**kwargs)
+        self._device.nonblocking = 0  # blocking reads
+        self._is_open = True
+
+    def close(self) -> None:
+        """Close HID device."""
+        if self._device is not None:
+            try:
+                self._device.close()
+            except Exception:
+                pass
+            self._device = None
+        self._is_open = False
+
+    def write(self, endpoint: int, data: bytes, timeout: int = DEFAULT_TIMEOUT_MS) -> int:
+        """Write data via HID output report.
+
+        HIDAPI write() prepends a report ID byte (0x00 for default).
+        We send the data with report ID 0.
+
+        Note: endpoint parameter is ignored — HIDAPI routes to the
+        device's single OUT endpoint.
+        """
+        if not self._is_open or self._device is None:
+            raise RuntimeError("Transport not open")
+        # HIDAPI expects report ID as first byte
+        report = bytes([0x00]) + data
+        return self._device.write(report)
+
+    def read(self, endpoint: int, length: int, timeout: int = DEFAULT_TIMEOUT_MS) -> bytes:
+        """Read data via HID input report.
+
+        Note: endpoint parameter is ignored — HIDAPI routes to the
+        device's single IN endpoint.
+        """
+        if not self._is_open or self._device is None:
+            raise RuntimeError("Transport not open")
+        data = self._device.read(length, timeout)
+        return bytes(data) if data else b''
+
+    @property
+    def is_open(self) -> bool:
+        return self._is_open
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+# =========================================================================
+# Device discovery helper
+# =========================================================================
+
+def find_hid_devices() -> list:
+    """Scan for Type 2 and Type 3 HID LCD devices.
+
+    Tries pyusb first, falls back to hidapi enumeration.
+
+    Returns:
+        List of dicts with keys: vid, pid, device_type, serial, backend
+    """
+    devices = []
+
+    known = [
+        (TYPE2_VID, TYPE2_PID, 2),
+        (TYPE3_VID, TYPE3_PID, 3),
+    ]
+
+    if PYUSB_AVAILABLE:
+        for vid, pid, dtype in known:
+            for dev in usb.core.find(find_all=True, idVendor=vid, idProduct=pid):
+                serial = usb.util.get_string(dev, dev.iSerialNumber) if dev.iSerialNumber else ""
+                devices.append({
+                    'vid': vid,
+                    'pid': pid,
+                    'device_type': dtype,
+                    'serial': serial or "",
+                    'backend': 'pyusb',
+                })
+    elif HIDAPI_AVAILABLE:
+        for vid, pid, dtype in known:
+            for info in hidapi.enumerate(vid, pid):
+                devices.append({
+                    'vid': vid,
+                    'pid': pid,
+                    'device_type': dtype,
+                    'serial': info.get('serial_number', '') or "",
+                    'backend': 'hidapi',
+                })
+
+    return devices

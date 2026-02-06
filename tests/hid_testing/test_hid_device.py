@@ -4,14 +4,20 @@ No real USB hardware required — all USB I/O is mocked via UsbTransport.
 """
 
 import struct
-from unittest.mock import MagicMock, call, patch
+import sys
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 
 from trcc.hid_device import (
     DEFAULT_TIMEOUT_MS,
+    DELAY_FRAME_TYPE2_S,
+    DELAY_POST_INIT_S,
+    DELAY_PRE_INIT_S,
     EP_READ_01,
     EP_WRITE_02,
+    HIDAPI_AVAILABLE,
+    PYUSB_AVAILABLE,
     TYPE2_INIT_SIZE,
     TYPE2_MAGIC,
     TYPE2_PID,
@@ -27,13 +33,27 @@ from trcc.hid_device import (
     TYPE3_RESPONSE_SIZE,
     TYPE3_VID,
     USB_BULK_ALIGNMENT,
+    USB_CONFIGURATION,
+    USB_INTERFACE,
     DeviceInfo,
     HidDeviceType2,
     HidDeviceType3,
     UsbTransport,
     _ceil_to_512,
+    find_hid_devices,
     send_image_to_hid_device,
 )
+
+# Patch time.sleep globally for all tests in this module so handshake/frame
+# delays don't slow the suite down.
+pytestmark = pytest.mark.usefixtures("_patch_sleep")
+
+
+@pytest.fixture(autouse=True)
+def _patch_sleep():
+    """Disable time.sleep in hid_device for fast tests."""
+    with patch("trcc.hid_device.time.sleep"):
+        yield
 
 
 # =========================================================================
@@ -277,6 +297,21 @@ class TestType2Handshake:
         assert info.mode_byte_1 == 0x42
         assert info.mode_byte_2 == 0x99
 
+    def test_handshake_timing(self):
+        """Verify C# Sleep(50) + Sleep(200) timing is called."""
+        transport = _make_mock_transport()
+        transport.read.return_value = _make_type2_valid_response()
+        transport.write.return_value = TYPE2_INIT_SIZE
+
+        dev = HidDeviceType2(transport)
+        with patch("trcc.hid_device.time.sleep") as mock_sleep:
+            dev.handshake()
+            # Should call sleep(0.05) then sleep(0.2)
+            calls = mock_sleep.call_args_list
+            assert len(calls) == 2
+            assert calls[0] == call(DELAY_PRE_INIT_S)
+            assert calls[1] == call(DELAY_POST_INIT_S)
+
 
 # =========================================================================
 # Type 2 — Frame Send
@@ -363,6 +398,13 @@ class TestType2FrameSend:
         pkt = transport.write.call_args[0][1]
         assert len(pkt) == 512  # 20-byte header rounds to 512
         assert struct.unpack('<I', pkt[16:20])[0] == 0
+
+    def test_send_frame_timing(self):
+        """Verify C# Sleep(1) inter-frame delay."""
+        dev, transport = self._init_device()
+        with patch("trcc.hid_device.time.sleep") as mock_sleep:
+            dev.send_frame(b'\xFF' * 100)
+            mock_sleep.assert_called_once_with(DELAY_FRAME_TYPE2_S)
 
 
 # =========================================================================
@@ -527,6 +569,20 @@ class TestType3Handshake:
 
         assert dev.device_info is info
         assert info.fbl == 101
+
+    def test_handshake_timing(self):
+        """Verify C# Sleep(50) + Sleep(200) timing is called."""
+        transport = _make_mock_transport()
+        transport.read.return_value = _make_type3_valid_response()
+        transport.write.return_value = TYPE3_INIT_SIZE
+
+        dev = HidDeviceType3(transport)
+        with patch("trcc.hid_device.time.sleep") as mock_sleep:
+            dev.handshake()
+            calls = mock_sleep.call_args_list
+            assert len(calls) == 2
+            assert calls[0] == call(DELAY_PRE_INIT_S)
+            assert calls[1] == call(DELAY_POST_INIT_S)
 
 
 # =========================================================================
@@ -732,6 +788,278 @@ class TestSendImageToHidDevice:
 
 
 # =========================================================================
+# PyUsbTransport (mocked pyusb)
+# =========================================================================
+
+class TestPyUsbTransport:
+    """Test PyUsbTransport with mocked usb.core."""
+
+    def test_import_error_when_pyusb_missing(self):
+        """PyUsbTransport raises ImportError when pyusb not installed."""
+        import trcc.hid_device as mod
+        orig = mod.PYUSB_AVAILABLE
+        mod.PYUSB_AVAILABLE = False
+        try:
+            with pytest.raises(ImportError, match="pyusb"):
+                mod.PyUsbTransport(0x0416, 0x530A)
+        finally:
+            mod.PYUSB_AVAILABLE = orig
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_open_find_device(self):
+        """open() calls usb.core.find with correct VID/PID."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = False
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev):
+            t = PyUsbTransport(0x0416, 0x530A)
+            t.open()
+
+            assert t.is_open
+            mock_dev.set_configuration.assert_called_once_with(USB_CONFIGURATION)
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_open_detaches_kernel_driver(self):
+        """open() detaches kernel driver if active (Linux)."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = True
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev):
+            t = PyUsbTransport(0x0416, 0x530A)
+            t.open()
+            mock_dev.detach_kernel_driver.assert_called_once_with(USB_INTERFACE)
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_open_device_not_found(self):
+        """open() raises RuntimeError when device not found."""
+        from trcc.hid_device import PyUsbTransport
+
+        with patch("trcc.hid_device.usb.core.find", return_value=None):
+            t = PyUsbTransport(0x0416, 0x530A)
+            with pytest.raises(RuntimeError, match="not found"):
+                t.open()
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_close_releases_interface(self):
+        """close() calls release_interface and dispose_resources."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = False
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev), \
+             patch("trcc.hid_device.usb.util.claim_interface"), \
+             patch("trcc.hid_device.usb.util.release_interface") as mock_release, \
+             patch("trcc.hid_device.usb.util.dispose_resources") as mock_dispose:
+            t = PyUsbTransport(0x0416, 0x530A)
+            t.open()
+            t.close()
+            mock_release.assert_called_once_with(mock_dev, USB_INTERFACE)
+            mock_dispose.assert_called_once_with(mock_dev)
+            assert not t.is_open
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_write_calls_device_write(self):
+        """write() delegates to device.write with correct args."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = False
+        mock_dev.write.return_value = 512
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev), \
+             patch("trcc.hid_device.usb.util.claim_interface"):
+            t = PyUsbTransport(0x0416, 0x530A)
+            t.open()
+            result = t.write(EP_WRITE_02, b'\xFF' * 512, timeout=100)
+            mock_dev.write.assert_called_once_with(EP_WRITE_02, b'\xFF' * 512, timeout=100)
+            assert result == 512
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_read_calls_device_read(self):
+        """read() delegates to device.read and returns bytes."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = False
+        mock_dev.read.return_value = bytearray(b'\xDA\xDB\xDC\xDD')
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev), \
+             patch("trcc.hid_device.usb.util.claim_interface"):
+            t = PyUsbTransport(0x0416, 0x530A)
+            t.open()
+            result = t.read(EP_READ_01, 512, timeout=100)
+            mock_dev.read.assert_called_once_with(EP_READ_01, 512, timeout=100)
+            assert result == b'\xDA\xDB\xDC\xDD'
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_write_when_closed_raises(self):
+        """write() raises RuntimeError when transport is closed."""
+        from trcc.hid_device import PyUsbTransport
+        t = PyUsbTransport(0x0416, 0x530A)
+        with pytest.raises(RuntimeError, match="not open"):
+            t.write(EP_WRITE_02, b'\xFF')
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_context_manager(self):
+        """Context manager opens and closes."""
+        from trcc.hid_device import PyUsbTransport
+
+        mock_dev = MagicMock()
+        mock_dev.is_kernel_driver_active.return_value = False
+        with patch("trcc.hid_device.usb.core.find", return_value=mock_dev), \
+             patch("trcc.hid_device.usb.util.claim_interface"), \
+             patch("trcc.hid_device.usb.util.release_interface"), \
+             patch("trcc.hid_device.usb.util.dispose_resources"):
+            with PyUsbTransport(0x0416, 0x530A) as t:
+                assert t.is_open
+            assert not t.is_open
+
+
+# =========================================================================
+# HidApiTransport (mocked hidapi)
+# =========================================================================
+
+class TestHidApiTransport:
+    """Test HidApiTransport with mocked hid module."""
+
+    def test_import_error_when_hidapi_missing(self):
+        """HidApiTransport raises ImportError when hidapi not installed."""
+        import trcc.hid_device as mod
+        orig = mod.HIDAPI_AVAILABLE
+        mod.HIDAPI_AVAILABLE = False
+        try:
+            with pytest.raises(ImportError, match="hidapi"):
+                mod.HidApiTransport(0x0416, 0x530A)
+        finally:
+            mod.HIDAPI_AVAILABLE = orig
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_open_calls_hid_device(self):
+        """open() creates hid.Device(vid, pid) directly."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev) as mock_cls:
+            t = HidApiTransport(0x0416, 0x530A)
+            t.open()
+            mock_cls.assert_called_once_with(vid=0x0416, pid=0x530A)
+            assert t.is_open
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_close_calls_hid_close(self):
+        """close() calls device.close()."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev):
+            t = HidApiTransport(0x0416, 0x530A)
+            t.open()
+            t.close()
+            mock_hid_dev.close.assert_called_once()
+            assert not t.is_open
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_write_prepends_report_id(self):
+        """write() prepends 0x00 report ID byte."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        mock_hid_dev.write.return_value = 5
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev):
+            t = HidApiTransport(0x0416, 0x530A)
+            t.open()
+            result = t.write(EP_WRITE_02, b'\xFF\xFE\xFD\xFC')
+            # Should prepend report ID 0x00
+            expected = bytes([0x00, 0xFF, 0xFE, 0xFD, 0xFC])
+            mock_hid_dev.write.assert_called_once_with(expected)
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_read_returns_bytes(self):
+        """read() returns bytes from hid device."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        mock_hid_dev.read.return_value = [0xDA, 0xDB, 0xDC, 0xDD]
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev):
+            t = HidApiTransport(0x0416, 0x530A)
+            t.open()
+            result = t.read(EP_READ_01, 512, timeout=100)
+            mock_hid_dev.read.assert_called_once_with(512, 100)
+            assert result == b'\xDA\xDB\xDC\xDD'
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_read_empty_returns_empty_bytes(self):
+        """read() returns b'' when hidapi returns None."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        mock_hid_dev.read.return_value = None
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev):
+            t = HidApiTransport(0x0416, 0x530A)
+            t.open()
+            result = t.read(EP_READ_01, 512, timeout=100)
+            assert result == b''
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_write_when_closed_raises(self):
+        """write() raises RuntimeError when transport is closed."""
+        from trcc.hid_device import HidApiTransport
+        t = HidApiTransport.__new__(HidApiTransport)
+        t._vid = 0x0416
+        t._pid = 0x530A
+        t._serial = None
+        t._device = None
+        t._is_open = False
+        with pytest.raises(RuntimeError, match="not open"):
+            t.write(EP_WRITE_02, b'\xFF')
+
+    @pytest.mark.skipif(not HIDAPI_AVAILABLE, reason="hidapi not installed")
+    def test_context_manager(self):
+        """Context manager opens and closes."""
+        from trcc.hid_device import HidApiTransport
+
+        mock_hid_dev = MagicMock()
+        with patch("trcc.hid_device.hidapi.Device", return_value=mock_hid_dev):
+            with HidApiTransport(0x0416, 0x530A) as t:
+                assert t.is_open
+            assert not t.is_open
+
+
+# =========================================================================
+# find_hid_devices
+# =========================================================================
+
+class TestFindHidDevices:
+    """Test device discovery helper."""
+
+    @pytest.mark.skipif(not PYUSB_AVAILABLE, reason="pyusb not installed")
+    def test_pyusb_discovery(self):
+        """find_hid_devices finds devices via pyusb."""
+        mock_dev = MagicMock()
+        mock_dev.iSerialNumber = 3
+        with patch("trcc.hid_device.usb.core.find") as mock_find, \
+             patch("trcc.hid_device.usb.util.get_string", return_value="ABC123"):
+            mock_find.return_value = [mock_dev]
+            devices = find_hid_devices()
+            assert len(devices) >= 1
+            assert devices[0]['backend'] == 'pyusb'
+
+    def test_no_backends_returns_empty(self):
+        """Returns empty list when neither pyusb nor hidapi available."""
+        import trcc.hid_device as mod
+        orig_pyusb = mod.PYUSB_AVAILABLE
+        orig_hidapi = mod.HIDAPI_AVAILABLE
+        mod.PYUSB_AVAILABLE = False
+        mod.HIDAPI_AVAILABLE = False
+        try:
+            devices = find_hid_devices()
+            assert devices == []
+        finally:
+            mod.PYUSB_AVAILABLE = orig_pyusb
+            mod.HIDAPI_AVAILABLE = orig_hidapi
+
+
+# =========================================================================
 # DeviceInfo dataclass
 # =========================================================================
 
@@ -784,3 +1112,14 @@ class TestConstants:
 
     def test_type3_init_size(self):
         assert TYPE3_INIT_SIZE == 16 + 1024
+
+    def test_timing_constants(self):
+        """Verify timing matches C# Thread.Sleep values."""
+        assert DELAY_PRE_INIT_S == 0.050   # Sleep(50)
+        assert DELAY_POST_INIT_S == 0.200  # Sleep(200)
+        assert DELAY_FRAME_TYPE2_S == 0.001  # Sleep(1)
+
+    def test_usb_config(self):
+        """Verify USB config matches C# SetConfiguration/ClaimInterface."""
+        assert USB_CONFIGURATION == 1
+        assert USB_INTERFACE == 0
