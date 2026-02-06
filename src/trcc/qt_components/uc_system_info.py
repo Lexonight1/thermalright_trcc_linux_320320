@@ -76,6 +76,7 @@ class SystemInfoPanel(QWidget):
 
         self.config = config
         self._selected = False
+        self._temp_unit = 0  # 0=Celsius, 1=Fahrenheit
         self._color = CATEGORY_COLORS.get(config.category_id, '#888888')
         self._value_labels: list[QLabel] = []
         self._selector_btns: list[QPushButton] = []
@@ -167,6 +168,10 @@ class SystemInfoPanel(QWidget):
             else:
                 self._value_labels[i].setText(self._format_value(value, binding.unit))
 
+    def set_temp_unit(self, unit: int):
+        """Set temperature unit. 0=Celsius, 1=Fahrenheit."""
+        self._temp_unit = unit
+
     def update_binding(self, row: int, binding: SensorBinding):
         """Update a row's sensor binding after picker selection."""
         pass  # Row labels are baked into the PNG backgrounds
@@ -188,10 +193,11 @@ class SystemInfoPanel(QWidget):
     def mousePressEvent(self, event):
         self.clicked.emit(self)
 
-    @staticmethod
-    def _format_value(value: float, unit: str) -> str:
+    def _format_value(self, value: float, unit: str) -> str:
         """Format a sensor value with its unit."""
         if unit == '°C':
+            if self._temp_unit == 1:
+                return f"{value * 9 / 5 + 32:.0f}°F"
             return f"{value:.0f}°C"
         elif unit in ('%', 'RPM', 'W'):
             return f"{value:.0f}{unit}"
@@ -227,6 +233,7 @@ class UCSystemInfo(QWidget):
         self._lang = lang
         self._config = SysInfoConfig()
         self._page = 0
+        self._temp_unit = 0  # 0=Celsius, 1=Fahrenheit
         self._panels_list: list[SystemInfoPanel] = []
         self._add_btn: QLabel | None = None
         self._page_prev: QPushButton | None = None
@@ -291,6 +298,7 @@ class UCSystemInfo(QWidget):
             y = START_Y + row * SPACING_Y
 
             panel = SystemInfoPanel(panel_config, self)
+            panel.set_temp_unit(self._temp_unit)
             panel.setGeometry(x, y, PANEL_W, PANEL_H)
             panel.clicked.connect(self._on_panel_clicked)
             panel.sensor_select_requested.connect(self._on_selector_clicked)
@@ -490,6 +498,12 @@ class UCSystemInfo(QWidget):
     def stop_updates(self):
         """Stop periodic metric updates."""
         self._update_timer.stop()
+
+    def set_temp_unit(self, unit: int):
+        """Set temperature unit on all panels. 0=Celsius, 1=Fahrenheit."""
+        self._temp_unit = unit
+        for panel in self._panels_list:
+            panel.set_temp_unit(unit)
 
     def _update_metrics(self):
         """Update all panels with current sensor readings."""

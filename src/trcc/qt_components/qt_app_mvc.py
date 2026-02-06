@@ -48,7 +48,7 @@ from .uc_image_cut import UCImageCut
 from .uc_info_module import UCInfoModule
 from .uc_activity_sidebar import UCActivitySidebar
 from ..dc_writer import CarouselConfig, write_carousel_config, read_carousel_config
-from ..paths import get_web_dir, get_web_masks_dir
+from ..paths import get_web_dir, get_web_masks_dir, get_saved_temp_unit, save_temp_unit
 
 # Language code mapping: system locale -> Windows asset suffix
 LOCALE_TO_LANG = {
@@ -159,6 +159,13 @@ class TRCCMainWindowMVC(QMainWindow):
         self._setup_ui()
         self._connect_controller_callbacks()
         self._connect_view_signals()
+
+        # Restore saved temperature unit preference
+        saved_unit = get_saved_temp_unit()
+        self.controller.overlay.set_temp_unit(saved_unit)
+        self.uc_system_info.set_temp_unit(saved_unit)
+        if saved_unit == 1:
+            self.uc_about._set_temp('F')
 
         # System tray icon
         self._setup_systray()
@@ -397,6 +404,8 @@ class TRCCMainWindowMVC(QMainWindow):
         """Handle temperature unit change from Control Center."""
         temp_int = 1 if unit == 'F' else 0
         self.controller.overlay.set_temp_unit(temp_int)
+        self.uc_system_info.set_temp_unit(temp_int)
+        save_temp_unit(temp_int)
         self.uc_preview.set_status(f"Temperature: °{unit}")
 
     def _on_hdd_toggle_changed(self, enabled: bool):

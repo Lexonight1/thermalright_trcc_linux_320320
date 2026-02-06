@@ -381,10 +381,9 @@ class OverlayRenderer:
                 if metric_name in metrics:
                     time_fmt = cfg.get('time_format', self.time_format)
                     date_fmt = cfg.get('date_format', self.date_format)
-                    # Per-element temp_unit or global default (Windows myModeSub pattern)
-                    temp_unit = cfg.get('temp_unit', self.temp_unit)
+                    # Global temp_unit always wins (user's C/F toggle is authoritative)
                     text = format_metric(metric_name, metrics[metric_name],
-                                        time_fmt, date_fmt, temp_unit)
+                                        time_fmt, date_fmt, self.temp_unit)
                 else:
                     text = "N/A"
             else:

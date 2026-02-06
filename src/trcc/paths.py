@@ -305,3 +305,15 @@ def save_resolution(width: int, height: int):
     config = load_config()
     config['resolution'] = [width, height]
     save_config(config)
+
+
+def get_saved_temp_unit() -> int:
+    """Get saved temperature unit. 0=Celsius, 1=Fahrenheit. Defaults to 0."""
+    return load_config().get('temp_unit', 0)
+
+
+def save_temp_unit(unit: int):
+    """Persist temperature unit to config. 0=Celsius, 1=Fahrenheit."""
+    config = load_config()
+    config['temp_unit'] = unit
+    save_config(config)
