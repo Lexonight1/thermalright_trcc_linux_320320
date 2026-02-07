@@ -91,6 +91,7 @@ expected_photos/
 
 # Dev shell scripts and old udev/systemd files (replaced by trcc setup-udev)
 /*.sh
+!install.sh
 99-trcc.rules
 trcc-quirk-fix.service
 
