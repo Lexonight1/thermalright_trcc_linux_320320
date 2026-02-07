@@ -1690,8 +1690,12 @@ class TRCCMainWindowMVC(QMainWindow):
     # =========================================================================
 
     def closeEvent(self, event):
-        """Hide to tray on window close; full quit only via tray Exit."""
-        if not self._force_quit:
+        """Hide to tray on window close; full quit only via tray Exit.
+
+        If system tray is not available (e.g. GNOME without AppIndicator),
+        close the window instead of hiding to an invisible tray.
+        """
+        if not self._force_quit and self._tray.isSystemTrayAvailable() and self._tray.isVisible():
             event.ignore()
             self.hide()
             return
