@@ -9,7 +9,15 @@ Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). C
 
 ## Supported Devices
 
-Run `lsusb` and look for your USB ID below.
+Plug in your device and run `lsusb` in a terminal. Find the line with your device — the USB ID is the `xxxx:xxxx` after `ID`:
+
+```
+Bus 001 Device 008: ID 0416:5302 Winbond Electronics Corp. USBDISPLAY
+                        ^^^^^^^^^
+                        this is your USB ID
+```
+
+Match it to the tables below.
 
 **SCSI devices** — fully supported:
 
