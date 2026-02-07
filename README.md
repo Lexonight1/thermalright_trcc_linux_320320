@@ -22,14 +22,11 @@ Bus 001 Device 008: ID 0416:5302 Winbond Electronics Corp. USBDISPLAY
 Match it to the tables below.
 
 **SCSI devices** — fully supported:
-
 | USB ID | Devices |
 |--------|---------|
 | `87CD:70DB` | FROZEN HORIZON PRO, FROZEN MAGIC PRO, FROZEN VISION V2, CORE VISION, ELITE VISION, AK120, AX120, PA120 DIGITAL, Wonder Vision |
 | `0416:5406` | LC1, LC2, LC3, LC5 (AIO pump heads) |
 | `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME SE |
-
-Resolutions: 240x240, 320x320, 480x480, 640x480
 
 **HID devices** — on [`hid-protocol-testing`](https://github.com/Lexonight1/thermalright-trcc-linux/tree/hid-protocol-testing) branch, testers wanted:
 
@@ -41,11 +38,7 @@ Resolutions: 240x240, 320x320, 480x480, 640x480
 | `0418:5303` | LCD Display (HID) |
 | `0418:5304` | LCD Display (HID) |
 
-> **HID device?** Install from the testing branch instead:
-> ```bash
-> git clone -b hid-protocol-testing https://github.com/Lexonight1/thermalright-trcc-linux.git
-> ```
-> Already have stable? Switch with: `git fetch origin && git checkout hid-protocol-testing`
+> **HID device?** See the **[HID Testing Guide](doc/HID_TESTING.md)** — I don't have one of these devices, so I need testers.
 
 ## Install
 
@@ -169,7 +162,7 @@ trcc download themes-320  # Download cloud themes
 | [Changelog](doc/CHANGELOG.md) | Version history |
 | [Architecture](doc/ARCHITECTURE.md) | Project layout and design |
 | [Technical Reference](doc/TECHNICAL_REFERENCE.md) | SCSI protocol and file formats |
-| [HID Testing Guide](https://github.com/Lexonight1/thermalright-trcc-linux/blob/hid-protocol-testing/doc/HID_TESTING.md) | HID device support (testers wanted) |
+| [HID Testing Guide](doc/HID_TESTING.md) | HID device support (testers wanted) |
 
 ## License
 
