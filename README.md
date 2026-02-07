@@ -168,6 +168,7 @@ trcc download themes-320  # Download cloud themes
 | Document | Description |
 |----------|-------------|
 | [Install Guide](doc/INSTALL_GUIDE.md) | Installation for all major distros |
+| [CLI Reference](doc/CLI_REFERENCE.md) | All commands, options, and troubleshooting |
 | [Changelog](doc/CHANGELOG.md) | Version history |
 | [Architecture](doc/ARCHITECTURE.md) | Project layout and design |
 | [Technical Reference](doc/TECHNICAL_REFERENCE.md) | SCSI protocol and file formats |
