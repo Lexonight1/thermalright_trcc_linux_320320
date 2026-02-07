@@ -9,17 +9,33 @@ Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). C
 
 ## Supported Devices
 
-Any Thermalright LCD cooler/hub that shows up as a USB Mass Storage device with one of these IDs:
+Run `lsusb` and look for your USB ID below.
+
+**SCSI devices** — fully supported:
 
 | USB ID | Devices |
 |--------|---------|
-| `87CD:70DB` | FROZEN HORIZON PRO, FROZEN MAGIC PRO, FROZEN VISION V2, CORE VISION, ELITE VISION, AK120, AX120, PA120 DIGITAL, Wonder Vision (CZTV) |
+| `87CD:70DB` | FROZEN HORIZON PRO, FROZEN MAGIC PRO, FROZEN VISION V2, CORE VISION, ELITE VISION, AK120, AX120, PA120 DIGITAL, Wonder Vision |
 | `0416:5406` | LC1, LC2, LC3, LC5 (AIO pump heads) |
 | `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME SE |
 
 Resolutions: 240x240, 320x320, 480x480, 640x480
 
-> **Not sure?** Plug in your device and run `lsusb` — if you see one of the USB IDs above, it's supported.
+**HID devices** — on [`hid-protocol-testing`](https://github.com/Lexonight1/thermalright-trcc-linux/tree/hid-protocol-testing) branch, testers wanted:
+
+| USB ID | Devices |
+|--------|---------|
+| `0416:5302` | USBDISPLAY (HID) |
+| `0416:530A` | LCD Display (HID) |
+| `0416:53E6` | LCD Display (HID) |
+| `0418:5303` | LCD Display (HID) |
+| `0418:5304` | LCD Display (HID) |
+
+> **HID device?** Install from the testing branch instead:
+> ```bash
+> git clone -b hid-protocol-testing https://github.com/Lexonight1/thermalright-trcc-linux.git
+> ```
+> Already have stable? Switch with: `git fetch origin && git checkout hid-protocol-testing`
 
 ## Install
 
