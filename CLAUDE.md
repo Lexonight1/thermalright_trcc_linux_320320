@@ -316,10 +316,34 @@ Consumers import from `paths.py`:
 **Theme.zt (0xDC header)**: Pre-rendered JPEG frames with timing (video trimmer export)
 **.tr export**: Magic 0xDD,0xDC,0xDD,0xDC + config + 10240 padding + mask + background/video
 
+## Security
+
+### Archive Extraction (Zip Slip Protection)
+All archive extraction validates member paths before writing:
+- `theme_downloader.py` — `_is_safe_archive_member()` rejects absolute paths and `..` traversal in tar.gz/zip
+- `uc_theme_mask.py` — per-member path check on cloud mask zip downloads
+- `paths.py` — `py7zr.extract()` with filtered safe names list; CLI `7z` handles its own path safety
+
+### Udev Permissions
+- Device rules use `MODE="0660"` (owner+group only), not `0666`
+- `TAG+="uaccess"` grants access to the logged-in user on systemd distros
+- Only `setup-udev` requires root (one-time); app runs as normal user after that
+
+### Subprocess Safety
+- All `subprocess.run()` calls use list-based arguments (no `shell=True`)
+- Binary payloads sent via temp files, not command-line args
+- No `eval()`, `exec()`, `pickle`, or dynamic code execution anywhere
+
+### Network
+- Cloud theme servers (`czhorde.cc`/`czhorde.com`) only support HTTP — port 443 is closed, HTTPS not available
+- No `verify=False` or certificate bypasses in the codebase
+- No hardcoded credentials or API keys
+
 ## Cloud Theme Servers
 
 - International: `http://www.czhorde.cc/tr/bj{resolution}/`
 - China: `http://www.czhorde.com/tr/bj{resolution}/`
+- **HTTPS not available** — servers reject connections on port 443 (Windows IIS, no TLS configured)
 
 Categories by filename prefix: a=Gallery, b=Tech, c=HUD, d=Light, e=Nature, y=Aesthetic
 
@@ -354,31 +378,37 @@ Prioritized list of remaining work:
 - `os.system()` → `subprocess.run()` in cli.py
 - Install guide covers 25+ Linux distributions
 
-### 6. Linting / Formatting
+### 6. ~~Security Hardening~~ ✓ Done
+- Zip slip protection on all archive extraction (theme_downloader, uc_theme_mask, paths)
+- Udev MODE tightened from `0666` to `0660` (code + all docs)
+- HTTPS tested on cloud servers — not available (port 443 refused on czhorde.cc/com)
+- Full audit: no shell injection, no eval/exec/pickle, no hardcoded secrets
+
+### 7. Linting / Formatting
 - Add `ruff` for consistent style across codebase
 - Auto-fix and enforce in CI
 
-### 7. Type Annotation Hardening
+### 8. Type Annotation Hardening
 - Move pyright from basic → strict on key modules
 - Add missing type hints (system_info, sensor_enumerator especially)
 
-### 8. Integration Tests
+### 9. Integration Tests
 - End-to-end device detection → theme loading → LCD write pipeline (mocked hardware)
 
-### 9. Version Bump → 1.2.0
+### 10. Version Bump → 1.2.0
 - Current: 1.1.3
 - Coverage target achieved (96% non-Qt backend)
 - Cross-distro compatibility done
 - Bump when: linting in place
 - Update: `pyproject.toml`, `src/trcc/__version__.py`, `doc/CHANGELOG.md`
 
-### 10. Packaging & Release
+### 11. Packaging & Release
 - Build wheel: `python -m build`
 - Verify `pip install .` works cleanly, entry points
 - Create GitHub Release with .whl artifact
 - Consider PyPI publish
 
-### 11. README Polish
+### 12. README Polish
 - Add CI badge (tests passing)
 - Add coverage badge
 - Screenshot/demo GIF

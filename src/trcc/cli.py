@@ -486,8 +486,8 @@ def setup_udev(dry_run=False):
 
         # Need root
         if os.geteuid() != 0:
-            print("Error: root required. Run with:")
-            print("  sudo trcc setup-udev")
+            print("Error: root required. Run from the repo directory with:")
+            print("  sudo PYTHONPATH=src python3 -m trcc.cli setup-udev")
             print("\nOr preview first:")
             print("  trcc setup-udev --dry-run")
             return 1

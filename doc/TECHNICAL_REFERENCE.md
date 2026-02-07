@@ -277,7 +277,7 @@ Ordinal is 0-based index assigned by sorting detected devices by `/dev/sgX` path
 
 ```bash
 # Install udev rules + USB storage quirks (required once)
-sudo trcc setup-udev
+sudo PYTHONPATH=src python3 -m trcc.cli setup-udev
 
 # Detect device
 trcc detect
@@ -303,7 +303,7 @@ trcc gui
 ### Permission denied
 ```bash
 # Install udev rules (preferred)
-sudo trcc setup-udev
+sudo PYTHONPATH=src python3 -m trcc.cli setup-udev
 # Then replug the USB cable
 
 # Or manually:
