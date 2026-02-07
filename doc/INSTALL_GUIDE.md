@@ -1106,6 +1106,22 @@ sudo PYTHONPATH=src python3 -m trcc.cli setup-udev
 pip install PyQt6
 ```
 
+### No system tray icon on GNOME
+
+**Cause:** GNOME removed built-in system tray support. Without it, TRCC can't show a tray icon.
+
+**Impact:** The app will still work — closing the window quits normally instead of minimizing to tray.
+
+**Fix (optional):** Install the AppIndicator extension to get tray support:
+```bash
+# Fedora
+sudo dnf install gnome-shell-extension-appindicator
+
+# Ubuntu / Debian
+sudo apt install gnome-shell-extension-appindicator-support
+```
+Then enable it in the **Extensions** app and log out/in.
+
 ### "Qt_6_PRIVATE_API not found" when launching GUI
 
 **Cause:** The pip-installed PyQt6 bundles its own Qt6 libraries, but your system's Qt6 (`/lib64/libQt6Core.so.6`) is being loaded instead. The version mismatch causes a symbol error. This is common on Fedora 42+ and other distros with newer system Qt6.
