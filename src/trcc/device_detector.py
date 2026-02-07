@@ -3,12 +3,17 @@
 USB LCD Device Detector
 Finds Thermalright LCD devices and maps them to SCSI or HID devices.
 
-Supported devices:
-- Thermalright: VID=0x87CD, PID=0x70DB  (SCSI)
-- ALi Corp:     VID=0x0416, PID=0x5406  (SCSI)
-- FROZEN WARFRAME: VID=0x0402, PID=0x3922 (SCSI)
-- ALi Corp HID H:  VID=0x0416, PID=0x530A (HID Type 2)
-- ALi Corp HID ALi: VID=0x0416, PID=0x53E6 (HID Type 3)
+Supported devices (SCSI — stable):
+- Thermalright: VID=0x87CD, PID=0x70DB
+- Winbond:      VID=0x0416, PID=0x5406
+- ALi Corp:     VID=0x0402, PID=0x3922
+
+Supported devices (HID — testing, requires hid-protocol-testing branch):
+- Winbond:      VID=0x0416, PID=0x5302  (Type 2)
+- Winbond:      VID=0x0416, PID=0x530A  (Type 2)
+- Winbond:      VID=0x0416, PID=0x53E6  (Type 3)
+- ALi Corp:     VID=0x0418, PID=0x5303  (Type 3)
+- ALi Corp:     VID=0x0418, PID=0x5304  (Type 3)
 """
 
 import os
@@ -50,7 +55,7 @@ KNOWN_DEVICES = {
         "implementation": "thermalright_lcd_v1"
     },
     (0x0416, 0x5406): {
-        "vendor": "ALi Corp",
+        "vendor": "Winbond",
         "product": "LCD Display (USBLCD)",
         "model": "CZTV",
         "button_image": "A1CZTV",
@@ -67,7 +72,7 @@ KNOWN_DEVICES = {
     # HID devices (from USBLCDNEW.exe — USB bulk transfer protocol)
     # Type 2: "H" variant — DA/DB/DC/DD magic, 512-byte aligned JPEG frames
     (0x0416, 0x530A): {
-        "vendor": "ALi Corp",
+        "vendor": "Winbond",
         "product": "LCD Display (HID H)",
         "model": "CZTV",
         "button_image": "A1CZTV",
@@ -77,8 +82,39 @@ KNOWN_DEVICES = {
     },
     # Type 3: "ALi" variant — F5 prefix, fixed 204816-byte frames with ACK
     (0x0416, 0x53E6): {
-        "vendor": "ALi Corp",
+        "vendor": "Winbond",
         "product": "LCD Display (HID ALi)",
+        "model": "CZTV",
+        "button_image": "A1CZTV",
+        "implementation": "hid_type3",
+        "protocol": "hid",
+        "device_type": 3,
+    },
+    # HID devices from UCDevice.cs (TRCC 2.0.3 decompiled — decimal PIDs confirmed)
+    # device2: UsbHidDevice(1046, 21250) = 0x0416:0x5302, DA/DB/DC/DD handshake, 512-byte chunks
+    (0x0416, 0x5302): {
+        "vendor": "Winbond",
+        "product": "USBDISPLAY (HID)",
+        "model": "CZTV",
+        "button_image": "A1CZTV",
+        "implementation": "hid_type2",
+        "protocol": "hid",
+        "device_type": 2,
+    },
+    # device3: UsbHidDevice(1048, 21251) = 0x0418:0x5303, 64-byte packets
+    (0x0418, 0x5303): {
+        "vendor": "ALi Corp",
+        "product": "LCD Display (HID)",
+        "model": "CZTV",
+        "button_image": "A1CZTV",
+        "implementation": "hid_type3",
+        "protocol": "hid",
+        "device_type": 3,
+    },
+    # device4: UsbHidDevice(1048, 21252) = 0x0418:0x5304
+    (0x0418, 0x5304): {
+        "vendor": "ALi Corp",
+        "product": "LCD Display (HID)",
         "model": "CZTV",
         "button_image": "A1CZTV",
         "implementation": "hid_type3",
@@ -87,12 +123,8 @@ KNOWN_DEVICES = {
     },
 }
 
-# USB HID devices (RGB controllers, etc.) - NOT LCD displays
-# These are separate devices that TRCC.exe also supports
-# VID=0x0416, PID=0x8001: RGB fan controllers (device1)
-# VID=0x0416, PID=0x5302: LCD/cooling controllers (device2)
-# VID=0x0418, PID=0x5303: Unknown variant (device3)
-# VID=0x0418, PID=0x5304: Unknown variant (device4)
+# Non-LCD HID devices (RGB controllers) — NOT supported by TRCC Linux
+# VID=0x0416, PID=0x8001: RGB fan controllers (device1 in UCDevice.cs)
 
 
 def run_command(cmd: List[str]) -> str:
