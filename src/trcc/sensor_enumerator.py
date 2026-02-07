@@ -31,6 +31,7 @@ try:
     pynvml.nvmlInit()
     NVML_AVAILABLE = True
 except Exception:
+    pynvml = None  # type: ignore[assignment]
     NVML_AVAILABLE = False
 
 
