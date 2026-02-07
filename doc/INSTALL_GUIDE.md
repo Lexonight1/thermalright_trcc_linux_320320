@@ -137,8 +137,8 @@ Covers: Fedora 39-43, RHEL 9+, CentOS Stream 9+, Rocky Linux 9+, AlmaLinux 9+
 # Required
 sudo dnf install python3-pip sg3_utils python3-pyqt6 ffmpeg
 
-# Optional (screen capture on Wayland, NVIDIA GPU sensors)
-sudo dnf install grim python3-gobject python3-dbus pipewire-devel
+# Optional (hardware sensors, screen capture on Wayland, NVIDIA GPU sensors)
+sudo dnf install lm_sensors grim python3-gobject python3-dbus pipewire-devel
 ```
 
 > **RHEL/Rocky/Alma note:** You may need to enable EPEL and CRB repositories for `ffmpeg` and `python3-pyqt6`:
@@ -158,8 +158,8 @@ Covers: Ubuntu 22.04+, Debian 12+, Linux Mint 21+, Pop!_OS 22.04+, Zorin OS 17+,
 # Required
 sudo apt install python3-pip python3-venv sg3-utils python3-pyqt6 ffmpeg
 
-# Optional (screen capture on Wayland, system tray)
-sudo apt install grim python3-gi python3-dbus python3-gst-1.0
+# Optional (hardware sensors, screen capture on Wayland, system tray)
+sudo apt install lm-sensors grim python3-gi python3-dbus python3-gst-1.0
 ```
 
 > **Debian 12 (Bookworm) note:** `python3-pyqt6` is available in the repo. On older Debian/Ubuntu releases where it's missing, use `pip install PyQt6`.
@@ -176,8 +176,8 @@ Covers: Arch Linux, Manjaro, EndeavourOS, CachyOS, Garuda Linux, Artix Linux, Ar
 # Required
 sudo pacman -S python-pip sg3_utils python-pyqt6 ffmpeg
 
-# Optional (screen capture on Wayland, NVIDIA GPU sensors)
-sudo pacman -S grim python-gobject python-dbus python-gst
+# Optional (hardware sensors, screen capture on Wayland, NVIDIA GPU sensors)
+sudo pacman -S lm_sensors grim python-gobject python-dbus python-gst
 ```
 
 > **CachyOS note:** CachyOS ships its own optimized repos. The package names are the same as Arch. If you use the CachyOS kernel, `sg3_utils` works out of the box.
@@ -194,8 +194,8 @@ Covers: openSUSE Tumbleweed, openSUSE Leap 15.5+, openSUSE MicroOS
 # Required
 sudo zypper install python3-pip sg3_utils python3-qt6 ffmpeg
 
-# Optional (screen capture on Wayland)
-sudo zypper install grim python3-gobject python3-dbus-python python3-gstreamer
+# Optional (hardware sensors, screen capture on Wayland)
+sudo zypper install sensors grim python3-gobject python3-dbus-python python3-gstreamer
 ```
 
 > **Leap note:** Leap's repos may have older PyQt6 versions. If you get import errors, use `pip install PyQt6` instead.
@@ -218,8 +218,8 @@ Nobara uses the same package manager as Fedora, with extra multimedia repos pre-
 # Required (ffmpeg is usually pre-installed on Nobara)
 sudo dnf install python3-pip sg3_utils python3-pyqt6 ffmpeg
 
-# Optional (screen capture on Wayland)
-sudo dnf install grim python3-gobject python3-dbus pipewire-devel
+# Optional (hardware sensors, screen capture on Wayland)
+sudo dnf install lm_sensors grim python3-gobject python3-dbus pipewire-devel
 ```
 
 ---
@@ -244,6 +244,7 @@ Edit `/etc/nixos/configuration.nix`:
     python3Packages.pillow
     python3Packages.psutil
     sg3_utils
+    lm_sensors
     ffmpeg
     p7zip
   ];
@@ -284,8 +285,8 @@ Covers: Void Linux (glibc and musl)
 # Required
 sudo xbps-install sg3_utils python3-pip python3-PyQt6 ffmpeg
 
-# Optional (screen capture on Wayland)
-sudo xbps-install grim python3-gobject python3-dbus python3-gst
+# Optional (hardware sensors, screen capture on Wayland)
+sudo xbps-install lm_sensors grim python3-gobject python3-dbus python3-gst
 ```
 
 > **Void musl note:** Some Python packages may not have pre-built wheels for musl. You may need `python3-devel` and a C compiler to build them:
@@ -309,8 +310,8 @@ Covers: Gentoo Linux, Funtoo, Calculate Linux
 # Required
 sudo emerge --ask sg3_utils dev-python/pip dev-python/PyQt6 media-video/ffmpeg
 
-# Optional (screen capture on Wayland)
-sudo emerge --ask gui-apps/grim dev-python/pygobject dev-python/dbus-python
+# Optional (hardware sensors, screen capture on Wayland)
+sudo emerge --ask sys-apps/lm-sensors gui-apps/grim dev-python/pygobject dev-python/dbus-python
 ```
 
 > **USE flags:** Make sure your PyQt6 package has the `widgets` and `gui` USE flags enabled:
@@ -333,8 +334,8 @@ Covers: Alpine Linux 3.18+, postmarketOS
 # Required
 sudo apk add python3 py3-pip sg3_utils py3-pyqt6 ffmpeg
 
-# Optional
-sudo apk add grim py3-gobject3 py3-dbus
+# Optional (hardware sensors, screen capture on Wayland)
+sudo apk add lm-sensors grim py3-gobject3 py3-dbus
 ```
 
 > **Alpine note:** Alpine uses musl libc. If `py3-pyqt6` isn't available in your release, you'll need to install from pip with build dependencies:
@@ -356,8 +357,8 @@ sudo eopkg install sg3_utils python3-pip ffmpeg
 # PyQt6 (may need pip)
 pip install PyQt6
 
-# Optional (screen capture on Wayland)
-sudo eopkg install grim python3-gobject python3-dbus
+# Optional (hardware sensors, screen capture on Wayland)
+sudo eopkg install lm-sensors grim python3-gobject python3-dbus
 ```
 
 ---
@@ -373,8 +374,8 @@ sudo swupd bundle-add python3-basic devpkg-sg3_utils ffmpeg
 # PyQt6 via pip (not bundled in Clear Linux)
 pip install PyQt6
 
-# Optional
-sudo swupd bundle-add devpkg-pipewire
+# Optional (hardware sensors, screen capture on Wayland)
+sudo swupd bundle-add sysadmin-basic devpkg-pipewire
 ```
 
 > **Clear Linux note:** You may need to install `sg3_utils` from source or find it in an alternative bundle. Check `sudo swupd search sg3` for the current bundle name.
@@ -386,7 +387,8 @@ sudo swupd bundle-add devpkg-pipewire
 | Package | Why it's needed |
 |---------|----------------|
 | `python3-pip` | Installs Python packages (like TRCC itself) |
-| `sg3_utils` | Sends data to the LCD over USB (SCSI commands) — **required** |
+| `sg3_utils` | Sends data to the LCD over USB (SCSI commands) — **required for SCSI devices** |
+| `lm-sensors` / `lm_sensors` | Hardware sensor readings (CPU/GPU temps, fan speeds) — improves sensor accuracy |
 | `PyQt6` / `python3-pyqt6` | The graphical user interface (GUI) toolkit |
 | `ffmpeg` | Video and GIF playback on the LCD |
 | `p7zip` / `7zip` | Extracts bundled theme `.7z` archives (optional if `py7zr` is installed) |
