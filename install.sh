@@ -335,12 +335,32 @@ create_desktop_shortcut() {
             exec_cmd="bash -c 'source $VENV_DIR/bin/activate && trcc gui'"
         fi
 
+        # Install icon to hicolor theme
+        local icon_src="$SCRIPT_DIR/src/trcc/assets/icons/trcc_256x256.png"
+        local icon_name="preferences-desktop-display"
+        if [ -f "$icon_src" ]; then
+            local icon_dir="$REAL_HOME/.local/share/icons/hicolor/256x256/apps"
+            sudo -u "$REAL_USER" mkdir -p "$icon_dir"
+            sudo -u "$REAL_USER" cp "$icon_src" "$icon_dir/trcc.png"
+            for size in 48 64 128; do
+                local small_src="$SCRIPT_DIR/src/trcc/assets/icons/trcc_${size}x${size}.png"
+                if [ -f "$small_src" ]; then
+                    local small_dir="$REAL_HOME/.local/share/icons/hicolor/${size}x${size}/apps"
+                    sudo -u "$REAL_USER" mkdir -p "$small_dir"
+                    sudo -u "$REAL_USER" cp "$small_src" "$small_dir/trcc.png"
+                fi
+            done
+            gtk-update-icon-cache "$REAL_HOME/.local/share/icons/hicolor" 2>/dev/null || true
+            icon_name="trcc"
+            info "Installed TRCC icon"
+        fi
+
         sudo -u "$REAL_USER" tee "$DESKTOP_FILE" > /dev/null << EOF
 [Desktop Entry]
 Name=TRCC Linux
 Comment=Thermalright LCD Control Center
 Exec=$exec_cmd
-Icon=preferences-desktop-display
+Icon=$icon_name
 Terminal=false
 Type=Application
 Categories=Utility;System;
