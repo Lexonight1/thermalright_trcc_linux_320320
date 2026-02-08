@@ -32,9 +32,20 @@ _AUTOSTART_FILE = _AUTOSTART_DIR / 'trcc.desktop'
 
 
 def _get_trcc_exec() -> str:
-    """Resolve full path to trcc binary for autostart Exec= line."""
+    """Resolve full path to trcc binary for autostart Exec= line.
+
+    Tries (in order):
+    1. shutil.which('trcc') — pip-installed entry point on PATH
+    2. PYTHONPATH=<src> python3 -m trcc.cli — git clone fallback
+    """
+    import sys
     trcc_path = shutil.which('trcc')
-    return trcc_path if trcc_path else 'trcc'
+    if trcc_path:
+        return trcc_path
+    # Fallback: use the running Python to invoke trcc as a module
+    # Resolve the src/ directory so PYTHONPATH is set correctly
+    src_dir = str(Path(__file__).parent.parent.parent)
+    return f'env PYTHONPATH={src_dir} {sys.executable} -m trcc.cli'
 
 
 def _make_desktop_entry() -> str:
