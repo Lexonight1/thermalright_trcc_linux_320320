@@ -398,11 +398,21 @@ def send_color(hex_color, device=None):
 def resume():
     """Send last-used theme to each detected device (headless, no GUI)."""
     try:
+        import time
+
         from trcc.device_detector import detect_devices
         from trcc.lcd_driver import LCDDriver
         from trcc.paths import device_config_key, get_device_config
 
-        devices = detect_devices()
+        # Wait for USB devices to appear (they may not be ready at boot)
+        devices = []
+        for attempt in range(10):
+            devices = detect_devices()
+            if devices:
+                break
+            print(f"Waiting for device... ({attempt + 1}/10)")
+            time.sleep(2)
+
         if not devices:
             print("No compatible TRCC device detected.")
             return 1

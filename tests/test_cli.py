@@ -798,13 +798,13 @@ class TestResume(unittest.TestCase):
         return dev
 
     def test_no_devices(self):
-        """No devices → returns 1."""
+        """No devices after retries → returns 1."""
         mock_det = MagicMock()
         mock_det.detect_devices.return_value = []
         with patch.dict('sys.modules', {
             'trcc.device_detector': mock_det,
             'trcc.lcd_driver': MagicMock(),
-        }):
+        }), patch('time.sleep'):
             result = resume()
         self.assertEqual(result, 1)
 
