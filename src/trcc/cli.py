@@ -66,7 +66,7 @@ Examples:
     parser.add_argument(
         "--last-one",
         action="store_true",
-        help="Send last-used theme to device and exit (no GUI)"
+        help="Start minimized to system tray with last-used theme (autostart)"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -132,7 +132,7 @@ Examples:
     args = parser.parse_args()
 
     if args.last_one:
-        return resume()
+        return gui(verbose=args.verbose, start_hidden=True)
 
     if args.command is None:
         parser.print_help()
@@ -169,8 +169,14 @@ Examples:
     return 0
 
 
-def gui(verbose=0, decorated=False):
-    """Launch the GUI application."""
+def gui(verbose=0, decorated=False, start_hidden=False):
+    """Launch the GUI application.
+
+    Args:
+        verbose: Logging verbosity (0=warning, 1=info, 2=debug).
+        decorated: Use decorated window with titlebar.
+        start_hidden: Start minimized to system tray (used by --last-one autostart).
+    """
     import logging
 
     # Set up logging based on verbosity (filter out noisy PIL)
@@ -185,7 +191,7 @@ def gui(verbose=0, decorated=False):
     try:
         from trcc.qt_components.qt_app_mvc import run_mvc_app
         print("[TRCC] Starting LCD Control Center...")
-        return run_mvc_app(decorated=decorated)
+        return run_mvc_app(decorated=decorated, start_hidden=start_hidden)
     except ImportError as e:
         print(f"Error: PyQt6 not available: {e}")
         print("Install with: pip install PyQt6")

@@ -1893,8 +1893,15 @@ class TRCCMainWindowMVC(QMainWindow):
             app.quit()
 
 
-def run_mvc_app(data_dir: Path | None = None, decorated: bool = False):
-    """Run the MVC PyQt6 application."""
+def run_mvc_app(data_dir: Path | None = None, decorated: bool = False,
+                start_hidden: bool = False):
+    """Run the MVC PyQt6 application.
+
+    Args:
+        data_dir: Override data directory path.
+        decorated: Use decorated window with titlebar.
+        start_hidden: Start minimized to system tray (--last-one autostart).
+    """
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
@@ -1904,7 +1911,8 @@ def run_mvc_app(data_dir: Path | None = None, decorated: bool = False):
     app.setFont(font)
 
     window = TRCCMainWindowMVC(data_dir, decorated=decorated)
-    window.show()
+    if not start_hidden:
+        window.show()
 
     return app.exec()
 
