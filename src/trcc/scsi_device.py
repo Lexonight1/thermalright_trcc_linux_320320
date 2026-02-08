@@ -10,16 +10,27 @@ auto-detection during device discovery.
 """
 
 import binascii
+import logging
 import os
 import struct
 import subprocess
 import tempfile
+import time
 from typing import Dict, List, Set
 
 from .paths import require_sg_raw
 
+log = logging.getLogger(__name__)
+
 # Track which devices have been initialized (poll + init sent)
 _initialized_devices: Set[str] = set()
+
+# Boot signature: device still initializing its display controller
+_BOOT_SIGNATURE = b'\xa1\xa2\xa3\xa4'
+_BOOT_WAIT_SECONDS = 3.0
+_BOOT_MAX_RETRIES = 5
+# Brief pause after init before first frame (lets controller settle)
+_POST_INIT_DELAY = 0.1
 
 # NOTE: SCSI devices (0402:3922, 87CD:70DB, 0416:5406) cannot be identified
 # beyond their VID:PID. The firmware reports "USBLCD / USB PRC System" for all
@@ -96,14 +107,32 @@ def _scsi_write(dev: str, header: bytes, data: bytes) -> bool:
 
 
 def _init_device(dev: str):
-    """Poll + init handshake (must be called before first frame send)."""
-    # Step 1: Poll
+    """Poll + init handshake (must be called before first frame send).
+
+    Matches USBLCD.exe initialization sequence:
+    1. Poll (cmd=0xF5) → read 0xE100 bytes
+    2. If bytes[4:8] == 0xA1A2A3A4, device is still booting → wait 3s, re-poll
+    3. Init (cmd=0x1F5) → write 0xE100 zeros
+    4. Brief delay to let display controller settle before first frame
+    """
     poll_header = _build_header(0xF5, 0xE100)
-    _scsi_read(dev, poll_header[:16], 0xE100)
+
+    # Step 1: Poll with boot state check
+    for attempt in range(_BOOT_MAX_RETRIES):
+        response = _scsi_read(dev, poll_header[:16], 0xE100)
+        if len(response) >= 8 and response[4:8] == _BOOT_SIGNATURE:
+            log.info("Device %s still booting (attempt %d/%d), waiting %.0fs...",
+                     dev, attempt + 1, _BOOT_MAX_RETRIES, _BOOT_WAIT_SECONDS)
+            time.sleep(_BOOT_WAIT_SECONDS)
+        else:
+            break
 
     # Step 2: Init
     init_header = _build_header(0x1F5, 0xE100)
     _scsi_write(dev, init_header, b'\x00' * 0xE100)
+
+    # Step 3: Brief delay to let display controller settle
+    time.sleep(_POST_INIT_DELAY)
 
 
 def _send_frame(dev: str, rgb565_data: bytes, width: int = 320, height: int = 320):

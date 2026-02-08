@@ -6,8 +6,12 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from trcc.scsi_device import (
+    _BOOT_MAX_RETRIES,
+    _BOOT_SIGNATURE,
+    _BOOT_WAIT_SECONDS,
     _CHUNK_SIZE,
     _FRAME_CMD_BASE,
+    _POST_INIT_DELAY,
     _build_header,
     _crc32,
     _get_frame_chunks,
@@ -19,6 +23,23 @@ from trcc.scsi_device import (
     find_lcd_devices,
     send_image_to_device,
 )
+
+
+class TestBootConstants(unittest.TestCase):
+    """Verify boot state constants match USBLCD.exe protocol."""
+
+    def test_boot_signature(self):
+        self.assertEqual(_BOOT_SIGNATURE, b'\xa1\xa2\xa3\xa4')
+
+    def test_boot_wait_seconds(self):
+        self.assertEqual(_BOOT_WAIT_SECONDS, 3.0)
+
+    def test_boot_max_retries(self):
+        self.assertGreaterEqual(_BOOT_MAX_RETRIES, 3)
+
+    def test_post_init_delay(self):
+        self.assertGreater(_POST_INIT_DELAY, 0)
+        self.assertLessEqual(_POST_INIT_DELAY, 1.0)
 
 
 class TestCRC32(unittest.TestCase):
@@ -185,9 +206,11 @@ class TestScsiWrite(unittest.TestCase):
 
 class TestInitDevice(unittest.TestCase):
 
+    @patch('trcc.scsi_device.time.sleep')
     @patch('trcc.scsi_device._scsi_write')
     @patch('trcc.scsi_device._scsi_read')
-    def test_sends_poll_then_init(self, mock_read, mock_write):
+    def test_sends_poll_then_init(self, mock_read, mock_write, mock_sleep):
+        mock_read.return_value = b'\x00' * 16  # No boot signature
         _init_device('/dev/sg0')
         mock_read.assert_called_once()
         mock_write.assert_called_once()
@@ -197,6 +220,85 @@ class TestInitDevice(unittest.TestCase):
         # Init write sends 0xE100 bytes of zeros
         write_args = mock_write.call_args
         self.assertEqual(len(write_args[0][2]), 0xE100)
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_post_init_delay(self, mock_read, mock_write, mock_sleep):
+        """Post-init delay lets display controller settle."""
+        mock_read.return_value = b'\x00' * 16
+        _init_device('/dev/sg0')
+        # Last sleep call should be the post-init delay
+        mock_sleep.assert_called_with(_POST_INIT_DELAY)
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_boot_signature_waits_and_retries(self, mock_read, mock_write, mock_sleep):
+        """Device returning 0xA1A2A3A4 at bytes[4:8] triggers wait + re-poll."""
+        boot_response = b'\x00' * 4 + _BOOT_SIGNATURE + b'\x00' * 8
+        ready_response = b'\x64' + b'\x00' * 15  # 320x320, no boot sig
+        mock_read.side_effect = [boot_response, ready_response]
+
+        _init_device('/dev/sg0')
+
+        # Should have polled twice
+        self.assertEqual(mock_read.call_count, 2)
+        # Should have waited once for boot + once for post-init
+        calls = mock_sleep.call_args_list
+        self.assertEqual(calls[0][0][0], _BOOT_WAIT_SECONDS)
+        self.assertEqual(calls[1][0][0], _POST_INIT_DELAY)
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_boot_signature_max_retries(self, mock_read, mock_write, mock_sleep):
+        """Gives up after _BOOT_MAX_RETRIES attempts."""
+        boot_response = b'\x00' * 4 + _BOOT_SIGNATURE + b'\x00' * 8
+        mock_read.return_value = boot_response  # Always booting
+
+        _init_device('/dev/sg0')
+
+        # Polled max retries times
+        self.assertEqual(mock_read.call_count, _BOOT_MAX_RETRIES)
+        # Still sends init even after max retries (best effort)
+        mock_write.assert_called_once()
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_empty_poll_response_no_wait(self, mock_read, mock_write, mock_sleep):
+        """Empty poll response (error) doesn't trigger boot wait."""
+        mock_read.return_value = b''  # Command failed
+        _init_device('/dev/sg0')
+        mock_read.assert_called_once()
+        # Only post-init delay, no boot wait
+        mock_sleep.assert_called_once_with(_POST_INIT_DELAY)
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_short_poll_response_no_wait(self, mock_read, mock_write, mock_sleep):
+        """Poll response shorter than 8 bytes doesn't trigger boot check."""
+        mock_read.return_value = b'\x64\x00\x00\x00'  # Only 4 bytes
+        _init_device('/dev/sg0')
+        mock_read.assert_called_once()
+        mock_sleep.assert_called_once_with(_POST_INIT_DELAY)
+
+    @patch('trcc.scsi_device.time.sleep')
+    @patch('trcc.scsi_device._scsi_write')
+    @patch('trcc.scsi_device._scsi_read')
+    def test_boot_then_ready_on_second_poll(self, mock_read, mock_write, mock_sleep):
+        """Boot signature on first poll, ready on second — only 1 wait."""
+        boot = b'\x00' * 4 + _BOOT_SIGNATURE + b'\x00' * 8
+        ready = b'\x64' + b'\x00' * 15
+        mock_read.side_effect = [boot, ready]
+
+        _init_device('/dev/sg0')
+
+        self.assertEqual(mock_read.call_count, 2)
+        sleep_calls = [c[0][0] for c in mock_sleep.call_args_list]
+        self.assertEqual(sleep_calls, [_BOOT_WAIT_SECONDS, _POST_INIT_DELAY])
 
 
 # ── Send frame ───────────────────────────────────────────────────────────────

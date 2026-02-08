@@ -763,7 +763,7 @@ def install_desktop():
     # Find repo root (where trcc.desktop lives)
     repo_root = Path(__file__).parent.parent.parent
     desktop_src = repo_root / "trcc.desktop"
-    icon_src = repo_root / "src" / "assets" / "icons" / "trcc_256x256.png"
+    icon_src = repo_root / "src" / "trcc" / "assets" / "icons" / "trcc_256x256.png"
 
     if not desktop_src.exists():
         print(f"Error: {desktop_src} not found. Run from the repo directory.")
