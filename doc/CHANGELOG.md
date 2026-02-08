@@ -21,15 +21,23 @@
 - Documented all CDB commands, handshake sequences, frame transfer formats
 - New docs: [USBLCD_PROTOCOL.md](USBLCD_PROTOCOL.md), [USBLCDNEW_PROTOCOL.md](USBLCDNEW_PROTOCOL.md)
 
+### LCD Blink Mitigation
+- SCSI init now checks poll response for `0xA1A2A3A4` boot signature (matching USBLCD.exe)
+- If device is still booting, waits 3s and re-polls (up to 5 retries)
+- Added 100ms post-init delay to let display controller settle before first frame
+
 ### Code Quality
-- `ruff` linting enforced (E/F/W/I rules) — 0 violations
+- `ruff` linting enforced in CI (E/F/W/I rules) — 0 violations across 26 files
+- Fixed 122 ruff violations (unsorted imports, unused vars, f-strings, lambda, class redefinition)
 - Removed unused imports across 10 files
 - Sorted all import blocks (isort)
+- Removed redundant `requirements.txt` (`pyproject.toml` is single source of truth)
 
-### Multi-Resolution Theme Archives
+### On-Demand Download
 - All 15 LCD resolutions now have bundled `.7z` theme archives (was 4)
 - New resolutions: 240x320, 360x360, 800x480, 854x480, 960x540, 1280x480, 1600x720, 1920x462, plus portrait variants
-- On-demand download: if a resolution's archive isn't bundled locally, downloads from GitHub on first use
+- On-demand download for themes, cloud previews, and mask archives from GitHub on first use
+- 33 Web archives (cloud previews + masks) for all resolutions
 - Downloaded archives stored in `~/.trcc/data/` when package dir is read-only (pip install)
 - Cross-distro 7z install help shown when neither `py7zr` nor system `7z` is available
 
@@ -51,6 +59,9 @@
 - Fixed json import ordering in controllers
 - Fixed saved theme overlay not rendering (overlay must enable before background load)
 - Fixed tab 2 mask not persisting in saved themes (mask source directory tracking)
+- Fixed `install_desktop()` icon path (`src/assets/` → `src/trcc/assets/`)
+- Fixed `install.sh` desktop shortcut using generic icon instead of TRCC icon
+- Fixed CI workflow missing libEGL and QT_QPA_PLATFORM for PyQt6 tests
 
 ### Documentation
 - Added [Supported Devices](SUPPORTED_DEVICES.md) page with all USB IDs
@@ -59,7 +70,7 @@
 - Removed `--testing-hid` references from all docs (HID is auto-detected)
 
 ### Testing
-- 1836 tests across 25 test files (up from 1777)
+- 1849 tests across 25 test files (up from 1777)
 - 96% coverage on non-Qt backend
 
 ## v1.1.3
