@@ -825,7 +825,7 @@ class LEDModel:
 
     def set_mode(self, mode: LEDMode) -> None:
         """Set LED effect mode."""
-        self.state.mode = mode
+        self.state.mode = LEDMode(mode) if not isinstance(mode, LEDMode) else mode
         self.state.rgb_timer = 0  # Reset animation
         self._notify_state_changed()
 
@@ -853,7 +853,7 @@ class LEDModel:
     def set_zone_mode(self, zone: int, mode: LEDMode) -> None:
         """Set mode for a specific zone (multi-zone devices)."""
         if 0 <= zone < len(self.state.zones):
-            self.state.zones[zone].mode = mode
+            self.state.zones[zone].mode = LEDMode(mode) if not isinstance(mode, LEDMode) else mode
             self._notify_state_changed()
 
     def set_zone_color(self, zone: int, r: int, g: int, b: int) -> None:
