@@ -1700,48 +1700,288 @@ class TestFormCZTVFinalEdgeCases(unittest.TestCase):
                  patch.object(self.ctrl, '_update_status'):
                 self.ctrl.load_local_theme(theme)
 
-    # -- save_theme: ImportError on dc_writer (lines 815-816) --
-    def test_save_theme_no_dc_writer(self):
-        """save_theme succeeds even when dc_writer import fails."""
+    # -- save_theme: general exception during save --
+    def test_save_theme_write_failure(self):
+        """save_theme catches general exceptions during JSON write."""
         self.ctrl.current_image = _make_test_image()
         with tempfile.TemporaryDirectory() as tmp:
-            with patch('trcc.core.controllers.FormCZTVController._image_to_rgb565'), \
-                 patch.dict('sys.modules', {'trcc.dc_writer': None}):
-                ok, msg = self.ctrl.save_theme('Test', Path(tmp))
-            self.assertTrue(ok)
-            self.assertIn('Saved', msg)
-
-    # -- save_theme: general exception (lines 826-827) --
-    def test_save_theme_copy_failure(self):
-        """save_theme catches general exceptions during copy."""
-        self.ctrl.current_image = _make_test_image()
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch('shutil.copy2', side_effect=OSError('disk full')):
+            with patch('builtins.open', side_effect=OSError('disk full')):
                 ok, msg = self.ctrl.save_theme('Fail', Path(tmp))
             self.assertFalse(ok)
             self.assertIn('Save failed', msg)
 
-    # -- save_theme: bg doesn't exist, no current_image for thumb (795→801, 821→820) --
-    def test_save_theme_no_bg_no_thumb(self):
-        """save_theme handles missing bg / thumbnail edge case."""
-        # current_image exists but save it so 00.png is created,
-        # then clear current_image before thumbnail step
+    # -- save_theme: no current_theme_path → background is None in config.json --
+    def test_save_theme_no_current_theme_path(self):
+        """save_theme works when current_theme_path is None (no source theme)."""
         self.ctrl.current_image = _make_test_image()
+        self.ctrl.current_theme_path = None
         with tempfile.TemporaryDirectory() as tmp:
-            original_save = Image.Image.save
-
-            call_count = [0]
-            def save_then_clear(img_self, path, *a, **kw):
-                original_save(img_self, path, *a, **kw)
-                call_count[0] += 1
-                if call_count[0] == 1:
-                    # After saving 00.png, clear current_image
-                    self.ctrl.current_image = None
-
-            with patch.object(Image.Image, 'save', save_then_clear):
-                ok, msg = self.ctrl.save_theme('EdgeCase', Path(tmp))
-            # Should still succeed — thumbnail step is skipped
+            ok, msg = self.ctrl.save_theme('NoSource', Path(tmp))
             self.assertTrue(ok)
+            theme_path = Path(tmp) / 'Theme320320' / 'Custom_NoSource'
+            with open(str(theme_path / 'config.json')) as f:
+                config = json.load(f)
+            self.assertIsNone(config['background'])
+
+
+# =============================================================================
+# Reference theme save/load (config.json with path references)
+# =============================================================================
+
+class TestReferenceThemeSaveLoad(unittest.TestCase):
+    """Test config.json reference format save and load paths."""
+
+    def setUp(self):
+        self.ctrl, self.patches = _make_form_controller()
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        self.ctrl.cleanup()
+        _stop_patches(self.patches)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_ref_theme(self, name='RefTheme', background=None, mask=None,
+                        dc=None, mask_position=None):
+        """Create a theme directory with config.json in reference format."""
+        d = Path(self.tmp) / name
+        d.mkdir(parents=True, exist_ok=True)
+        # Write a 00.png fallback
+        img = _make_test_image(self.ctrl.lcd_width, self.ctrl.lcd_height)
+        img.save(str(d / '00.png'))
+        # Write config.json
+        config = {
+            'background': background,
+            'mask': mask,
+            'dc': dc or {},
+        }
+        if mask_position:
+            config['mask_position'] = list(mask_position)
+        with open(str(d / 'config.json'), 'w') as f:
+            json.dump(config, f)
+        return d
+
+    # -- load_local_theme: reference with static image background --
+    def test_load_ref_static_image(self):
+        """load_local_theme with config.json referencing a static image."""
+        bg_dir = Path(self.tmp) / 'bg_source'
+        bg_dir.mkdir()
+        bg_img = _make_test_image()
+        bg_path = bg_dir / 'wallpaper.png'
+        bg_img.save(str(bg_path))
+
+        theme_dir = self._make_ref_theme(background=str(bg_path))
+        theme = ThemeInfo(name='RefStatic', path=theme_dir)
+
+        statuses = []
+        self.ctrl.on_status_update = lambda s: statuses.append(s)
+        self.ctrl.load_local_theme(theme)
+
+        self.assertIsNotNone(self.ctrl.current_image)
+        self.assertEqual(self.ctrl.current_theme_path, theme_dir)
+        self.assertIn('Theme: RefStatic', statuses)
+
+    # -- load_local_theme: reference with video background --
+    def test_load_ref_video(self):
+        """load_local_theme with config.json referencing an mp4."""
+        video_path = Path(self.tmp) / 'source' / 'clip.mp4'
+        video_path.parent.mkdir()
+        video_path.write_bytes(b'\x00' * 100)  # dummy
+
+        theme_dir = self._make_ref_theme(background=str(video_path))
+        theme = ThemeInfo(name='RefVideo', path=theme_dir)
+
+        with patch.object(self.ctrl.video, 'load', return_value=True), \
+             patch.object(self.ctrl.video, 'play'), \
+             patch.object(self.ctrl.video.model, 'get_frame', return_value=_make_test_image()):
+            self.ctrl.load_local_theme(theme)
+            self.ctrl.video.load.assert_called_once_with(video_path)
+            self.ctrl.video.play.assert_called_once()
+
+    # -- load_local_theme: reference with .zt background --
+    def test_load_ref_zt(self):
+        """load_local_theme with config.json referencing a .zt file."""
+        zt_path = Path(self.tmp) / 'source' / 'Theme.zt'
+        zt_path.parent.mkdir()
+        zt_path.write_bytes(b'\xdc\x00')
+
+        theme_dir = self._make_ref_theme(background=str(zt_path))
+        theme = ThemeInfo(name='RefZT', path=theme_dir)
+
+        with patch.object(self.ctrl.video, 'load', return_value=True), \
+             patch.object(self.ctrl.video, 'play'):
+            self.ctrl.load_local_theme(theme)
+            self.ctrl.video.load.assert_called_once_with(zt_path)
+
+    # -- load_local_theme: reference with overlay enabled --
+    def test_load_ref_overlay_enabled(self):
+        """load_local_theme enables overlay when dc has elements and bg exists."""
+        bg_dir = Path(self.tmp) / 'bg_src'
+        bg_dir.mkdir()
+        bg_img = _make_test_image()
+        bg_path = bg_dir / 'bg.png'
+        bg_img.save(str(bg_path))
+
+        dc = {'time_0': {'x': 10, 'y': 20, 'metric': 'time'}}
+        theme_dir = self._make_ref_theme(background=str(bg_path), dc=dc)
+        theme = ThemeInfo(name='RefOverlay', path=theme_dir)
+
+        self.ctrl.load_local_theme(theme)
+        # Overlay should be enabled since dc has elements
+        self.assertTrue(self.ctrl.overlay.is_enabled())
+
+    def test_load_ref_overlay_disabled_empty_dc(self):
+        """load_local_theme does not enable overlay when dc is empty."""
+        bg_dir = Path(self.tmp) / 'bg_src2'
+        bg_dir.mkdir()
+        bg_img = _make_test_image()
+        bg_path = bg_dir / 'bg.png'
+        bg_img.save(str(bg_path))
+
+        theme_dir = self._make_ref_theme(background=str(bg_path), dc={})
+        theme = ThemeInfo(name='RefNoOverlay', path=theme_dir)
+
+        self.ctrl.load_local_theme(theme)
+        self.assertFalse(self.ctrl.overlay.is_enabled())
+
+    # -- load_local_theme: reference with mask --
+    def test_load_ref_with_mask(self):
+        """load_local_theme loads mask from reference path."""
+        bg_dir = Path(self.tmp) / 'bg_src'
+        bg_dir.mkdir()
+        bg_img = _make_test_image()
+        bg_path = bg_dir / 'bg.png'
+        bg_img.save(str(bg_path))
+
+        mask_dir = Path(self.tmp) / 'mask_src'
+        mask_dir.mkdir()
+        mask_img = _make_test_image(color=(0, 0, 255))
+        mask_img.save(str(mask_dir / '01.png'))
+
+        theme_dir = self._make_ref_theme(
+            background=str(bg_path), mask=str(mask_dir),
+            mask_position=[160, 160])
+        theme = ThemeInfo(name='RefMask', path=theme_dir)
+
+        self.ctrl.load_local_theme(theme)
+        self.assertIsNotNone(self.ctrl.current_image)
+
+    # -- load_local_theme: reference with nonexistent background --
+    def test_load_ref_missing_background(self):
+        """load_local_theme with config.json pointing to missing file."""
+        theme_dir = self._make_ref_theme(background='/nonexistent/bg.png')
+        theme = ThemeInfo(name='RefMissing', path=theme_dir)
+
+        statuses = []
+        self.ctrl.on_status_update = lambda s: statuses.append(s)
+        self.ctrl.load_local_theme(theme)
+        # Should still complete (early return path) without crashing
+        self.assertIn('Theme: RefMissing', statuses)
+
+    # -- load_local_theme: fallback for non-reference theme (no config.json) --
+    def test_load_fallback_no_config_json(self):
+        """load_local_theme without config.json uses original copy-to-workdir."""
+        d = Path(self.tmp) / 'OldTheme'
+        d.mkdir()
+        _make_test_image().save(str(d / '00.png'))
+        theme = ThemeInfo(name='OldStyle', path=d)
+
+        self.ctrl.load_local_theme(theme)
+        self.assertIsNotNone(self.ctrl.current_image)
+
+    # -- save_theme: writes config.json with path references --
+    def test_save_theme_writes_config_json(self):
+        """save_theme creates config.json with background/mask/dc keys."""
+        self.ctrl.current_image = _make_test_image()
+        source_dir = Path(self.tmp) / 'source_theme'
+        source_dir.mkdir()
+        _make_test_image().save(str(source_dir / '00.png'))
+        self.ctrl.current_theme_path = source_dir
+
+        ok, msg = self.ctrl.save_theme('JsonSave', Path(self.tmp))
+        self.assertTrue(ok)
+        self.assertIn('Custom_JsonSave', msg)
+
+        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_JsonSave'
+        self.assertTrue((theme_path / 'config.json').exists())
+        self.assertTrue((theme_path / 'Theme.png').exists())
+        self.assertTrue((theme_path / '00.png').exists())
+
+        with open(str(theme_path / 'config.json')) as f:
+            config = json.load(f)
+        self.assertIn('background', config)
+        self.assertIn('mask', config)
+        self.assertIn('dc', config)
+        # Background should reference the source 00.png
+        self.assertEqual(config['background'], str(source_dir / '00.png'))
+
+    # -- save_theme: video playing → background is video path --
+    def test_save_theme_video_background(self):
+        """save_theme references video path when video is playing."""
+        self.ctrl.current_image = _make_test_image()
+        self.ctrl.current_theme_path = Path(self.tmp) / 'src'
+        self.ctrl.current_theme_path.mkdir()
+
+        with patch.object(self.ctrl.video, 'is_playing', return_value=True), \
+             patch.object(type(self.ctrl.video.model), 'source_path',
+                          new_callable=PropertyMock,
+                          return_value=Path('/videos/clip.mp4')):
+            ok, msg = self.ctrl.save_theme('VidRef', Path(self.tmp))
+
+        self.assertTrue(ok)
+        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_VidRef'
+        with open(str(theme_path / 'config.json')) as f:
+            config = json.load(f)
+        self.assertEqual(config['background'], '/videos/clip.mp4')
+
+    # -- save_theme: with mask → mask path set in config.json --
+    def test_save_theme_with_mask(self):
+        """save_theme includes mask path when mask is active."""
+        self.ctrl.current_image = _make_test_image()
+        source_dir = Path(self.tmp) / 'mask_src'
+        source_dir.mkdir()
+        _make_test_image().save(str(source_dir / '00.png'))
+        mask_img = _make_test_image(color=(0, 0, 255))
+        mask_img.save(str(source_dir / '01.png'))
+        self.ctrl.current_theme_path = source_dir
+
+        # Set mask on overlay
+        with patch.object(self.ctrl.overlay, 'get_theme_mask',
+                          return_value=(mask_img, (160, 160))):
+            ok, msg = self.ctrl.save_theme('MaskRef', Path(self.tmp))
+
+        self.assertTrue(ok)
+        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_MaskRef'
+        with open(str(theme_path / 'config.json')) as f:
+            config = json.load(f)
+        self.assertEqual(config['mask'], str(source_dir))
+        self.assertEqual(config['mask_position'], [160, 160])
+
+    # -- save_theme: no mask → mask is null --
+    def test_save_theme_no_mask(self):
+        """save_theme sets mask to null when no mask active."""
+        self.ctrl.current_image = _make_test_image()
+        self.ctrl.current_theme_path = Path(self.tmp) / 'nomask'
+        self.ctrl.current_theme_path.mkdir()
+
+        ok, msg = self.ctrl.save_theme('NoMask', Path(self.tmp))
+        self.assertTrue(ok)
+        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_NoMask'
+        with open(str(theme_path / 'config.json')) as f:
+            config = json.load(f)
+        self.assertIsNone(config['mask'])
+        self.assertNotIn('mask_position', config)
+
+    # -- save_theme: updates current_theme_path after save --
+    def test_save_theme_updates_current_path(self):
+        """save_theme sets current_theme_path to the new Custom_ dir."""
+        self.ctrl.current_image = _make_test_image()
+        self.ctrl.current_theme_path = Path(self.tmp) / 'original'
+        self.ctrl.current_theme_path.mkdir()
+
+        ok, _ = self.ctrl.save_theme('PathUpdate', Path(self.tmp))
+        self.assertTrue(ok)
+        expected = Path(self.tmp) / 'Theme320320' / 'Custom_PathUpdate'
+        self.assertEqual(self.ctrl.current_theme_path, expected)
 
 
 class TestCreateController(unittest.TestCase):

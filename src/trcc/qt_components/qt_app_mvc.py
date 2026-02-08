@@ -962,6 +962,10 @@ class TRCCMainWindowMVC(QMainWindow):
             if self._led_active:
                 self._stop_led_view()
             self._show_view('form')
+            # Skip full reload if same device already selected
+            current = self.controller.devices.get_selected()
+            if current and current.path == device.path:
+                return
             self.controller.devices.select_device(device)
 
     def _select_theme_from_path(self, path: Path):
@@ -1707,23 +1711,44 @@ class TRCCMainWindowMVC(QMainWindow):
     # =========================================================================
 
     def _load_theme_overlay_config(self, theme_dir: Path):
-        """Load overlay config from theme's config1.dc into settings panel."""
-        dc_path = theme_dir / 'config1.dc'
-        if not dc_path.exists():
-            return
-        try:
-            from ..dc_parser import dc_to_overlay_config, parse_dc_file
-            dc_data = parse_dc_file(str(dc_path))
-            overlay_config = dc_to_overlay_config(dc_data)
-            self.uc_theme_setting.load_from_overlay_config(overlay_config)
+        """Load overlay config from theme's config.json or config1.dc into settings panel."""
+        overlay_config = None
 
-            # Auto-enable overlay and start metrics when DC has elements
-            if overlay_config:
-                self.controller.overlay.set_config(overlay_config)
-                self.controller.overlay.enable(True)
-                self.start_metrics()
-        except Exception:
-            pass
+        # Try reference config.json first (Custom_ themes saved with path refs)
+        json_path = theme_dir / 'config.json'
+        if json_path.exists():
+            try:
+                from ..dc_parser import load_config_json
+                result = load_config_json(str(json_path))
+                if result is not None:
+                    overlay_config = result[0]  # (overlay_config, display_options)
+            except Exception:
+                pass
+
+        # Fall back to binary config1.dc
+        if overlay_config is None:
+            dc_path = theme_dir / 'config1.dc'
+            if not dc_path.exists():
+                return
+            try:
+                from ..dc_parser import dc_to_overlay_config, parse_dc_file
+                dc_data = parse_dc_file(str(dc_path))
+                overlay_config = dc_to_overlay_config(dc_data)
+            except Exception:
+                return
+
+        if overlay_config:
+            self.uc_theme_setting.load_from_overlay_config(overlay_config)
+            self.controller.overlay.set_config(overlay_config)
+            self.controller.overlay.enable(True)
+            self.start_metrics()
+
+            # Persist to per-device config so overlay survives device re-selection
+            if self._active_device_key:
+                save_device_setting(self._active_device_key, 'overlay', {
+                    'enabled': True,
+                    'config': overlay_config,
+                })
 
     # =========================================================================
     # Device Hot-Plug

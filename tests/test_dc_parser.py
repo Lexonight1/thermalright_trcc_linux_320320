@@ -1694,5 +1694,136 @@ class TestLoadConfigJson(unittest.TestCase):
             self.assertNotIn('animation_file', display_options)
 
 
+class TestLoadConfigJsonReferenceFormat(unittest.TestCase):
+    """Test load_config_json with new reference format (background/mask/dc)."""
+
+    def test_reference_format_full(self):
+        """Reference format with background, mask, dc, and mask_position."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'background': '/path/to/video.mp4',
+                'mask': '/path/to/mask_dir/',
+                'dc': {'time_0': {'x': 10, 'y': 20, 'metric': 'time'}},
+                'mask_position': [160, 160],
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            overlay_config, display_options = result
+            self.assertEqual(overlay_config['time_0']['x'], 10)
+            self.assertEqual(display_options['background_path'], '/path/to/video.mp4')
+            self.assertEqual(display_options['mask_path'], '/path/to/mask_dir/')
+            self.assertEqual(display_options['mask_position'], (160, 160))
+            self.assertTrue(display_options['overlay_enabled'])
+
+    def test_reference_format_no_mask(self):
+        """Reference format with background only, no mask."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'background': '/path/to/image.png',
+                'mask': None,
+                'dc': {},
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            overlay_config, display_options = result
+            self.assertEqual(overlay_config, {})
+            self.assertEqual(display_options['background_path'], '/path/to/image.png')
+            self.assertNotIn('mask_path', display_options)
+            self.assertFalse(display_options['overlay_enabled'])
+
+    def test_reference_format_no_background(self):
+        """Reference format with mask but no background."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'background': None,
+                'mask': '/path/to/mask/',
+                'dc': {'cpu_0': {'x': 5, 'y': 5}},
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            overlay_config, display_options = result
+            self.assertEqual(overlay_config['cpu_0']['x'], 5)
+            self.assertNotIn('background_path', display_options)
+            self.assertEqual(display_options['mask_path'], '/path/to/mask/')
+            self.assertTrue(display_options['overlay_enabled'])
+
+    def test_reference_format_no_mask_position(self):
+        """Reference format without mask_position key."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'background': '/path/to/bg.png',
+                'mask': '/path/to/mask/',
+                'dc': {},
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            _, display_options = result
+            self.assertNotIn('mask_position', display_options)
+
+    def test_reference_format_empty_dc(self):
+        """Reference format with empty dc dict means overlay_enabled=False."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {'background': '/bg.png', 'mask': None, 'dc': {}}
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            _, display_options = result
+            self.assertFalse(display_options['overlay_enabled'])
+
+    def test_legacy_format_still_works(self):
+        """Legacy format with 'elements' key still parses correctly."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'version': 1,
+                'display': {'rotation': 90},
+                'elements': {'time': {'x': 10, 'y': 20, 'metric': 'time'}},
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            overlay_config, display_options = result
+            self.assertEqual(overlay_config['time']['x'], 10)
+            self.assertEqual(display_options['rotation'], 90)
+
+    def test_not_a_dict(self):
+        """JSON that's not a dict returns None."""
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump([1, 2, 3], f)
+            result = load_config_json(path)
+            self.assertIsNone(result)
+
+
 if __name__ == '__main__':
     unittest.main()

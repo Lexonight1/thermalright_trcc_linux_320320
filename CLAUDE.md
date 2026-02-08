@@ -31,9 +31,10 @@ Semantic versioning: MAJOR.MINOR.PATCH
 
 ## Test Suite
 
-**1777 tests** across 27 test files — **96% coverage** on non-Qt backend (4696 stmts, 121 miss, 1462 branches, 144 partial)
+**1817 tests** across 25 test files — **96% coverage** on non-Qt backend (4696 stmts, 121 miss, 1462 branches, 144 partial)
 
 CI runs on `main`, `stable`, and `hid-protocol-testing` branches (Python 3.10, 3.11, 3.12).
+CI workflows: `tests.yml` (pytest+pyright), `ci.yml`, `codeql.yml`, `codeql-analysis.yml`, `release.yml`.
 
 Run per-module: `pytest tests/test_X.py --cov=trcc.X --cov-report=term-missing`
 
@@ -68,6 +69,8 @@ Run per-module: `pytest tests/test_X.py --cov=trcc.X --cov-report=term-missing`
 | test_led_device | led_device (LED protocol) | 245 | — |
 | test_led_controller | led_controller (FormLED) | 131 | — |
 
+**Total: 1817 tests across 25 test files**
+
 Qt tests require `QT_QPA_PLATFORM=offscreen` (headless, no display server).
 HID and LED tests (`tests/hid_testing/`) are on the `hid-protocol-testing` branch only.
 
@@ -96,7 +99,13 @@ PYTHONPATH=src python3 -m trcc.cli gui
 # Run with window decorations (for debugging)
 PYTHONPATH=src python3 -m trcc.cli gui --decorated
 
-# Device detection
+# Autostart mode (minimized to system tray, sends last theme)
+PYTHONPATH=src python3 -m trcc.cli --last-one
+
+# Headless resume (send last theme to each device, no GUI)
+PYTHONPATH=src python3 -m trcc.cli resume
+
+# Device detection (HID devices auto-detected, no --testing-hid needed)
 PYTHONPATH=src python3 -m trcc.cli detect
 PYTHONPATH=src python3 -m trcc.cli detect --all
 
@@ -106,6 +115,12 @@ PYTHONPATH=src python3 -m trcc.cli send image.png
 # Setup udev rules + USB quirks (requires root)
 sudo PYTHONPATH=src python3 -m trcc.cli setup-udev
 PYTHONPATH=src python3 -m trcc.cli setup-udev --dry-run
+
+# Install desktop entry and icon
+PYTHONPATH=src python3 -m trcc.cli install-desktop
+
+# Uninstall (removes config, udev rules, autostart)
+PYTHONPATH=src python3 -m trcc.cli uninstall
 
 # Run tests
 pytest tests/
@@ -159,6 +174,7 @@ src/trcc/
     ├── uc_info_module.py   # Live system info display
     ├── uc_system_info.py   # System info dashboard
     ├── uc_sensor_picker.py # Sensor selection dialog
+    ├── uc_screen_led.py   # Screen LED casting panel
     ├── eyedropper.py       # Fullscreen color picker
     ├── screen_capture.py   # X11/Wayland screen grab
     └── pipewire_capture.py # PipeWire/Portal Wayland capture
@@ -170,8 +186,10 @@ src/trcc/
 |------|------|
 | **Windows decompiled C#** | `/home/ignorant/Downloads/TRCCCAPEN/TRCC_decompiled/` |
 | **GUI assets** | `src/assets/gui/` (PNG button/background images) |
-| **Theme data** | `src/data/Theme*.7z` (archives, tracked in git; extracted at runtime) |
-| **Mask data** | `src/data/Web/zt*.7z` (cloud mask archives, tracked in git) |
+| **Theme data** | `src/data/Theme320320/` (default themes; archives extracted at runtime) |
+| **Mask data** | `src/data/Web/` (cloud masks; archives extracted at runtime) |
+| **Cloud theme cache** | `src/data/cloud_themes/` (downloaded cloud themes) |
+| **Web cache** | `src/data/web_cache/` (downloaded mask/web data) |
 
 ## Architecture
 
@@ -223,6 +241,12 @@ To regenerate archives: `python tools/pack_theme_archives.py`
 **DC Config Round-Trip**: On save, `OverlayModel._dc_data` preserves the original parsed DC data so `save_theme()` can merge edits (position, color, font) onto original values instead of reconstructing from scratch. This preserves font_unit, font_charset, and raw font sizes through save cycles.
 
 **MP4 in Saved Themes**: `ThemeInfo.from_directory()` detects both `Theme.zt` and `.mp4` files. Cloud video themes copy their MP4 to the working dir; on save, the MP4 is included in the custom theme folder and detected on reload.
+
+**JSON Config Format (Saved Themes)**: Custom saved themes use `config.json` with path references (background, mask, dc) instead of copying files. On load, `_load_theme()` checks for `config.json` first and resolves paths from it. On save, `save_theme()` writes `config.json` + `Theme.png` thumbnail to `Custom_{name}/`.
+
+**Autostart**: On first GUI launch, creates `~/.config/autostart/trcc.desktop` with `trcc --last-one` (matches Windows `KaijiQidong()` behavior). `--last-one` starts the GUI minimized to system tray and sends the last-used theme. Settings panel checkbox reflects and toggles the autostart state. Path refreshes on subsequent launches if install location changed.
+
+**HID Auto-Detection**: HID devices (USB LCD and LED) are now auto-detected without any flags. The `--testing-hid` flag is a no-op (kept for backward compatibility).
 
 ## Critical Rule: Reference Windows C# First
 
@@ -382,15 +406,16 @@ Prioritized list of remaining work:
 - All non-Qt backend modules now 74-97% covered
 
 ### 2. ~~CI/CD~~ ✓ Done
-- GitHub Actions workflow in `.github/workflows/tests.yml`
+- GitHub Actions workflows in `.github/workflows/` (tests.yml, ci.yml, codeql.yml, codeql-analysis.yml, release.yml)
 - pytest + pyright checks on Python 3.10, 3.11, 3.12
+- CodeQL security scanning
 - Runs on `main`, `stable`, and `hid-protocol-testing` branches
 
 ### 3. ~~Type Checking~~ ✓ Done
 - pyright basic mode: 0 errors across full codebase
 
 ### 4. ~~Coverage Push to 95%+~~ ✓ Done
-- 880 tests → **1209 tests** across 6 coverage sprints
+- 880 tests → **1209 tests** → **1817 tests** (including 563 HID/LED tests)
 - All 18 non-Qt backend modules now **92-100%** (combined **96%**)
 - Modules pushed: gif_animator (50%→96%), overlay_renderer (71%→92%), sensor_enumerator (74%→96%), dc_parser (77%→92%), cli (86%→95%), cloud_downloader (88%→98%), system_info (88%→94%), device_detector (90%→95%), theme_downloader (90%→95%), device_implementations (92%→99%), models (96%→96%), dc_writer (94%→98%), paths (93%→95%), controllers (46%→99%)
 - Remaining uncovered lines are module-level `except ImportError` fallbacks (impractical)
@@ -411,8 +436,9 @@ Prioritized list of remaining work:
 - Full audit: no shell injection, no eval/exec/pickle, no hardcoded secrets
 
 ### 7. Linting / Formatting
-- Add `ruff` for consistent style across codebase
-- Auto-fix and enforce in CI
+- `ruff` added to dev dependencies in `pyproject.toml`
+- Config in `pyproject.toml`: `line-length = 100`, select E/F/W/I, ignore E501
+- TODO: enforce in CI, run auto-fix pass across codebase
 
 ### 8. Type Annotation Hardening
 - Move pyright from basic → strict on key modules
@@ -446,3 +472,6 @@ Prioritized list of remaining work:
 - `doc/CHANGELOG.md` - Version history and release notes
 - `doc/TECHNICAL_REFERENCE.md` - Protocol details, FBL codes, DC file formats
 - `doc/PORTING_GUIDE.md` - How to port .NET/WinForms apps to Linux/PyQt6
+- `doc/CLI_REFERENCE.md` - All CLI commands, options, and troubleshooting
+- `doc/HID_TESTING.md` - HID device testing guide
+- `doc/NEW_TO_LINUX.md` - Beginner-friendly Linux guide

@@ -615,13 +615,14 @@ class FormCZTVController:
     def load_local_theme(self, theme: ThemeInfo):
         """Load a local theme with DC config, mask, and overlay.
 
-        Matches Windows Theme_Click_Event → ReadSystemConfiguration pattern:
-        stop previous animation, reset overlay, copy to working dir, then load.
+        If config.json exists with path references (background, mask, dc),
+        loads resources by reference — no file copying. Otherwise falls back
+        to the original copy-to-working-dir approach.
         """
-        # Stop any running video/animation first (Tkinter: stop_animation())
+        # Stop any running video/animation first
         self.video.stop()
 
-        # Full overlay reset (Tkinter: set_background(None), set_theme_mask(None), overlay_config={})
+        # Full overlay reset
         self.overlay.enable(False)
         self.overlay.set_background(None)
         self.overlay.set_theme_mask(None)
@@ -629,23 +630,66 @@ class FormCZTVController:
         self.current_image = None
 
         self.current_theme_path = theme.path
-
-        # Copy theme to working dir (Windows: CopyDireToDire(storage → GifDirectory))
         assert theme.path is not None
+
+        # Check for reference config.json first
+        json_path = theme.path / 'config.json'
+        dc_path = theme.path / 'config1.dc'
+        display_opts = {}
+
+        if json_path.exists():
+            display_opts = self._load_dc_config(dc_path)  # prefers config.json
+
+        # Reference format: load background by path
+        bg_ref = display_opts.get('background_path')
+        if bg_ref:
+            bg_ref_path = Path(bg_ref)
+            if bg_ref_path.exists():
+                if bg_ref_path.suffix in ('.mp4', '.avi', '.mkv', '.webm'):
+                    self.video.load(bg_ref_path)
+                    first_frame = self.video.model.get_frame(0)
+                    if first_frame:
+                        self.current_image = first_frame
+                        self._update_preview(first_frame)
+                    self.video.play()
+                elif bg_ref_path.suffix == '.zt':
+                    self.video.load(bg_ref_path)
+                    self.video.play()
+                else:
+                    self._load_static_image(bg_ref_path)
+
+            # Enable overlay if dc config has elements
+            if display_opts.get('overlay_enabled'):
+                self.overlay.enable(True)
+
+            # Load mask by reference path
+            mask_ref = display_opts.get('mask_path')
+            if mask_ref:
+                mask_dir = Path(mask_ref)
+                mask_file = mask_dir / '01.png'
+                if mask_file.exists():
+                    mask_pos = display_opts.get('mask_position')
+                    self._load_theme_mask(mask_file, None)
+                    if mask_pos:
+                        self.overlay.set_theme_mask(
+                            self.overlay.get_theme_mask()[0], mask_pos)
+
+            self._update_status(f"Theme: {theme.name}")
+            return
+
+        # Fallback: copy theme to working dir (original behavior for non-reference themes)
         self._copy_theme_to_working_dir(theme.path)
 
         # Parse DC configuration file from working dir
-        dc_path = self.working_dir / 'config1.dc'
-        display_opts = self._load_dc_config(dc_path)
+        wd_dc_path = self.working_dir / 'config1.dc'
+        display_opts = self._load_dc_config(wd_dc_path)
 
         # Load background / animation from working dir
-        # JSON config may specify animation file explicitly
         anim_file = display_opts.get('animation_file')
         bg_path = self.working_dir / '00.png'
         zt_path = self.working_dir / 'Theme.zt'
 
         if anim_file:
-            # JSON config specifies video — use it directly
             anim_path = self.working_dir / anim_file
             if anim_path.exists():
                 self.video.load(anim_path)
@@ -654,7 +698,6 @@ class FormCZTVController:
                 self.video.load(theme.animation_path)
                 self.video.play()
         elif theme.is_animated and theme.animation_path:
-            # Use working dir copy if available (copied by _copy_theme_to_working_dir)
             wd_copy = self.working_dir / Path(theme.animation_path).name
             load_path = wd_copy if wd_copy.exists() else theme.animation_path
             self.video.load(load_path)
@@ -663,7 +706,6 @@ class FormCZTVController:
             self.video.load(zt_path)
             self.video.play()
         elif bg_path.exists():
-            # Check for MP4 in working dir (fallback for saved cloud themes)
             mp4_files = list(self.working_dir.glob('*.mp4'))
             if mp4_files:
                 self.video.load(mp4_files[0])
@@ -676,7 +718,7 @@ class FormCZTVController:
         # Load mask (01.png) from working dir with position from DC config
         mask_path = self.working_dir / '01.png'
         if mask_path.exists():
-            self._load_theme_mask(mask_path, dc_path if dc_path.exists() else None)
+            self._load_theme_mask(mask_path, wd_dc_path if wd_dc_path.exists() else None)
 
         self._update_status(f"Theme: {theme.name}")
 
@@ -818,10 +860,11 @@ class FormCZTVController:
         self._load_static_image(path)
 
     def save_theme(self, name: str, data_dir: Path) -> Tuple[bool, str]:
-        """Save current config as a custom theme, preserving the original.
+        """Save current config as a custom theme with path references.
 
-        Reads the original theme's DC, merges current overlay changes,
-        and saves to Custom_{name} so default themes stay untouched.
+        Writes config.json + thumbnail to Custom_{name}. The JSON references
+        the background video/image and mask by absolute path — no file copies.
+        Overlay DC positioning is stored inline in the JSON.
         """
         if not self.current_image:
             return False, "No image to save"
@@ -830,51 +873,47 @@ class FormCZTVController:
         safe_name = f'Custom_{name}' if not name.startswith('Custom_') else name
         theme_path = data_dir / f'Theme{self.lcd_width}{self.lcd_height}' / safe_name
         try:
-            # Always write current background to working dir (overwrite on re-save)
-            bg_path = self.working_dir / '00.png'
-            if self.current_image:
-                self.current_image.save(str(bg_path))
+            theme_path.mkdir(parents=True, exist_ok=True)
 
             # Generate thumbnail from rendered preview (background + mask + overlays)
-            thumb_path = self.working_dir / 'Theme.png'
-            if self.current_image:
-                rendered = self.overlay.render(self.current_image)
-                thumb = rendered.copy()
-                thumb.thumbnail((120, 120))
-                thumb.save(str(thumb_path))
+            rendered = self.overlay.render(self.current_image)
+            thumb = rendered.copy()
+            thumb.thumbnail((120, 120))
+            thumb.save(str(theme_path / 'Theme.png'))
 
-            # Get current overlay config from renderer and write merged DC
-            try:
-                from ..dc_writer import save_theme as dc_save_theme
-                renderer = self.overlay._ensure_renderer()
-                overlay_config = renderer.config if renderer else None
-                mask_img, mask_pos = self.overlay.get_theme_mask()
-                dc_save_theme(
-                    str(self.working_dir),
-                    background_image=self.current_image,
-                    mask_image=mask_img,
-                    overlay_config=overlay_config,
-                    mask_position=mask_pos,
-                    display_width=self.lcd_width,
-                    display_height=self.lcd_height,
-                    dc_data=self.overlay.model.get_dc_data(),
-                )
-            except ImportError:
-                pass  # No dc_writer, working dir already has files
+            # Save current frame as 00.png for static preview/fallback
+            self.current_image.save(str(theme_path / '00.png'))
 
-            # Copy working dir → theme storage (Windows: CopyDireToDire)
-            theme_path.mkdir(parents=True, exist_ok=True)
-            for f in self.working_dir.iterdir():
-                if f.is_file():
-                    shutil.copy2(str(f), str(theme_path / f.name))
+            # Build config.json with path references (no file copies)
+            renderer = self.overlay._ensure_renderer()
+            overlay_config = renderer.config if renderer else {}
+            mask_img, mask_pos = self.overlay.get_theme_mask()
 
-            # Write config.json alongside config1.dc for --last-one resume
+            # Determine background source path
+            background_path = None
+            if self.video.is_playing() and self.video.model.source_path:
+                background_path = str(self.video.model.source_path)
+            elif self.current_theme_path:
+                # Static image — reference original 00.png
+                orig_bg = self.current_theme_path / '00.png'
+                if orig_bg.exists():
+                    background_path = str(orig_bg)
+
+            # Determine mask source path
+            mask_path = None
+            if mask_img and self.current_theme_path:
+                mask_file = self.current_theme_path / '01.png'
+                if mask_file.exists():
+                    mask_path = str(self.current_theme_path)
+
             config_json = {
-                'name': safe_name,
-                'resolution': [self.lcd_width, self.lcd_height],
-                'rotation': self.rotation,
-                'brightness': self.brightness,
+                'background': background_path,
+                'mask': mask_path,
+                'dc': overlay_config or {},
             }
+            if mask_path and mask_pos:
+                config_json['mask_position'] = list(mask_pos)
+
             with open(str(theme_path / 'config.json'), 'w') as f:
                 json.dump(config_json, f, indent=2)
 
