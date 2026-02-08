@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Import shared DisplayElement from parser (DRY)
+from trcc.binary_reader import BinaryReader
 from trcc.dc_parser import DisplayElement
 
 
@@ -600,41 +601,12 @@ def import_theme(tr_path: str, theme_path: str) -> None:
     if len(data) < 4 or data[0:4] != b'\xdd\xdc\xdd\xdc':
         raise ValueError("Invalid .tr file: wrong magic header")
 
-    pos = 4
-
-    def read_bool():
-        nonlocal pos
-        val = data[pos] != 0
-        pos += 1
-        return val
-
-    def read_int32():
-        nonlocal pos
-        val = struct.unpack_from('<i', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_string():
-        nonlocal pos
-        length = data[pos]
-        pos += 1
-        if length > 0 and pos + length <= len(data):
-            s = data[pos:pos + length].decode('utf-8')
-            pos += length
-            return s
-        return ""
-
-    def read_float():
-        nonlocal pos
-        val = struct.unpack_from('<f', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_byte():
-        nonlocal pos
-        val = data[pos]
-        pos += 1
-        return val
+    reader = BinaryReader(data, pos=4)
+    read_int32 = reader.read_int32
+    read_bool = reader.read_bool
+    read_string = reader.read_string
+    read_float = reader.read_float
+    read_byte = reader.read_byte
 
     # Parse config (same format as config1.dc but with magic header)
     system_info = read_bool()
@@ -650,15 +622,8 @@ def import_theme(tr_path: str, theme_path: str) -> None:
             main_count=read_int32(),
             sub_count=read_int32(),
         )
-        elem.font_name = read_string()
-        elem.font_size = read_float()
-        elem.font_style = read_byte()
-        elem.font_unit = read_byte()
-        elem.font_charset = read_byte()
-        a = read_byte()
-        r = read_byte()
-        g = read_byte()
-        b = read_byte()
+        elem.font_name, elem.font_size, elem.font_style, elem.font_unit, \
+            elem.font_charset, a, r, g, b = reader.read_font_color()
         elem.color_argb = (a, r, g, b)
         elem.text = read_string()
         elements.append(elem)
@@ -679,27 +644,25 @@ def import_theme(tr_path: str, theme_path: str) -> None:
     mask_y = read_int32()
 
     # Skip padding (10240 bytes of 0xDC)
-    pos += 10240
+    reader.skip(10240)
 
     # Read mask image (01.png)
-    if pos + 4 <= len(data):
+    if reader.has_bytes(4):
         mask_size = read_int32()
-        if mask_size > 0 and pos + mask_size <= len(data):
-            mask_data = data[pos:pos + mask_size]
-            pos += mask_size
+        if mask_size > 0 and reader.has_bytes(mask_size):
+            mask_data = reader.read_bytes(mask_size)
             with open(os.path.join(theme_path, "01.png"), 'wb') as f:
                 f.write(mask_data)
 
     # Read background: either 00.png or Theme.zt
-    if pos + 4 <= len(data):
+    if reader.has_bytes(4):
         marker = read_int32()
         if marker == 0:
             # Static background (00.png)
-            if pos + 4 <= len(data):
+            if reader.has_bytes(4):
                 bg_size = read_int32()
-                if bg_size > 0 and pos + bg_size <= len(data):
-                    bg_data = data[pos:pos + bg_size]
-                    pos += bg_size
+                if bg_size > 0 and reader.has_bytes(bg_size):
+                    bg_data = reader.read_bytes(bg_size)
                     with open(os.path.join(theme_path, "00.png"), 'wb') as f:
                         f.write(bg_data)
         elif marker > 0:
@@ -711,16 +674,15 @@ def import_theme(tr_path: str, theme_path: str) -> None:
                 zt.write(struct.pack('<i', frame_count))
                 # Timestamps
                 for _ in range(frame_count):
-                    if pos + 4 <= len(data):
+                    if reader.has_bytes(4):
                         ts = read_int32()
                         zt.write(struct.pack('<i', ts))
                 # Frame data
                 for _ in range(frame_count):
-                    if pos + 4 <= len(data):
+                    if reader.has_bytes(4):
                         frame_len = read_int32()
-                        if pos + frame_len <= len(data):
-                            frame_data = data[pos:pos + frame_len]
-                            pos += frame_len
+                        if reader.has_bytes(frame_len):
+                            frame_data = reader.read_bytes(frame_len)
                             zt.write(struct.pack('<i', frame_len))
                             zt.write(frame_data)
 

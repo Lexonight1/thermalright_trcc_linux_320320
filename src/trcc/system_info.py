@@ -10,6 +10,8 @@ import subprocess
 from datetime import datetime
 from typing import Dict, Optional
 
+from trcc.paths import read_sysfs
+
 # Try to import psutil for cross-platform system monitoring
 try:
     import psutil
@@ -26,15 +28,6 @@ _prev_disk_io = None
 _prev_disk_time = None
 
 
-def read_file(path: str) -> Optional[str]:
-    """Safely read a file"""
-    try:
-        with open(path, 'r') as f:
-            return f.read().strip()
-    except Exception:
-        return None
-
-
 def find_hwmon_by_name(name: str) -> Optional[str]:
     """Find hwmon path by sensor name (k10temp, coretemp, amdgpu, etc.)"""
     hwmon_base = "/sys/class/hwmon"
@@ -44,7 +37,7 @@ def find_hwmon_by_name(name: str) -> Optional[str]:
     for i in range(20):
         hwmon_path = f"{hwmon_base}/hwmon{i}"
         name_file = f"{hwmon_path}/name"
-        sensor_name = read_file(name_file)
+        sensor_name = read_sysfs(name_file)
         if sensor_name and name.lower() in sensor_name.lower():
             return hwmon_path
     return None
@@ -61,7 +54,7 @@ def get_cpu_temperature() -> Optional[float]:
     if hwmon:
         # Try temp1_input first (Tctl on AMD)
         for idx in [1, 2, 3]:
-            temp = read_file(f"{hwmon}/temp{idx}_input")
+            temp = read_sysfs(f"{hwmon}/temp{idx}_input")
             if temp:
                 return float(temp) / 1000.0
 
@@ -104,7 +97,7 @@ def get_cpu_usage() -> Optional[float]:
 
     # Fallback: use /proc/loadavg
     try:
-        loadavg = read_file('/proc/loadavg')
+        loadavg = read_sysfs('/proc/loadavg')
         if loadavg:
             load = float(loadavg.split()[0])
             # Approximate percentage based on load
@@ -118,7 +111,7 @@ def get_cpu_usage() -> Optional[float]:
 def get_cpu_frequency() -> Optional[float]:
     """Get CPU frequency in MHz"""
     # Try cpufreq
-    freq = read_file('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq')
+    freq = read_sysfs('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq')
     if freq:
         return float(freq) / 1000.0  # Convert to MHz
 
@@ -141,7 +134,7 @@ def get_gpu_temperature() -> Optional[float]:
     # AMD GPU (amdgpu)
     hwmon = find_hwmon_by_name("amdgpu")
     if hwmon:
-        temp = read_file(f"{hwmon}/temp1_input")
+        temp = read_sysfs(f"{hwmon}/temp1_input")
         if temp:
             return float(temp) / 1000.0
 
@@ -165,7 +158,7 @@ def get_gpu_usage() -> Optional[float]:
     hwmon = find_hwmon_by_name("amdgpu")
     if hwmon:
         # Try device/gpu_busy_percent
-        usage = read_file(f"{hwmon}/device/gpu_busy_percent")
+        usage = read_sysfs(f"{hwmon}/device/gpu_busy_percent")
         if usage:
             return float(usage)
 
@@ -188,7 +181,7 @@ def get_gpu_clock() -> Optional[float]:
     # AMD GPU
     hwmon = find_hwmon_by_name("amdgpu")
     if hwmon:
-        freq = read_file(f"{hwmon}/freq1_input")
+        freq = read_sysfs(f"{hwmon}/freq1_input")
         if freq:
             return float(freq) / 1000000.0  # Convert to MHz
 
@@ -253,14 +246,14 @@ def get_memory_temperature() -> Optional[float]:
         for i in range(20):
             hwmon_path = f"{hwmon_base}/hwmon{i}"
             name_file = f"{hwmon_path}/name"
-            sensor_name = read_file(name_file)
+            sensor_name = read_sysfs(name_file)
             if not sensor_name:
                 continue
 
             # Check for memory-related sensor names
             name_lower = sensor_name.lower()
             if any(x in name_lower for x in ['ddr', 'dimm', 'memory', 'spd']):
-                temp = read_file(f"{hwmon_path}/temp1_input")
+                temp = read_sysfs(f"{hwmon_path}/temp1_input")
                 if temp:
                     return float(temp) / 1000.0
 
@@ -329,7 +322,7 @@ def get_memory_clock() -> Optional[float]:
         try:
             for mc in os.listdir(mc_path):
                 freq_file = f"{mc_path}/{mc}/dimm_info"
-                content = read_file(freq_file)
+                content = read_sysfs(freq_file)
                 if content:
                     match = re.search(r'(\d+)\s*MHz', content)
                     if match:
@@ -388,14 +381,14 @@ def get_disk_temperature() -> Optional[float]:
     # Try NVMe drives
     hwmon = find_hwmon_by_name("nvme")
     if hwmon:
-        temp = read_file(f"{hwmon}/temp1_input")
+        temp = read_sysfs(f"{hwmon}/temp1_input")
         if temp:
             return float(temp) / 1000.0
 
     # Try drivetemp (SATA drives with S.M.A.R.T.)
     hwmon = find_hwmon_by_name("drivetemp")
     if hwmon:
-        temp = read_file(f"{hwmon}/temp1_input")
+        temp = read_sysfs(f"{hwmon}/temp1_input")
         if temp:
             return float(temp) / 1000.0
 
@@ -491,7 +484,7 @@ def get_fan_speeds() -> Dict[str, float]:
             # Check for fan inputs (fan1_input, fan2_input, etc.)
             for j in range(1, 10):
                 fan_file = f"{hwmon_path}/fan{j}_input"
-                rpm = read_file(fan_file)
+                rpm = read_sysfs(fan_file)
                 if rpm and fan_idx < len(fan_keys):
                     try:
                         rpm_val = float(rpm)

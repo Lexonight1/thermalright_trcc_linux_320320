@@ -474,23 +474,11 @@ def resume():
                 if brightness_pct < 100:
                     img = ImageEnhance.Brightness(img).enhance(brightness_pct / 100.0)
 
-                # Apply rotation
+                # Apply rotation + convert to RGB565
+                from trcc.core.controllers import apply_rotation, image_to_rgb565
                 rotation = cfg.get("rotation", 0)
-                if rotation == 90:
-                    img = img.transpose(Image.Transpose.ROTATE_270)
-                elif rotation == 180:
-                    img = img.transpose(Image.Transpose.ROTATE_180)
-                elif rotation == 270:
-                    img = img.transpose(Image.Transpose.ROTATE_90)
-
-                # Convert to RGB565 and send (must match controllers._image_to_rgb565)
-                import numpy as np
-                arr = np.array(img, dtype=np.uint16)
-                r = (arr[:, :, 0] >> 3) & 0x1F
-                g = (arr[:, :, 1] >> 2) & 0x3F
-                b = (arr[:, :, 2] >> 3) & 0x1F
-                rgb565 = (r << 11) | (g << 5) | b
-                frame = rgb565.astype('>u2').tobytes()
+                img = apply_rotation(img, rotation)
+                frame = image_to_rgb565(img)
 
                 driver.send_frame(frame)
                 print(f"  [{dev.product_name}] Sent: {os.path.basename(theme_path)}")

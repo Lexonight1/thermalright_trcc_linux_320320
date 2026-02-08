@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from trcc.paths import read_sysfs
+
 try:
     import psutil
     PSUTIL_AVAILABLE = True
@@ -64,13 +66,6 @@ _HWMON_DIVISORS = {
 }
 
 
-def _read_sysfs(path: str) -> Optional[str]:
-    """Read a sysfs file, return stripped content or None."""
-    try:
-        return Path(path).read_text().strip()
-    except Exception:
-        return None
-
 
 class SensorEnumerator:
     """Discovers and reads all available hardware sensors on the system."""
@@ -113,7 +108,7 @@ class SensorEnumerator:
 
         # hwmon sensors
         for sid, path in self._hwmon_paths.items():
-            val = _read_sysfs(path)
+            val = read_sysfs(path)
             if val is not None:
                 try:
                     raw = float(val)
@@ -145,7 +140,7 @@ class SensorEnumerator:
     def read_one(self, sensor_id: str) -> Optional[float]:
         """Read a single sensor by ID."""
         if sensor_id in self._hwmon_paths:
-            val = _read_sysfs(self._hwmon_paths[sensor_id])
+            val = read_sysfs(self._hwmon_paths[sensor_id])
             if val is not None:
                 try:
                     raw = float(val)
@@ -175,7 +170,7 @@ class SensorEnumerator:
         driver_counts: dict[str, int] = {}
 
         for hwmon_dir in sorted(hwmon_base.iterdir()):
-            driver_name = _read_sysfs(str(hwmon_dir / 'name')) or hwmon_dir.name
+            driver_name = read_sysfs(str(hwmon_dir / 'name')) or hwmon_dir.name
 
             # Disambiguate duplicate driver names with index suffix
             driver_counts[driver_name] = driver_counts.get(driver_name, 0) + 1
@@ -202,7 +197,7 @@ class SensorEnumerator:
 
                 # Try to get human-readable label
                 label_path = hwmon_dir / f"{input_name}_label"
-                label = _read_sysfs(str(label_path))
+                label = read_sysfs(str(label_path))
                 if label:
                     name = f"{driver_key} / {label}"
                 else:
@@ -286,7 +281,7 @@ class SensorEnumerator:
             if not energy_path.exists():
                 continue
 
-            domain_name = _read_sysfs(str(name_path)) or rapl_dir.name
+            domain_name = read_sysfs(str(name_path)) or rapl_dir.name
             sensor_id = f"rapl:{domain_name}"
 
             self._sensors.append(SensorInfo(
@@ -389,7 +384,7 @@ class SensorEnumerator:
         now = time.monotonic()
 
         for sid, path in self._rapl_paths.items():
-            val = _read_sysfs(path)
+            val = read_sysfs(path)
             if val is None:
                 continue
             try:

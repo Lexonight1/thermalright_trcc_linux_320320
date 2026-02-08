@@ -38,6 +38,40 @@ from .models import (
 )
 
 
+def image_to_rgb565(img: Any) -> bytes:
+    """Convert PIL Image to RGB565 bytes (big-endian, masked)."""
+    import numpy as np
+
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    arr = np.array(img, dtype=np.uint16)
+    r = (arr[:, :, 0] >> 3) & 0x1F
+    g = (arr[:, :, 1] >> 2) & 0x3F
+    b = (arr[:, :, 2] >> 3) & 0x1F
+    rgb565 = (r << 11) | (g << 5) | b
+    return rgb565.astype('>u2').tobytes()
+
+
+def apply_rotation(image: Any, rotation: int) -> Any:
+    """Apply display rotation to a PIL Image.
+
+    Windows ImageTo565 for square displays:
+      directionB 0 → no rotation
+      directionB 90 → RotateImg(270°CW) = PIL ROTATE_90 (CCW)
+      directionB 180 → RotateImg(180°) = PIL ROTATE_180
+      directionB 270 → RotateImg(90°CW) = PIL ROTATE_270 (CCW)
+    """
+    from PIL import Image as PILImage
+    if rotation == 90:
+        return image.transpose(PILImage.Transpose.ROTATE_270)
+    elif rotation == 180:
+        return image.transpose(PILImage.Transpose.ROTATE_180)
+    elif rotation == 270:
+        return image.transpose(PILImage.Transpose.ROTATE_90)
+    return image
+
+
 class ThemeController:
     """
     Controller for theme management.
@@ -1030,22 +1064,8 @@ class FormCZTVController:
             self._update_status("Sent to LCD")
 
     def _apply_rotation(self, image: Any) -> Any:
-        """Apply display rotation to image.
-
-        Windows ImageTo565 for square displays:
-          directionB 0 → no rotation
-          directionB 90 → RotateImg(270°CW) = PIL ROTATE_90 (CCW)
-          directionB 180 → RotateImg(180°) = PIL ROTATE_180
-          directionB 270 → RotateImg(90°CW) = PIL ROTATE_270 (CCW)
-        """
-        from PIL import Image as PILImage
-        if self.rotation == 90:
-            return image.transpose(PILImage.Transpose.ROTATE_270)
-        elif self.rotation == 180:
-            return image.transpose(PILImage.Transpose.ROTATE_180)
-        elif self.rotation == 270:
-            return image.transpose(PILImage.Transpose.ROTATE_90)
-        return image
+        """Apply display rotation to image."""
+        return apply_rotation(image, self.rotation)
 
     def _apply_brightness(self, image: Any) -> Any:
         """Apply brightness adjustment to image.
@@ -1072,17 +1092,7 @@ class FormCZTVController:
 
     def _image_to_rgb565(self, img: Any) -> bytes:
         """Convert PIL Image to RGB565 bytes."""
-        import numpy as np
-
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-
-        arr = np.array(img, dtype=np.uint16)
-        r = (arr[:, :, 0] >> 3) & 0x1F
-        g = (arr[:, :, 1] >> 2) & 0x3F
-        b = (arr[:, :, 2] >> 3) & 0x1F
-        rgb565 = (r << 11) | (g << 5) | b
-        return rgb565.astype('>u2').tobytes()
+        return image_to_rgb565(img)
 
     # =========================================================================
     # Callbacks from sub-controllers

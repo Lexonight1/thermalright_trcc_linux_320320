@@ -37,6 +37,20 @@ USER_CONFIG_DIR = os.path.expanduser('~/.trcc')
 USER_DATA_DIR = os.path.join(USER_CONFIG_DIR, 'data')
 
 
+def is_safe_archive_member(name: str) -> bool:
+    """Check that an archive member path doesn't escape the destination (zip slip protection)."""
+    return not (os.path.isabs(name) or '..' in name.split('/'))
+
+
+def read_sysfs(path: str) -> Optional[str]:
+    """Safely read a sysfs/proc file, return stripped content or None."""
+    try:
+        with open(path, 'r') as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
 def _has_actual_themes(theme_dir: str) -> bool:
     """Check if a Theme* directory has actual theme subfolders (not just .gitkeep)."""
     if not os.path.isdir(theme_dir):
@@ -116,10 +130,7 @@ def _extract_7z(archive: str, target_dir: str) -> bool:
     try:
         import py7zr
         with py7zr.SevenZipFile(archive, 'r') as z:
-            safe_names = [
-                n for n in z.getnames()
-                if not os.path.isabs(n) and '..' not in n.split('/')
-            ]
+            safe_names = [n for n in z.getnames() if is_safe_archive_member(n)]
             z.extract(target_dir, targets=safe_names)
         log.info("Extracted %s (py7zr)", os.path.basename(archive))
         return True

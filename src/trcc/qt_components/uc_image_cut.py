@@ -19,6 +19,8 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QWidget
 
+from trcc.core.controllers import apply_rotation
+
 from .assets import load_pixmap
 from .base import make_icon_button
 
@@ -218,14 +220,7 @@ class UCImageCut(QWidget):
         """Get source image with rotation applied."""
         if not self._source_image:
             return None
-        img = self._source_image
-        if self._rotation == 90:
-            img = img.transpose(PILImage.Transpose.ROTATE_270)
-        elif self._rotation == 180:
-            img = img.transpose(PILImage.Transpose.ROTATE_180)
-        elif self._rotation == 270:
-            img = img.transpose(PILImage.Transpose.ROTATE_90)
-        return img
+        return apply_rotation(self._source_image, self._rotation)
 
     def _get_cropped_output(self):
         """Get the final cropped PIL Image at target resolution."""
