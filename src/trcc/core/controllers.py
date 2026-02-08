@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from ..paths import (
     ensure_themes_extracted,
     ensure_web_extracted,
@@ -40,8 +42,6 @@ from .models import (
 
 def image_to_rgb565(img: Any) -> bytes:
     """Convert PIL Image to RGB565 bytes (big-endian, masked)."""
-    import numpy as np
-
     if img.mode != 'RGB':
         img = img.convert('RGB')
 
