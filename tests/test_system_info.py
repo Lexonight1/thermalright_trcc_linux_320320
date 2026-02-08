@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
+from trcc.paths import read_sysfs
 from trcc.system_info import (
     DATE_FORMATS,
     TIME_FORMATS,
@@ -24,20 +25,19 @@ from trcc.system_info import (
     get_memory_temperature,
     get_memory_usage,
     get_network_stats,
-    read_file,
 )
 
-# ── read_file ────────────────────────────────────────────────────────────────
+# ── read_sysfs ───────────────────────────────────────────────────────────────
 
-class TestReadFile(unittest.TestCase):
+class TestReadSysfs(unittest.TestCase):
 
     def test_returns_stripped_content(self):
         m = mock_open(read_data="  hello world  \n")
         with patch('builtins.open', m):
-            self.assertEqual(read_file('/fake'), 'hello world')
+            self.assertEqual(read_sysfs('/fake'), 'hello world')
 
     def test_returns_none_on_error(self):
-        self.assertIsNone(read_file('/nonexistent/path/xyz'))
+        self.assertIsNone(read_sysfs('/nonexistent/path/xyz'))
 
 
 # ── find_hwmon_by_name ───────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ class TestReadFile(unittest.TestCase):
 class TestFindHwmon(unittest.TestCase):
 
     @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     def test_finds_matching_hwmon(self, mock_read, mock_exists):
         def side_effect(path):
             if 'hwmon2/name' in path:
@@ -66,7 +66,7 @@ class TestFindHwmon(unittest.TestCase):
 
 class TestGetCpuTemperature(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     @patch('trcc.system_info.find_hwmon_by_name')
     def test_reads_k10temp(self, mock_find, mock_read):
         mock_find.side_effect = lambda name: '/sys/class/hwmon/hwmon0' if name == 'k10temp' else None
@@ -105,13 +105,13 @@ class TestGetCpuUsage(unittest.TestCase):
 
 class TestGetCpuFrequency(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='3500000')
+    @patch('trcc.system_info.read_sysfs', return_value='3500000')
     def test_reads_cpufreq(self, _):
         freq = get_cpu_frequency()
         assert freq is not None
         self.assertAlmostEqual(freq, 3500.0)
 
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     def test_fallback_proc_cpuinfo(self, _):
         cpuinfo = "processor\t: 0\ncpu MHz\t\t: 4200.123\n"
         m = mock_open(read_data=cpuinfo)
@@ -272,7 +272,7 @@ class TestFormatMetric(unittest.TestCase):
 
 class TestGetGpuTemperature(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='55000')
+    @patch('trcc.system_info.read_sysfs', return_value='55000')
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon1')
     def test_amd_gpu(self, mock_find, mock_read):
         temp = get_gpu_temperature()
@@ -290,7 +290,7 @@ class TestGetGpuTemperature(unittest.TestCase):
     def test_no_gpu(self, *_):
         self.assertIsNone(get_gpu_temperature())
 
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon1')
     @patch('trcc.system_info.subprocess.run')
     def test_amd_no_temp_falls_through(self, mock_run, mock_find, mock_read):
@@ -303,7 +303,7 @@ class TestGetGpuTemperature(unittest.TestCase):
 
 class TestGetGpuUsage(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='85')
+    @patch('trcc.system_info.read_sysfs', return_value='85')
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon1')
     def test_amd_gpu(self, mock_find, mock_read):
         usage = get_gpu_usage()
@@ -326,7 +326,7 @@ class TestGetGpuUsage(unittest.TestCase):
 
 class TestGetGpuClock(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='1500000000')
+    @patch('trcc.system_info.read_sysfs', return_value='1500000000')
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon1')
     def test_amd_gpu(self, mock_find, mock_read):
         clock = get_gpu_clock()
@@ -349,7 +349,7 @@ class TestGetGpuClock(unittest.TestCase):
 
 class TestGetMemoryTemperature(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     @patch('trcc.system_info.os.path.exists', return_value=True)
     def test_hwmon_ddr(self, mock_exists, mock_read):
         def side_effect(path):
@@ -363,7 +363,7 @@ class TestGetMemoryTemperature(unittest.TestCase):
         self.assertAlmostEqual(temp, 42.0)
 
     @patch('trcc.system_info.subprocess.run')
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.os.path.exists', return_value=False)
     def test_returns_none_when_unavailable(self, *_):
         self.assertIsNone(get_memory_temperature())
@@ -421,14 +421,14 @@ class TestGetDiskStats(unittest.TestCase):
 
 class TestGetDiskTemperature(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='38000')
+    @patch('trcc.system_info.read_sysfs', return_value='38000')
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon3')
     def test_nvme(self, mock_find, mock_read):
         temp = get_disk_temperature()
         self.assertAlmostEqual(temp, 38.0)
 
     @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
     def test_returns_none(self, *_):
         self.assertIsNone(get_disk_temperature())
@@ -472,7 +472,7 @@ class TestGetFanSpeeds(unittest.TestCase):
         self.assertIn('fan_cpu', result)
         self.assertEqual(result['fan_cpu'], 1200)
 
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.os.path.exists', return_value=False)
     @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
     def test_no_fans(self, *_):
@@ -588,7 +588,7 @@ class TestFormatMetricExtra(unittest.TestCase):
 class TestCpuTempFallbacks(unittest.TestCase):
 
     @patch('trcc.system_info.subprocess.run')
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.find_hwmon_by_name', return_value=None)
     def test_lm_sensors_tctl(self, mock_find, mock_read, mock_run):
         """Fallback to sensors -u with Tctl match."""
@@ -605,7 +605,7 @@ class TestCpuTempFallbacks(unittest.TestCase):
 
     @patch('trcc.system_info.subprocess.run', side_effect=Exception("no sensors"))
     @patch('trcc.system_info.find_hwmon_by_name', return_value='/sys/class/hwmon/hwmon0')
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     def test_hwmon_all_temps_none(self, *_):
         """hwmon found but temp{1,2,3}_input all None → sensors fallback fails → None."""
         temp = get_cpu_temperature()
@@ -616,7 +616,7 @@ class TestCpuTempFallbacks(unittest.TestCase):
 
 class TestCpuUsageFallbacks(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file', return_value='2.50 1.00 0.50 1/234 5678')
+    @patch('trcc.system_info.read_sysfs', return_value='2.50 1.00 0.50 1/234 5678')
     def test_loadavg_fallback(self, mock_read):
         """When /proc/stat fails, falls back to /proc/loadavg."""
         with patch('builtins.open', side_effect=OSError("no stat")):
@@ -624,7 +624,7 @@ class TestCpuUsageFallbacks(unittest.TestCase):
             self.assertIsNotNone(usage)
             self.assertAlmostEqual(usage, 25.0)  # 2.50 * 10
 
-    @patch('trcc.system_info.read_file', side_effect=Exception("no loadavg"))
+    @patch('trcc.system_info.read_sysfs', side_effect=Exception("no loadavg"))
     def test_both_fail_returns_none(self, _):
         with patch('builtins.open', side_effect=OSError("no stat")):
             usage = get_cpu_usage()
@@ -636,7 +636,7 @@ class TestCpuUsageFallbacks(unittest.TestCase):
 class TestMemoryTempSensors(unittest.TestCase):
 
     @patch('trcc.system_info.subprocess.run')
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.os.path.exists', return_value=False)
     def test_lm_sensors_memory_section(self, mock_exists, mock_read, mock_run):
         sensors_output = (
@@ -672,7 +672,7 @@ class TestMemoryClockFallbacks(unittest.TestCase):
         clock = get_memory_clock()
         self.assertAlmostEqual(clock, 4800.0)
 
-    @patch('trcc.system_info.read_file', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
+    @patch('trcc.system_info.read_sysfs', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
     @patch('trcc.system_info.os.listdir', return_value=['mc0'])
     @patch('trcc.system_info.os.path.exists', return_value=True)
     @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
@@ -727,7 +727,7 @@ class TestDiskStatsDelta(unittest.TestCase):
 class TestDiskTempFallbacks(unittest.TestCase):
 
     @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
-    @patch('trcc.system_info.read_file', return_value='38000')
+    @patch('trcc.system_info.read_sysfs', return_value='38000')
     @patch('trcc.system_info.find_hwmon_by_name')
     def test_drivetemp_hwmon(self, mock_find, mock_read, _):
         mock_find.side_effect = [None, '/sys/class/hwmon/hwmon5']  # nvme=None, drivetemp=found
@@ -775,7 +775,7 @@ class TestNetworkStatsDelta(unittest.TestCase):
 
 class TestFanSpeedsHwmon(unittest.TestCase):
 
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     @patch('trcc.system_info.os.path.exists')
     @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
     def test_direct_hwmon_access(self, mock_exists, mock_read):
@@ -806,7 +806,7 @@ class TestFanSpeedsHwmon(unittest.TestCase):
 class TestFindHwmonNoMatch(unittest.TestCase):
 
     @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_file', return_value='nct6775')
+    @patch('trcc.system_info.read_sysfs', return_value='nct6775')
     def test_returns_none_when_no_match(self, *_):
         from trcc.system_info import find_hwmon_by_name
         result = find_hwmon_by_name('nonexistent_driver_xyz')
@@ -818,7 +818,7 @@ class TestFindHwmonNoMatch(unittest.TestCase):
 class TestCpuFreqFallback(unittest.TestCase):
 
     @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('builtins.open', unittest.mock.mock_open(
         read_data='processor\t: 0\ncpu MHz\t\t: 3600.123\n'))
     def test_proc_cpuinfo_fallback(self, *_):
@@ -870,7 +870,7 @@ class TestMemoryFallbacks(unittest.TestCase):
 class TestMemoryTemperature(unittest.TestCase):
 
     @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     def test_hwmon_spd_temp(self, mock_read, _):
         """Memory temp found via hwmon spd5118 sensor."""
         def read_side(path):
@@ -914,7 +914,7 @@ class TestMemoryClock(unittest.TestCase):
 
     @patch('trcc.system_info.os.path.exists', return_value=True)
     @patch('trcc.system_info.os.listdir', return_value=['mc0'])
-    @patch('trcc.system_info.read_file', return_value='rank0: 4800 MHz')
+    @patch('trcc.system_info.read_sysfs', return_value='rank0: 4800 MHz')
     @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
     def test_edac_fallback(self, *_):
         from trcc.system_info import get_memory_clock
@@ -998,7 +998,7 @@ class TestFanSpeedHwmon(unittest.TestCase):
 
     @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
     @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     def test_direct_hwmon_fans(self, mock_read, _):
         """Fan speeds read directly from hwmon when psutil unavailable."""
         def read_side(path):
@@ -1069,7 +1069,7 @@ class TestMemoryTempContinue(unittest.TestCase):
     """Cover continue when hwmon sensor_name is None (line 258)."""
 
     @patch('trcc.system_info.subprocess.run', side_effect=Exception)
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     @patch('trcc.system_info.os.path.exists', return_value=True)
     def test_skip_none_name(self, mock_exists, mock_read, _):
         def read_side(path):
@@ -1088,7 +1088,7 @@ class TestMemoryTempSensorsExcept(unittest.TestCase):
     """Cover except-Exception in lm_sensors path (lines 282-283)."""
 
     @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
-    @patch('trcc.system_info.read_file', return_value=None)
+    @patch('trcc.system_info.read_sysfs', return_value=None)
     @patch('trcc.system_info.os.path.exists', return_value=False)
     def test_sensors_raises(self, *_):
         self.assertIsNone(get_memory_temperature())
@@ -1168,7 +1168,7 @@ class TestFanSpeedsExceptPaths(unittest.TestCase):
 
     @patch('trcc.system_info.PSUTIL_AVAILABLE', False)
     @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_file')
+    @patch('trcc.system_info.read_sysfs')
     def test_hwmon_rpm_valueerror(self, mock_read, _):
         def read_side(path):
             if 'fan1_input' in path and 'hwmon0' in path:

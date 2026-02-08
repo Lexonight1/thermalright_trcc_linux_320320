@@ -26,6 +26,8 @@ from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from trcc.paths import is_safe_archive_member
+
 # Theme pack registry - maps pack names to download info
 # In production, this would be fetched from a remote registry
 THEME_REGISTRY = {
@@ -231,10 +233,6 @@ def verify_checksum(filepath: Path, expected_sha256: Optional[str]) -> bool:
     return True
 
 
-def _is_safe_archive_member(name: str) -> bool:
-    """Check that an archive member path doesn't escape the destination."""
-    return not (os.path.isabs(name) or '..' in name.split('/'))
-
 
 def extract_archive(archive_path: Path, dest_dir: Path) -> bool:
     """Extract tar.gz or zip archive with path traversal protection."""
@@ -242,14 +240,14 @@ def extract_archive(archive_path: Path, dest_dir: Path) -> bool:
         if str(archive_path).endswith('.tar.gz') or str(archive_path).endswith('.tgz'):
             with tarfile.open(archive_path, 'r:gz') as tar:
                 for member in tar.getmembers():
-                    if not _is_safe_archive_member(member.name):
+                    if not is_safe_archive_member(member.name):
                         print(f"Skipping unsafe path: {member.name}")
                         continue
                     tar.extract(member, dest_dir)
         elif str(archive_path).endswith('.zip'):
             with zipfile.ZipFile(archive_path, 'r') as z:
                 for info in z.infolist():
-                    if not _is_safe_archive_member(info.filename):
+                    if not is_safe_archive_member(info.filename):
                         print(f"Skipping unsafe path: {info.filename}")
                         continue
                     z.extract(info, dest_dir)

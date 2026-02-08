@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from trcc.binary_reader import BinaryReader
+
 
 @dataclass
 class FontConfig:
@@ -85,6 +87,13 @@ class DisplayElement:
         return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _clamp_font_size(raw: float, default: float = 24.0) -> float:
+    """Clamp a parsed font size to valid range, or return default if invalid."""
+    if 0 < raw < 100:
+        return max(8, min(72, raw))
+    return default
+
+
 def parse_dc_file(filepath: str) -> dict:
     """
     Parse a TRCC config1.dc file and extract overlay configuration.
@@ -115,55 +124,12 @@ def parse_dc_file(filepath: str) -> dict:
     if data[0] == 0xdd:
         return parse_dd_format(data)
 
-    # Use a position tracker like BinaryReader
-    pos = 1  # Skip magic byte 0xdc
-
-    def read_int32():
-        nonlocal pos
-        if pos + 4 > len(data):
-            raise IndexError("End of data")
-        val = struct.unpack_from('<i', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_bool():
-        nonlocal pos
-        if pos >= len(data):
-            raise IndexError("End of data")
-        val = data[pos] != 0
-        pos += 1
-        return val
-
-    def read_string():
-        nonlocal pos
-        if pos >= len(data):
-            return ""
-        length = data[pos]
-        pos += 1
-        if length > 0 and pos + length <= len(data):
-            try:
-                s = data[pos:pos + length].decode('utf-8')
-            except (UnicodeDecodeError, ValueError):
-                s = ""
-            pos += length
-            return s
-        return ""
-
-    def read_float():
-        nonlocal pos
-        if pos + 4 > len(data):
-            raise IndexError("End of data")
-        val = struct.unpack_from('<f', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_byte():
-        nonlocal pos
-        if pos >= len(data):
-            raise IndexError("End of data")
-        val = data[pos]
-        pos += 1
-        return val
+    r = BinaryReader(data, pos=1)  # Skip magic byte 0xdc
+    read_int32 = r.read_int32
+    read_bool = r.read_bool
+    read_string = r.read_string
+    read_float = r.read_float
+    read_byte = r.read_byte
 
     # Read header
     read_int32()  # Skip first int
@@ -216,7 +182,7 @@ def parse_dc_file(filepath: str) -> dict:
 
             fonts.append(FontConfig(
                 name=font_name or "Default",
-                size=max(8, min(72, font_size)) if 0 < font_size < 100 else 24,
+                size=_clamp_font_size(font_size),
                 style=style,
                 unit=unit,
                 charset=charset,
@@ -296,7 +262,7 @@ def parse_dc_file(filepath: str) -> dict:
 
     for i, elem_name in enumerate(element_order):
         try:
-            if pos + 8 > len(data):
+            if not r.has_bytes(8):
                 break
             x = read_int32()
             y = read_int32()
@@ -404,7 +370,7 @@ def parse_dc_file(filepath: str) -> dict:
                     main_count=0,
                     sub_count=0,
                     font_name=date_font_name or "Microsoft YaHei",
-                    font_size=max(8, min(72, date_font_size)) if 0 < date_font_size < 100 else 20,
+                    font_size=_clamp_font_size(date_font_size, 20),
                     font_style=date_font_style,
                     color_argb=(date_alpha, date_red, date_green, date_blue),
                 ))
@@ -418,7 +384,7 @@ def parse_dc_file(filepath: str) -> dict:
                     main_count=0,
                     sub_count=0,
                     font_name=time_font_name or "Microsoft YaHei",
-                    font_size=max(8, min(72, time_font_size)) if 0 < time_font_size < 100 else 32,
+                    font_size=_clamp_font_size(time_font_size, 32),
                     font_style=time_font_style,
                     color_argb=(time_alpha, time_red, time_green, time_blue),
                 ))
@@ -432,7 +398,7 @@ def parse_dc_file(filepath: str) -> dict:
                     main_count=0,
                     sub_count=0,
                     font_name=weekday_font_name or "Microsoft YaHei",
-                    font_size=max(8, min(72, weekday_font_size)) if 0 < weekday_font_size < 100 else 20,
+                    font_size=_clamp_font_size(weekday_font_size, 20),
                     font_style=weekday_font_style,
                     color_argb=(weekday_alpha, weekday_red, weekday_green, weekday_blue),
                 ))
@@ -445,7 +411,7 @@ def parse_dc_file(filepath: str) -> dict:
     else:
         # For 0xDD format, use the UCXiTongXianShiSubArray parser
         try:
-            display_elements = parse_display_elements(data, pos)
+            display_elements = parse_display_elements(data, r.pos)
             result['display_elements'] = display_elements
         except Exception:
             # Display elements may not exist in all config files
@@ -473,54 +439,12 @@ def parse_dd_format(data: bytes) -> dict:
         'display_elements': [],
     }
 
-    pos = 1  # Skip magic byte
-
-    def read_int32():
-        nonlocal pos
-        if pos + 4 > len(data):
-            raise IndexError("End of data")
-        val = struct.unpack_from('<i', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_bool():
-        nonlocal pos
-        if pos >= len(data):
-            raise IndexError("End of data")
-        val = data[pos] != 0
-        pos += 1
-        return val
-
-    def read_string():
-        nonlocal pos
-        if pos >= len(data):
-            return ""
-        length = data[pos]
-        pos += 1
-        if length > 0 and pos + length <= len(data):
-            try:
-                s = data[pos:pos + length].decode('utf-8')
-            except (UnicodeDecodeError, ValueError):
-                s = ""
-            pos += length
-            return s
-        return ""
-
-    def read_float():
-        nonlocal pos
-        if pos + 4 > len(data):
-            raise IndexError("End of data")
-        val = struct.unpack_from('<f', data, pos)[0]
-        pos += 4
-        return val
-
-    def read_byte():
-        nonlocal pos
-        if pos >= len(data):
-            raise IndexError("End of data")
-        val = data[pos]
-        pos += 1
-        return val
+    r = BinaryReader(data, pos=1)  # Skip magic byte
+    read_int32 = r.read_int32
+    read_bool = r.read_bool
+    read_string = r.read_string
+    read_float = r.read_float
+    read_byte = r.read_byte
 
     try:
         # Read system info enabled flag
@@ -545,20 +469,8 @@ def parse_dd_format(data: bytes) -> dict:
             main_count = read_int32()
             sub_count = read_int32()
 
-            # Read font
-            font_name = read_string()
-            font_size = read_float()
-            font_style = read_byte()
-            font_unit = read_byte()
-            font_charset = read_byte()
-
-            # Read color
-            alpha = read_byte()
-            red = read_byte()
-            green = read_byte()
-            blue = read_byte()
-
-            # Read custom text
+            font_name, font_size, font_style, font_unit, font_charset, \
+                alpha, red, green, blue = r.read_font_color()
             custom_text = read_string()
 
             elem = DisplayElement(
@@ -569,7 +481,7 @@ def parse_dd_format(data: bytes) -> dict:
                 main_count=main_count,
                 sub_count=sub_count,
                 font_name=font_name or "Microsoft YaHei",
-                font_size=max(8, min(72, font_size)) if 0 < font_size < 100 else 24,
+                font_size=_clamp_font_size(font_size),
                 font_style=font_style,
                 font_unit=font_unit,
                 font_charset=font_charset,
@@ -654,15 +566,13 @@ def parse_display_elements(data: bytes, start_pos: int) -> List[DisplayElement]:
         - byte: blue
         - string: text content (for custom text mode)
     """
-    pos = start_pos
+    r = BinaryReader(data, pos=start_pos)
     elements = []
 
-    if pos + 4 > len(data):
+    if not r.has_bytes(4):
         return elements
 
-    # Read element count
-    count = struct.unpack_from('<i', data, pos)[0]
-    pos += 4
+    count = r.read_int32()
 
     # Sanity check - count should be reasonable
     if count < 0 or count > 100:
@@ -670,70 +580,19 @@ def parse_display_elements(data: bytes, start_pos: int) -> List[DisplayElement]:
 
     for i in range(count):
         try:
-            if pos + 24 > len(data):  # Minimum size for 6 int32s
+            if not r.has_bytes(24):  # Minimum size for 6 int32s
                 break
 
-            mode = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
-            mode_sub = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
-            x = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
-            y = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
-            main_count = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
-            sub_count = struct.unpack_from('<i', data, pos)[0]
-            pos += 4
+            mode = r.read_int32()
+            mode_sub = r.read_int32()
+            x = r.read_int32()
+            y = r.read_int32()
+            main_count = r.read_int32()
+            sub_count = r.read_int32()
 
-            # Read font name
-            if pos >= len(data):
-                break
-            font_name_len = data[pos]
-            pos += 1
-            font_name = ""
-            if font_name_len > 0 and pos + font_name_len <= len(data):
-                try:
-                    font_name = data[pos:pos + font_name_len].decode('utf-8')
-                except (UnicodeDecodeError, ValueError):
-                    font_name = "Microsoft YaHei"
-                pos += font_name_len
-
-            # Read font size
-            if pos + 4 > len(data):
-                break
-            font_size = struct.unpack_from('<f', data, pos)[0]
-            pos += 4
-
-            # Read font style and color (7 bytes)
-            if pos + 7 > len(data):
-                break
-            font_style = data[pos]
-            pos += 1
-            _font_unit = data[pos]
-            pos += 1
-            _charset = data[pos]
-            pos += 1
-            alpha = data[pos]
-            pos += 1
-            red = data[pos]
-            pos += 1
-            green = data[pos]
-            pos += 1
-            blue = data[pos]
-            pos += 1
-
-            # Read custom text (for mode 4)
-            text = ""
-            if pos < len(data):
-                text_len = data[pos]
-                pos += 1
-                if text_len > 0 and pos + text_len <= len(data):
-                    try:
-                        text = data[pos:pos + text_len].decode('utf-8')
-                    except (UnicodeDecodeError, ValueError):
-                        text = ""
-                    pos += text_len
+            font_name, font_size, font_style, _, _, \
+                alpha, red, green, blue = r.read_font_color()
+            text = r.read_string()
 
             elem = DisplayElement(
                 mode=mode,
@@ -743,7 +602,7 @@ def parse_display_elements(data: bytes, start_pos: int) -> List[DisplayElement]:
                 main_count=main_count,
                 sub_count=sub_count,
                 font_name=font_name or "Microsoft YaHei",
-                font_size=max(8, min(72, font_size)) if 0 < font_size < 100 else 24,
+                font_size=_clamp_font_size(font_size),
                 font_style=font_style,
                 color_argb=(alpha, red, green, blue),
                 text=text,

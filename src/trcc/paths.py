@@ -37,6 +37,20 @@ USER_CONFIG_DIR = os.path.expanduser('~/.trcc')
 USER_DATA_DIR = os.path.join(USER_CONFIG_DIR, 'data')
 
 
+def is_safe_archive_member(name: str) -> bool:
+    """Check that an archive member path doesn't escape the destination (zip slip protection)."""
+    return not (os.path.isabs(name) or '..' in name.split('/'))
+
+
+def read_sysfs(path: str) -> Optional[str]:
+    """Safely read a sysfs/proc file, return stripped content or None."""
+    try:
+        with open(path, 'r') as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
 def _has_actual_themes(theme_dir: str) -> bool:
     """Check if a Theme* directory has actual theme subfolders (not just .gitkeep)."""
     if not os.path.isdir(theme_dir):
@@ -85,25 +99,50 @@ RESOURCE_SEARCH_PATHS = [RESOURCES_DIR]
 
 
 def get_theme_dir(width: int, height: int) -> str:
-    """Get theme directory for a specific resolution."""
-    return os.path.join(DATA_DIR, f'Theme{width}{height}')
+    """Get theme directory for a specific resolution.
+
+    Checks the package data dir first, then the user data dir (~/.trcc/data/).
+    Returns whichever has actual theme content, or the package dir as default.
+    """
+    pkg_dir = os.path.join(DATA_DIR, f'Theme{width}{height}')
+    if _has_actual_themes(pkg_dir):
+        return pkg_dir
+    user_dir = os.path.join(USER_DATA_DIR, f'Theme{width}{height}')
+    if _has_actual_themes(user_dir):
+        return user_dir
+    return pkg_dir
 
 
 def get_web_dir(width: int, height: int) -> str:
     """Get cloud theme Web directory for a resolution.
 
-    Matches Windows layout: Data/USBLCD/Web/{W}{H}/
-    Contains bundled preview PNGs + on-demand downloaded MP4s.
+    Checks the package data dir first, then the user data dir (~/.trcc/data/).
+    Returns whichever has content, or the package dir as default.
     """
-    return os.path.join(DATA_DIR, 'Web', f'{width}{height}')
+    res_key = f'{width}{height}'
+    pkg_dir = os.path.join(DATA_DIR, 'Web', res_key)
+    if os.path.isdir(pkg_dir) and os.listdir(pkg_dir):
+        return pkg_dir
+    user_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+    if os.path.isdir(user_dir) and os.listdir(user_dir):
+        return user_dir
+    return pkg_dir
 
 
 def get_web_masks_dir(width: int, height: int) -> str:
     """Get cloud masks directory for a resolution.
 
-    Matches Windows layout: Data/USBLCD/Web/zt{W}{H}/
+    Checks the package data dir first, then the user data dir (~/.trcc/data/).
+    Returns whichever has content, or the package dir as default.
     """
-    return os.path.join(DATA_DIR, 'Web', f'zt{width}{height}')
+    res_key = f'zt{width}{height}'
+    pkg_dir = os.path.join(DATA_DIR, 'Web', res_key)
+    if _has_actual_themes(pkg_dir):
+        return pkg_dir
+    user_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+    if _has_actual_themes(user_dir):
+        return user_dir
+    return pkg_dir
 
 
 def _extract_7z(archive: str, target_dir: str) -> bool:
@@ -116,10 +155,7 @@ def _extract_7z(archive: str, target_dir: str) -> bool:
     try:
         import py7zr
         with py7zr.SevenZipFile(archive, 'r') as z:
-            safe_names = [
-                n for n in z.getnames()
-                if not os.path.isabs(n) and '..' not in n.split('/')
-            ]
+            safe_names = [n for n in z.getnames() if is_safe_archive_member(n)]
             z.extract(target_dir, targets=safe_names)
         log.info("Extracted %s (py7zr)", os.path.basename(archive))
         return True
@@ -138,7 +174,10 @@ def _extract_7z(archive: str, target_dir: str) -> bool:
             return True
         log.warning("7z CLI failed (rc=%d): %s", result.returncode, result.stderr.decode())
     except FileNotFoundError:
-        log.warning("Neither py7zr nor 7z CLI available — cannot extract %s", archive)
+        log.warning(
+            "Neither py7zr nor 7z CLI available — cannot extract %s\n%s",
+            archive, _7Z_INSTALL_HELP,
+        )
     except Exception as e:
         log.warning("7z CLI extraction failed: %s", e)
 
@@ -162,25 +201,208 @@ def _ensure_extracted(target_dir: str, archive: str, check_fn) -> bool:
     return _extract_7z(archive, target_dir)
 
 
+# =========================================================================
+# On-demand theme archive download from GitHub
+# =========================================================================
+
+# Base URL for downloading theme archives from the GitHub repo.
+# Archives are stored in git and served via raw.githubusercontent.com.
+GITHUB_THEME_BASE_URL = (
+    "https://raw.githubusercontent.com/Lexonight1/"
+    "thermalright-trcc-linux/stable/src/trcc/data/"
+)
+
+
+def _download_archive(url: str, dest_path: str, timeout: int = 60) -> bool:
+    """Download a file from URL to dest_path. Returns True on success."""
+    import urllib.request
+    import urllib.error
+
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    tmp_path = dest_path + '.tmp'
+
+    try:
+        log.info("Downloading %s ...", os.path.basename(dest_path))
+        req = urllib.request.Request(url, headers={'User-Agent': 'trcc-linux'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(tmp_path, 'wb') as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        os.replace(tmp_path, dest_path)
+        size_kb = os.path.getsize(dest_path) / 1024
+        log.info("Downloaded %s (%.0f KB)", os.path.basename(dest_path), size_kb)
+        return True
+    except urllib.error.HTTPError as e:
+        log.warning("Download failed (%d): %s", e.code, url)
+    except Exception as e:
+        log.warning("Download failed: %s", e)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    return False
+
+
+def _fetch_theme_archive(width: int, height: int) -> Optional[str]:
+    """Download a theme archive from GitHub if not bundled locally.
+
+    Checks the package data dir first, then the user data dir.
+    Downloads to user data dir (~/.trcc/data/) if not found anywhere.
+
+    Returns the path to the .7z file, or None if unavailable.
+    """
+    archive_name = f'Theme{width}{height}.7z'
+
+    # Check package data dir (bundled with pip install)
+    pkg_archive = os.path.join(DATA_DIR, archive_name)
+    if os.path.isfile(pkg_archive):
+        return pkg_archive
+
+    # Check user data dir (previously downloaded)
+    user_archive = os.path.join(USER_DATA_DIR, archive_name)
+    if os.path.isfile(user_archive):
+        return user_archive
+
+    # Download from GitHub
+    url = GITHUB_THEME_BASE_URL + archive_name
+    if _download_archive(url, user_archive):
+        return user_archive
+
+    return None
+
+
 def ensure_themes_extracted(width: int, height: int) -> bool:
-    """Extract default themes from .7z archive if not already present."""
+    """Extract default themes from .7z archive if not already present.
+
+    Checks both the package data dir and user data dir for themes.
+    If the .7z archive is not found locally, downloads it from GitHub.
+    """
+    # Check package data dir first
     theme_dir = get_theme_dir(width, height)
-    return _ensure_extracted(theme_dir, theme_dir + '.7z', _has_actual_themes)
+    if _has_actual_themes(theme_dir):
+        return True
+
+    # Check user data dir
+    user_theme_dir = os.path.join(USER_DATA_DIR, f'Theme{width}{height}')
+    if _has_actual_themes(user_theme_dir):
+        return True
+
+    # Find or download the archive
+    archive = _fetch_theme_archive(width, height)
+    if archive is None:
+        return False
+
+    # Extract to whichever dir is writable (prefer package dir, fall back to user)
+    target = theme_dir
+    try:
+        os.makedirs(target, exist_ok=True)
+        # Test writability
+        test_file = os.path.join(target, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('')
+        os.remove(test_file)
+    except OSError:
+        target = user_theme_dir
+
+    return _extract_7z(archive, target)
+
+
+def _fetch_web_archive(archive_name: str) -> Optional[str]:
+    """Download a Web archive from GitHub if not bundled locally.
+
+    Checks the package Web dir first, then the user data dir.
+    Downloads to user data dir (~/.trcc/data/Web/) if not found.
+
+    Returns the path to the .7z file, or None if unavailable.
+    """
+    pkg_archive = os.path.join(DATA_DIR, 'Web', archive_name)
+    if os.path.isfile(pkg_archive):
+        return pkg_archive
+
+    user_archive = os.path.join(USER_DATA_DIR, 'Web', archive_name)
+    if os.path.isfile(user_archive):
+        return user_archive
+
+    url = GITHUB_THEME_BASE_URL + 'Web/' + archive_name
+    if _download_archive(url, user_archive):
+        return user_archive
+
+    return None
 
 
 def ensure_web_extracted(width: int, height: int) -> bool:
-    """Extract cloud theme previews from .7z archive if not already present."""
+    """Extract cloud theme previews from .7z archive if not already present.
+
+    Checks both package and user data dirs. Downloads from GitHub if needed.
+    """
+    check_fn = lambda d: os.path.isdir(d) and bool(os.listdir(d))
+    res_key = f'{width}{height}'
+
+    # Check package data dir
     web_dir = get_web_dir(width, height)
-    return _ensure_extracted(
-        web_dir, web_dir + '.7z',
-        lambda d: os.path.isdir(d) and bool(os.listdir(d)),
-    )
+    if check_fn(web_dir):
+        return True
+
+    # Check user data dir
+    user_web_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+    if check_fn(user_web_dir):
+        return True
+
+    # Find or download archive
+    archive = _fetch_web_archive(f'{res_key}.7z')
+    if archive is None:
+        return False
+
+    # Extract to writable location
+    target = web_dir
+    try:
+        os.makedirs(target, exist_ok=True)
+        test_file = os.path.join(target, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('')
+        os.remove(test_file)
+    except OSError:
+        target = user_web_dir
+
+    return _extract_7z(archive, target)
 
 
 def ensure_web_masks_extracted(width: int, height: int) -> bool:
-    """Extract cloud mask themes from .7z archive if not already present."""
+    """Extract cloud mask themes from .7z archive if not already present.
+
+    Checks both package and user data dirs. Downloads from GitHub if needed.
+    """
+    res_key = f'zt{width}{height}'
+
+    # Check package data dir
     masks_dir = get_web_masks_dir(width, height)
-    return _ensure_extracted(masks_dir, masks_dir + '.7z', _has_actual_themes)
+    if _has_actual_themes(masks_dir):
+        return True
+
+    # Check user data dir
+    user_masks_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+    if _has_actual_themes(user_masks_dir):
+        return True
+
+    # Find or download archive
+    archive = _fetch_web_archive(f'{res_key}.7z')
+    if archive is None:
+        return False
+
+    # Extract to writable location
+    target = masks_dir
+    try:
+        os.makedirs(target, exist_ok=True)
+        test_file = os.path.join(target, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('')
+        os.remove(test_file)
+    except OSError:
+        target = user_masks_dir
+
+    return _extract_7z(archive, target)
 
 
 def find_resource(filename: str, search_paths: Optional[list] = None) -> Optional[str]:
@@ -346,11 +568,35 @@ _SG_RAW_INSTALL_HELP = (
     "  NixOS:          add sg3_utils to environment.systemPackages"
 )
 
+_7Z_INSTALL_HELP = (
+    "7z not found and py7zr not installed. Install one:\n"
+    "  pip install py7zr          (recommended, pure Python)\n"
+    "  ---\n"
+    "  Fedora/RHEL:    sudo dnf install p7zip p7zip-plugins\n"
+    "  Ubuntu/Debian:  sudo apt install p7zip-full\n"
+    "  Arch:           sudo pacman -S p7zip\n"
+    "  openSUSE:       sudo zypper install p7zip-full\n"
+    "  Void:           sudo xbps-install p7zip\n"
+    "  Alpine:         sudo apk add 7zip\n"
+    "  Gentoo:         sudo emerge p7zip\n"
+    "  NixOS:          add p7zip to environment.systemPackages"
+)
+
 
 def require_sg_raw():
     """Verify sg_raw is available; raise FileNotFoundError with install help if not."""
     if not shutil.which('sg_raw'):
         raise FileNotFoundError(_SG_RAW_INSTALL_HELP)
+
+
+def has_7z_support() -> bool:
+    """Check if 7z extraction is available (py7zr or system 7z)."""
+    try:
+        import py7zr  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    return shutil.which('7z') is not None
 
 
 def find_scsi_devices() -> List[str]:

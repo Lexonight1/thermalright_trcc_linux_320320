@@ -108,7 +108,7 @@ def detect_language() -> str:
 
 class TRCCMainWindowMVC(QMainWindow):
     """
-    Main TRCC application window using MVC pattern.
+    Main TRCC application window (singleton).
 
     This View:
     - Owns the FormCZTVController for business logic
@@ -116,6 +116,20 @@ class TRCCMainWindowMVC(QMainWindow):
     - Forwards user events to controller
     - Subscribes to controller callbacks for updates
     """
+
+    _instance: 'TRCCMainWindowMVC | None' = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is not None:
+            raise RuntimeError("TRCCMainWindowMVC is a singleton — use instance()")
+        inst = super().__new__(cls)
+        cls._instance = inst
+        return inst
+
+    @classmethod
+    def instance(cls) -> 'TRCCMainWindowMVC | None':
+        """Return the existing window instance, or None."""
+        return cls._instance
 
     def __init__(self, data_dir: Path | None = None, decorated: bool = False):
         super().__init__()
@@ -862,7 +876,10 @@ class TRCCMainWindowMVC(QMainWindow):
 
     def _on_send_complete(self, success: bool):
         """Handle LCD send completion."""
-        self.uc_preview.set_status("Sent to LCD" if success else "Send failed")
+        if success:
+            self.uc_preview.set_status("Sent to LCD")
+        else:
+            self.uc_preview.set_status("Send failed — run 'trcc hid-debug' for details")
 
     def _on_video_loaded(self, state):
         """Handle video loaded - show controls."""
@@ -1912,6 +1929,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self.uc_activity_sidebar.stop_updates()
         self.controller.video.stop()
         self.controller.cleanup()
+        TRCCMainWindowMVC._instance = None
         event.accept()
         app = QApplication.instance()
         if app:

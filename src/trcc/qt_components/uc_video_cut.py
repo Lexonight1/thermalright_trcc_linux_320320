@@ -12,6 +12,9 @@ import os
 import struct
 import subprocess
 import tempfile
+from io import BytesIO
+
+from PIL import Image as PILImage
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -24,22 +27,11 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QLabel, QProgressBar, QWidget
 
+from trcc.core.controllers import apply_rotation
+from trcc.gif_animator import FFMPEG_AVAILABLE
+
 from .assets import load_pixmap
-from .base import make_icon_button
-
-# Try OpenCV for preview
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-
-# Try PIL for JPEG conversion
-try:
-    from PIL import Image as PILImage
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+from .base import make_icon_button, pil_to_pixmap
 
 
 # ============================================================================
@@ -164,16 +156,10 @@ class ExportWorker(QThread):
 
         for i, bmp_name in enumerate(bmp_files):
             bmp_path = os.path.join(frames_dir, bmp_name)
-            if PIL_AVAILABLE:
-                img = PILImage.open(bmp_path)
-                from io import BytesIO
-                buf = BytesIO()
-                img.save(buf, format='JPEG', quality=85)
-                jpeg_data_list.append(buf.getvalue())
-            else:
-                # Fallback: read raw BMP (less efficient)
-                with open(bmp_path, 'rb') as f:
-                    jpeg_data_list.append(f.read())
+            img = PILImage.open(bmp_path)
+            buf = BytesIO()
+            img.save(buf, format='JPEG', quality=85)
+            jpeg_data_list.append(buf.getvalue())
 
             os.remove(bmp_path)
             pct = 20 + int(60 * (i + 1) / total)
@@ -231,7 +217,6 @@ class UCVideoCut(QWidget):
 
         # State
         self._video_path = None
-        self._video_cap = None
         self._total_frames = 0
         self._fps = 30.0
         self._duration_ms = 0
@@ -444,21 +429,64 @@ class UCVideoCut(QWidget):
 
     def load_video(self, path):
         """Load a video file for trimming."""
-        if not CV2_AVAILABLE:
-            self._lbl_info.setText("OpenCV not available")
+        if not FFMPEG_AVAILABLE:
+            self._lbl_info.setText("FFmpeg not available")
             self._lbl_info.setVisible(True)
             return
 
         self._video_path = str(path)
-        self._video_cap = cv2.VideoCapture(self._video_path)
-        if not self._video_cap.isOpened():
-            self._lbl_info.setText("Failed to open video")
+
+        # Get metadata with ffprobe
+        try:
+            result = subprocess.run([
+                'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=r_frame_rate,nb_frames',
+                '-show_entries', 'format=duration',
+                '-of', 'csv=p=0',
+                self._video_path,
+            ], capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                self._lbl_info.setText("Failed to open video")
+                self._lbl_info.setVisible(True)
+                return
+
+            lines = result.stdout.strip().split('\n')
+            # First line: r_frame_rate,nb_frames  (stream)
+            # Second line: duration  (format)
+            if lines:
+                parts = lines[0].split(',')
+                if parts:
+                    fps_parts = parts[0].split('/')
+                    if len(fps_parts) == 2 and fps_parts[1].strip() not in ('0', ''):
+                        self._fps = float(fps_parts[0]) / float(fps_parts[1])
+                    elif fps_parts[0].strip():
+                        self._fps = float(fps_parts[0])
+                if len(parts) >= 2:
+                    try:
+                        self._total_frames = int(parts[1])
+                    except (ValueError, IndexError):
+                        self._total_frames = 0
+
+            # Get duration from format line (more reliable than nb_frames)
+            duration_s = 0.0
+            if len(lines) >= 2:
+                try:
+                    duration_s = float(lines[1].strip())
+                except (ValueError, IndexError):
+                    pass
+
+            if duration_s > 0:
+                self._duration_ms = duration_s * 1000
+            elif self._total_frames > 0 and self._fps > 0:
+                self._duration_ms = (self._total_frames / self._fps) * 1000
+            else:
+                self._lbl_info.setText("Cannot determine video duration")
+                self._lbl_info.setVisible(True)
+                return
+        except Exception:
+            self._lbl_info.setText("FFmpeg not available")
             self._lbl_info.setVisible(True)
             return
-
-        self._total_frames = int(self._video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self._fps = self._video_cap.get(cv2.CAP_PROP_FPS) or 30.0
-        self._duration_ms = (self._total_frames / self._fps) * 1000
 
         # Reset handles
         self._start_x = TIMELINE_X
@@ -491,40 +519,33 @@ class UCVideoCut(QWidget):
             self.setPalette(palette)
 
     def _seek_and_show(self, ms):
-        """Seek to time and display frame."""
-        if not self._video_cap or not self._video_cap.isOpened():
-            return
-        frame_num = int(ms / 1000.0 * self._fps)
-        frame_num = max(0, min(self._total_frames - 1, frame_num))
-        self._video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = self._video_cap.read()
-        if not ret:
+        """Seek to time and display frame using FFmpeg pipe."""
+        if not self._video_path:
             return
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        ss = ms / 1000.0
+        try:
+            result = subprocess.run([
+                'ffmpeg', '-ss', str(ss), '-i', self._video_path,
+                '-vframes', '1', '-f', 'image2pipe', '-vcodec', 'bmp',
+                '-v', 'error', '-y', '-',
+            ], capture_output=True, timeout=5)
+            if result.returncode != 0 or not result.stdout:
+                return
 
-        # Apply rotation
-        if self._rotation == 90:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        elif self._rotation == 180:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-        elif self._rotation == 270:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            img = PILImage.open(BytesIO(result.stdout)).convert('RGB')
+        except Exception:
+            return
 
-        # Scale to fit preview
-        h, w = frame.shape[:2]
+        # Apply rotation and scale to fit preview
+        img = apply_rotation(img, self._rotation)
+        w, h = img.size
         scale = min(PREVIEW_W / w, PREVIEW_H / h)
         new_w, new_h = int(w * scale), int(h * scale)
         if new_w > 0 and new_h > 0:
-            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            img = img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
 
-        # Convert to QPixmap
-        from PyQt6.QtGui import QImage
-        h, w, ch = frame.shape
-        bytes_per_line = ch * w
-        qimg = QImage(bytes(frame.data), w, h, bytes_per_line, QImage.Format.Format_RGB888)
-        self._preview_pixmap = QPixmap.fromImage(qimg)
-
+        self._preview_pixmap = pil_to_pixmap(img)
         self._lbl_current.setText(_format_time(ms))
         self.update()
 
@@ -623,9 +644,7 @@ class UCVideoCut(QWidget):
     # =========================================================================
 
     def _cleanup_video(self):
-        if self._video_cap:
-            self._video_cap.release()
-            self._video_cap = None
+        self._video_path = None
 
     def closeEvent(self, event):
         self._stop_preview()

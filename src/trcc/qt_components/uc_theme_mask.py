@@ -10,6 +10,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from trcc.paths import is_safe_archive_member
+
 from PyQt6.QtCore import QTimer, pyqtSignal
 
 from .base import BaseThemeBrowser, BaseThumbnail
@@ -176,7 +178,7 @@ class UCThemeMask(BaseThemeBrowser):
                         with zipfile.ZipFile(io.BytesIO(data)) as zf:
                             mask_dir.mkdir(parents=True, exist_ok=True)
                             for info in zf.infolist():
-                                if os.path.isabs(info.filename) or '..' in info.filename.split('/'):
+                                if not is_safe_archive_member(info.filename):
                                     continue
                                 zf.extract(info, mask_dir)
                             print(f"[+] Extracted mask {mask_id}")
