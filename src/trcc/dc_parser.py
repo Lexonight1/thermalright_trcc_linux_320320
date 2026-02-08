@@ -11,7 +11,7 @@ Based on decompiled Windows TRCC code:
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -919,6 +919,50 @@ def get_hardware_metric_name(main_count: int, sub_count: int) -> str:
         (3, 1): 'disk_activity',
     }
     return metric_map.get((main_count, sub_count), f'sensor_{main_count}_{sub_count}')
+
+
+def load_config_json(filepath: str) -> Optional[Tuple[dict, dict]]:
+    """
+    Load theme config from a JSON file (config.json).
+
+    Returns:
+        Tuple of (overlay_config, display_options) if valid, or None.
+        overlay_config: Same format as dc_to_overlay_config() output.
+        display_options: Dict with rotation, bg_display, tp_display, etc.
+    """
+    import json
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+    if not isinstance(data, dict) or 'elements' not in data:
+        return None
+
+    overlay_config = data.get('elements', {})
+
+    # Map JSON display keys back to internal dc_data display_options format
+    display = data.get('display', {})
+    display_options = {}
+    if 'rotation' in display:
+        display_options['rotation'] = display['rotation']
+    if 'background_visible' in display:
+        display_options['bg_display'] = display['background_visible']
+    if 'screencast_visible' in display:
+        display_options['tp_display'] = display['screencast_visible']
+    if 'overlay_enabled' in display:
+        display_options['overlay_enabled'] = display['overlay_enabled']
+
+    # Include mask settings in display_options for downstream compatibility
+    mask = data.get('mask', {})
+    if mask:
+        display_options['mask_enabled'] = mask.get('enabled', False)
+        if 'center_x' in mask and 'center_y' in mask:
+            display_options['mask_position'] = (mask['center_x'], mask['center_y'])
+
+    return overlay_config, display_options
 
 
 def list_theme_configs(base_path: str) -> list:

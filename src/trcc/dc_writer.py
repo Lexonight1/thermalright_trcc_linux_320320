@@ -459,9 +459,55 @@ def save_theme(theme_path: str,
     elif mask_image:
         theme.mask_enabled = True
 
-    # Write config1.dc
+    # Write config1.dc (binary backup for Windows compatibility)
     config_path = os.path.join(theme_path, "config1.dc")
     write_dc_file(theme, config_path)
+
+    # Write config.json (human-readable, preferred on load)
+    display_options = {}
+    if dc_data:
+        display_options = dc_data.get('display_options', {})
+    mask_settings = {}
+    if mask_position:
+        mask_settings = {'enabled': True, 'center_x': mask_position[0], 'center_y': mask_position[1]}
+    elif mask_image:
+        mask_settings = {'enabled': True}
+    write_config_json(theme_path, overlay_config, display_options, mask_settings)
+
+
+def write_config_json(theme_path: str,
+                      overlay_config: Optional[dict] = None,
+                      display_options: Optional[dict] = None,
+                      mask_settings: Optional[dict] = None) -> None:
+    """
+    Write theme config as human-readable JSON.
+
+    Creates config.json alongside config1.dc so users and developers
+    can view and edit theme settings with any text editor.
+
+    Args:
+        theme_path: Theme directory
+        overlay_config: Overlay elements dict (from renderer.config / dc_to_overlay_config)
+        display_options: Display settings (rotation, bg_display, etc.)
+        mask_settings: Mask settings (enabled, center_x, center_y)
+    """
+    import json
+
+    data = {
+        'version': 1,
+        'display': {
+            'rotation': display_options.get('rotation', 0) if display_options else 0,
+            'background_visible': display_options.get('bg_display', True) if display_options else True,
+            'screencast_visible': display_options.get('tp_display', False) if display_options else False,
+            'overlay_enabled': display_options.get('overlay_enabled', True) if display_options else True,
+        },
+        'mask': mask_settings or {},
+        'elements': overlay_config or {},
+    }
+
+    json_path = os.path.join(theme_path, 'config.json')
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def export_theme(theme_path: str, export_path: str) -> None:

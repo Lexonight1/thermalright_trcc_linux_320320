@@ -1050,10 +1050,28 @@ class FormCZTVController:
             self.on_preview_update(rotated)
 
     def _load_dc_config(self, dc_path: Path):
-        """Parse DC config file and apply overlay settings.
+        """Load overlay config, preferring config.json over config1.dc.
 
-        Shared by load_local_theme() and any path that loads a config1.dc.
+        Shared by load_local_theme() and any path that loads a config.
+        Tries config.json first (human-editable), falls back to config1.dc (binary).
         """
+        # Try JSON config first (same directory as dc_path)
+        json_path = dc_path.parent / 'config.json' if dc_path else None
+        if json_path and json_path.exists():
+            try:
+                from ..dc_parser import load_config_json
+                result = load_config_json(str(json_path))
+                if result is not None:
+                    overlay_config, display_options = result
+                    self.overlay.set_config(overlay_config)
+                    self.overlay.set_config_resolution(self.lcd_width, self.lcd_height)
+                    # Store as dc_data so save round-trip works
+                    self.overlay.model.set_dc_data({'display_options': display_options})
+                    return
+            except Exception as e:
+                print(f"[!] Failed to load config.json, falling back to DC: {e}")
+
+        # Fall back to binary config1.dc
         if not dc_path or not dc_path.exists():
             return
         try:

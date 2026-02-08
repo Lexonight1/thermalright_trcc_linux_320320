@@ -1574,5 +1574,95 @@ class TestDcParserStringEdge(unittest.TestCase):
             self.assertEqual(len(result['fonts']), 13)
 
 
+class TestLoadConfigJson(unittest.TestCase):
+    """Test JSON config loading (load_config_json)."""
+
+    def test_load_valid_json(self):
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {
+                'version': 1,
+                'display': {'rotation': 90, 'background_visible': True,
+                             'screencast_visible': False, 'overlay_enabled': True},
+                'mask': {'enabled': True, 'center_x': 160, 'center_y': 160},
+                'elements': {'time': {'x': 10, 'y': 20, 'color': '#ff0000',
+                                      'metric': 'time', 'enabled': True}},
+            }
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            overlay_config, display_options = result
+            self.assertEqual(overlay_config['time']['x'], 10)
+            self.assertEqual(display_options['rotation'], 90)
+            self.assertTrue(display_options['mask_enabled'])
+            self.assertEqual(display_options['mask_position'], (160, 160))
+
+    def test_load_missing_file(self):
+        from trcc.dc_parser import load_config_json
+        result = load_config_json('/nonexistent/config.json')
+        self.assertIsNone(result)
+
+    def test_load_invalid_json(self):
+        from trcc.dc_parser import load_config_json
+        with TemporaryDirectory() as d:
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                f.write('not valid json {{{')
+            result = load_config_json(path)
+            self.assertIsNone(result)
+
+    def test_load_missing_elements_key(self):
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump({'version': 1, 'display': {}}, f)
+            result = load_config_json(path)
+            self.assertIsNone(result)
+
+    def test_round_trip_with_write(self):
+        """Write JSON with dc_writer, read back with dc_parser."""
+        from trcc.dc_parser import load_config_json
+        from trcc.dc_writer import write_config_json
+        with TemporaryDirectory() as d:
+            overlay = {
+                'time': {'x': 10, 'y': 20, 'color': '#ff6b35', 'metric': 'time',
+                          'enabled': True, 'time_format': 0,
+                          'font': {'name': 'Arial', 'size': 24, 'size_raw': 18.0,
+                                    'style': 'bold', 'unit': 3, 'charset': 134}},
+                'hw_0_1': {'x': 50, 'y': 100, 'color': '#ffffff', 'metric': 'cpu_temp',
+                            'enabled': True},
+            }
+            display = {'rotation': 180, 'bg_display': True, 'overlay_enabled': True}
+            mask = {'enabled': True, 'center_x': 160, 'center_y': 160}
+            write_config_json(d, overlay, display, mask)
+
+            result = load_config_json(os.path.join(d, 'config.json'))
+            self.assertIsNotNone(result)
+            loaded_overlay, loaded_display = result
+            self.assertEqual(loaded_overlay['time']['x'], 10)
+            self.assertEqual(loaded_overlay['time']['font']['name'], 'Arial')
+            self.assertEqual(loaded_overlay['hw_0_1']['metric'], 'cpu_temp')
+            self.assertEqual(loaded_display['rotation'], 180)
+            self.assertTrue(loaded_display['mask_enabled'])
+
+    def test_load_no_mask(self):
+        from trcc.dc_parser import load_config_json
+        import json
+        with TemporaryDirectory() as d:
+            data = {'version': 1, 'display': {}, 'elements': {}}
+            path = os.path.join(d, 'config.json')
+            with open(path, 'w') as f:
+                json.dump(data, f)
+            result = load_config_json(path)
+            self.assertIsNotNone(result)
+            _, display_options = result
+            self.assertNotIn('mask_enabled', display_options)
+
+
 if __name__ == '__main__':
     unittest.main()

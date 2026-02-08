@@ -20,6 +20,7 @@ from trcc.dc_writer import (
     read_carousel_config,
     save_theme,
     write_carousel_config,
+    write_config_json,
     write_dc_file,
     write_tr_export,
 )
@@ -671,3 +672,60 @@ class TestCarouselConfigRoundTrip(unittest.TestCase):
             loaded = read_carousel_config(path)
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.lcd_rotation, 1)  # default
+
+
+class TestWriteConfigJson(unittest.TestCase):
+    """Test JSON config writing."""
+
+    def test_writes_valid_json(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            overlay = {'time': {'x': 10, 'y': 20, 'color': '#ff0000', 'metric': 'time', 'enabled': True}}
+            write_config_json(d, overlay)
+            json_path = os.path.join(d, 'config.json')
+            self.assertTrue(os.path.exists(json_path))
+            with open(json_path) as f:
+                data = json.load(f)
+            self.assertEqual(data['version'], 1)
+            self.assertEqual(data['elements']['time']['x'], 10)
+            self.assertEqual(data['elements']['time']['color'], '#ff0000')
+
+    def test_includes_display_options(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            display = {'rotation': 90, 'bg_display': True, 'tp_display': False, 'overlay_enabled': True}
+            write_config_json(d, {}, display)
+            with open(os.path.join(d, 'config.json')) as f:
+                data = json.load(f)
+            self.assertEqual(data['display']['rotation'], 90)
+            self.assertTrue(data['display']['background_visible'])
+
+    def test_includes_mask_settings(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            mask = {'enabled': True, 'center_x': 160, 'center_y': 160}
+            write_config_json(d, {}, {}, mask)
+            with open(os.path.join(d, 'config.json')) as f:
+                data = json.load(f)
+            self.assertTrue(data['mask']['enabled'])
+            self.assertEqual(data['mask']['center_x'], 160)
+
+    def test_empty_config(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            write_config_json(d)
+            with open(os.path.join(d, 'config.json')) as f:
+                data = json.load(f)
+            self.assertEqual(data['elements'], {})
+            self.assertEqual(data['display']['rotation'], 0)
+
+    def test_save_theme_writes_both_formats(self):
+        """save_theme() should create both config1.dc and config.json."""
+        with tempfile.TemporaryDirectory() as d:
+            overlay = {'time': {'x': 10, 'y': 20, 'color': '#ffffff',
+                                'font': {'name': 'Arial', 'size': 24, 'size_raw': 18.0,
+                                          'style': 'regular', 'unit': 3, 'charset': 134},
+                                'metric': 'time', 'enabled': True}}
+            save_theme(d, overlay_config=overlay)
+            self.assertTrue(os.path.exists(os.path.join(d, 'config1.dc')))
+            self.assertTrue(os.path.exists(os.path.join(d, 'config.json')))
