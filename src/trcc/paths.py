@@ -28,8 +28,8 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))  # src/trcc/
 SRC_DIR = os.path.dirname(_THIS_DIR)                     # src/
 PROJECT_ROOT = os.path.dirname(SRC_DIR)                  # project root
 
-# Asset directories
-ASSETS_DIR = os.path.join(SRC_DIR, 'assets')
+# Asset directories (inside trcc package)
+ASSETS_DIR = os.path.join(_THIS_DIR, 'assets')
 RESOURCES_DIR = os.path.join(ASSETS_DIR, 'gui')
 
 # User config directory
@@ -53,12 +53,12 @@ def _find_data_dir() -> str:
     """Find the data directory with themes.
 
     Search order:
-    1. src/data/ (package location)
-    2. Project root data/ (development)
+    1. trcc/data/ (inside package)
+    2. Project root data/ (development fallback)
     3. ~/.trcc/data/ (user downloads)
     """
     candidates = [
-        os.path.join(SRC_DIR, 'data'),
+        os.path.join(_THIS_DIR, 'data'),
         os.path.join(PROJECT_ROOT, 'data'),
         USER_DATA_DIR,
     ]
@@ -72,8 +72,8 @@ def _find_data_dir() -> str:
                     if _has_actual_themes(theme_path):
                         return candidate
 
-    # Fallback to src/data even if empty
-    return os.path.join(SRC_DIR, 'data')
+    # Fallback to trcc/data even if empty
+    return os.path.join(_THIS_DIR, 'data')
 
 
 # Data directories

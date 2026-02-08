@@ -236,6 +236,7 @@ def detect(show_all=False):
             if not dev:
                 dev = devices[0]
             print(f"Active: {_format_device(dev)}")
+
         return 0
     except Exception as e:
         print(f"Error: {e}")
@@ -569,7 +570,7 @@ def setup_udev(dry_run=False):
     (no /dev/sgX created). The :u quirk forces usb-storage bulk-only transport.
     """
     try:
-        from trcc.device_detector import KNOWN_DEVICES, _HID_LCD_DEVICES, _LED_DEVICES
+        from trcc.device_detector import _HID_LCD_DEVICES, _LED_DEVICES, KNOWN_DEVICES
 
         # Always include ALL devices in udev rules (so hardware is ready
         # when users plug in HID devices, even without --testing-hid)

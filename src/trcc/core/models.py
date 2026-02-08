@@ -825,7 +825,7 @@ class LEDModel:
 
     def set_mode(self, mode: LEDMode) -> None:
         """Set LED effect mode."""
-        self.state.mode = mode
+        self.state.mode = LEDMode(mode) if not isinstance(mode, LEDMode) else mode
         self.state.rgb_timer = 0  # Reset animation
         self._notify_state_changed()
 
@@ -853,7 +853,7 @@ class LEDModel:
     def set_zone_mode(self, zone: int, mode: LEDMode) -> None:
         """Set mode for a specific zone (multi-zone devices)."""
         if 0 <= zone < len(self.state.zones):
-            self.state.zones[zone].mode = mode
+            self.state.zones[zone].mode = LEDMode(mode) if not isinstance(mode, LEDMode) else mode
             self._notify_state_changed()
 
     def set_zone_color(self, zone: int, r: int, g: int, b: int) -> None:
@@ -1021,9 +1021,7 @@ class LEDModel:
         From FormLED.cs line 9377:
             <30°C=cyan, 30-49=green, 50-69=yellow, 70-89=orange, ≥90=red
         """
-        from ..led_device import (
-            TEMP_COLOR_THRESHOLDS, TEMP_COLOR_HIGH, color_for_value
-        )
+        from ..led_device import TEMP_COLOR_HIGH, TEMP_COLOR_THRESHOLDS, color_for_value
 
         source = self.state.temp_source
         temp = self._metrics.get(f"{source}_temp", 0)
@@ -1036,9 +1034,7 @@ class LEDModel:
         From FormLED.cs line 9824:
             Same thresholds as temperature but for utilization %.
         """
-        from ..led_device import (
-            LOAD_COLOR_THRESHOLDS, LOAD_COLOR_HIGH, color_for_value
-        )
+        from ..led_device import LOAD_COLOR_HIGH, LOAD_COLOR_THRESHOLDS, color_for_value
 
         source = self.state.load_source
         load = self._metrics.get(f"{source}_load", 0)

@@ -484,6 +484,7 @@ class FormCZTVController:
         self.lcd_height = saved_h
         self.current_image: Optional[Any] = None  # PIL Image
         self.current_theme_path: Optional[Path] = None
+        self._mask_source_dir: Optional[Path] = None  # where the mask came from
         self.auto_send = True
         self.rotation = 0         # directionB: 0, 90, 180, 270
         self.brightness = 50      # myLddVal mapped: L1=25, L2=50, L3=100
@@ -627,6 +628,7 @@ class FormCZTVController:
         self.overlay.set_background(None)
         self.overlay.set_theme_mask(None)
         self.overlay.set_config({})
+        self._mask_source_dir = None
         self.current_image = None
 
         self.current_theme_path = theme.path
@@ -640,39 +642,40 @@ class FormCZTVController:
         if json_path.exists():
             display_opts = self._load_dc_config(dc_path)  # prefers config.json
 
-        # Reference format: load background by path
-        bg_ref = display_opts.get('background_path')
-        if bg_ref:
-            bg_ref_path = Path(bg_ref)
-            if bg_ref_path.exists():
-                if bg_ref_path.suffix in ('.mp4', '.avi', '.mkv', '.webm'):
-                    self.video.load(bg_ref_path)
-                    first_frame = self.video.model.get_frame(0)
-                    if first_frame:
-                        self.current_image = first_frame
-                        self._update_preview(first_frame)
-                    self.video.play()
-                elif bg_ref_path.suffix == '.zt':
-                    self.video.load(bg_ref_path)
-                    self.video.play()
-                else:
-                    self._load_static_image(bg_ref_path)
-
-            # Enable overlay if dc config has elements
+            # Enable overlay BEFORE loading background (so _render_and_send uses it)
             if display_opts.get('overlay_enabled'):
                 self.overlay.enable(True)
 
-            # Load mask by reference path
+            # Load mask by reference path (before background so it's ready for render)
             mask_ref = display_opts.get('mask_path')
             if mask_ref:
                 mask_dir = Path(mask_ref)
                 mask_file = mask_dir / '01.png'
                 if mask_file.exists():
+                    self._mask_source_dir = mask_dir
                     mask_pos = display_opts.get('mask_position')
                     self._load_theme_mask(mask_file, None)
                     if mask_pos:
                         self.overlay.set_theme_mask(
                             self.overlay.get_theme_mask()[0], mask_pos)
+
+            # Reference format: load background by path (triggers render with overlay+mask)
+            bg_ref = display_opts.get('background_path')
+            if bg_ref:
+                bg_ref_path = Path(bg_ref)
+                if bg_ref_path.exists():
+                    if bg_ref_path.suffix in ('.mp4', '.avi', '.mkv', '.webm'):
+                        self.video.load(bg_ref_path)
+                        first_frame = self.video.model.get_frame(0)
+                        if first_frame:
+                            self.current_image = first_frame
+                            self._update_preview(first_frame)
+                        self.video.play()
+                    elif bg_ref_path.suffix == '.zt':
+                        self.video.load(bg_ref_path)
+                        self.video.play()
+                    else:
+                        self._load_static_image(bg_ref_path)
 
             self._update_status(f"Theme: {theme.name}")
             return
@@ -718,6 +721,7 @@ class FormCZTVController:
         # Load mask (01.png) from working dir with position from DC config
         mask_path = self.working_dir / '01.png'
         if mask_path.exists():
+            self._mask_source_dir = theme.path
             self._load_theme_mask(mask_path, wd_dc_path if wd_dc_path.exists() else None)
 
         self._update_status(f"Theme: {theme.name}")
@@ -761,6 +765,8 @@ class FormCZTVController:
         """
         if not mask_dir or not mask_dir.exists():
             return
+
+        self._mask_source_dir = mask_dir
 
         # Copy mask files to working dir (01.png, config1.dc, Theme.png)
         for f in mask_dir.iterdir():
@@ -899,12 +905,12 @@ class FormCZTVController:
                 if orig_bg.exists():
                     background_path = str(orig_bg)
 
-            # Determine mask source path
+            # Determine mask source path (from apply_mask or load_local_theme)
             mask_path = None
-            if mask_img and self.current_theme_path:
-                mask_file = self.current_theme_path / '01.png'
+            if mask_img and self._mask_source_dir:
+                mask_file = self._mask_source_dir / '01.png'
                 if mask_file.exists():
-                    mask_path = str(self.current_theme_path)
+                    mask_path = str(self._mask_source_dir)
 
             config_json = {
                 'background': background_path,
@@ -1208,7 +1214,7 @@ class LEDController:
     """
 
     def __init__(self):
-        from .models import LEDModel, LEDMode
+        from .models import LEDModel
         self.model = LEDModel()
 
         # View callbacks
@@ -1362,7 +1368,6 @@ class FormLEDController:
             return
         try:
             from ..paths import save_device_setting
-            from .models import LEDMode
 
             state = self.led.model.state
             config = {
@@ -1394,7 +1399,7 @@ class FormLEDController:
             return
         try:
             from ..paths import get_device_config
-            from .models import LEDMode, LEDZoneState
+            from .models import LEDMode
 
             dev_config = get_device_config(self._device_key)
             led_config = dev_config.get('led_config', {})
