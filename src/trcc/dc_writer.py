@@ -304,8 +304,11 @@ def overlay_config_to_theme(overlay_config: dict,
         # Parse font settings
         font_cfg = cfg.get('font', {})
         elem.font_name = font_cfg.get('name', 'Microsoft YaHei')
-        elem.font_size = font_cfg.get('size', 24.0)
-        elem.font_style = 1 if font_cfg.get('style', 'bold') == 'bold' else 0
+        # Use raw DC value if available, otherwise fall back to rendered size
+        elem.font_size = font_cfg.get('size_raw', font_cfg.get('size', 24.0))
+        elem.font_style = 1 if font_cfg.get('style', 'regular') == 'bold' else 0
+        elem.font_unit = font_cfg.get('unit', 3)
+        elem.font_charset = font_cfg.get('charset', 134)
 
         # Parse color
         color_hex = cfg.get('color', '#FFFFFF')
@@ -378,7 +381,8 @@ def save_theme(theme_path: str,
                overlay_config: Optional[dict] = None,
                mask_position: Optional[Tuple[int, int]] = None,
                display_width: int = 320,
-               display_height: int = 320) -> None:
+               display_height: int = 320,
+               dc_data: Optional[dict] = None) -> None:
     """
     Save a complete theme to disk in Windows-compatible format.
 
@@ -396,6 +400,7 @@ def save_theme(theme_path: str,
         mask_position: (x, y) position for mask
         display_width: Display width
         display_height: Display height
+        dc_data: Original parsed DC data for lossless round-trip (from parse_dc_file)
     """
     os.makedirs(theme_path, exist_ok=True)
 
@@ -424,6 +429,28 @@ def save_theme(theme_path: str,
         theme = ThemeConfig()
         theme.overlay_w = display_width
         theme.overlay_h = display_height
+
+    # Merge display options from original DC data (lossless round-trip)
+    if dc_data:
+        opts = dc_data.get('display_options', {})
+        if 'bg_display' in opts:
+            theme.bg_display = opts['bg_display']
+        if 'tp_display' in opts:
+            theme.tp_display = opts['tp_display']
+        if 'rotation' in opts:
+            theme.rotation = opts['rotation']
+        if 'ui_mode' in opts:
+            theme.ui_mode = opts['ui_mode']
+        if 'display_mode' in opts:
+            theme.display_mode = opts['display_mode']
+        if 'overlay_enabled' in opts:
+            theme.overlay_enabled = opts['overlay_enabled']
+        if 'overlay_rect' in opts:
+            rect = opts['overlay_rect']
+            theme.overlay_x = rect.get('x', 0)
+            theme.overlay_y = rect.get('y', 0)
+            theme.overlay_w = rect.get('w', display_width)
+            theme.overlay_h = rect.get('h', display_height)
 
     # Set mask position
     if mask_position:

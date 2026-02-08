@@ -596,6 +596,21 @@ class OverlayModel:
     # Internal renderer
     _renderer: Any = None
 
+    # Preserved DC data for lossless round-trip save
+    _dc_data: Optional[Dict[str, Any]] = None
+
+    def set_dc_data(self, dc_data: Optional[Dict[str, Any]]) -> None:
+        """Store parsed DC data for lossless save round-trip."""
+        self._dc_data = dc_data
+
+    def get_dc_data(self) -> Optional[Dict[str, Any]]:
+        """Get stored DC data (display_elements, display_options, etc.)."""
+        return self._dc_data
+
+    def clear_dc_data(self) -> None:
+        """Clear stored DC data (called on new theme load)."""
+        self._dc_data = None
+
     def add_element(self, element: OverlayElement):
         """Add an overlay element."""
         self.elements.append(element)

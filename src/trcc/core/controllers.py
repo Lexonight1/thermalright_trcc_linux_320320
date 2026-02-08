@@ -670,6 +670,13 @@ class FormCZTVController:
         # Don't touch overlay — cloud videos are backgrounds, overlays stay on top
 
         if theme.animation_path:
+            # Copy video to working dir so save_theme() can include it
+            video_path = Path(theme.animation_path)
+            if video_path.exists():
+                dest = self.working_dir / video_path.name
+                if not dest.exists():
+                    shutil.copy2(str(video_path), str(dest))
+
             self.video.load(theme.animation_path)
             # Show first frame immediately so preview updates before timer fires
             first_frame = self.video.model.get_frame(0)
@@ -828,6 +835,7 @@ class FormCZTVController:
                     mask_position=mask_pos,
                     display_width=self.lcd_width,
                     display_height=self.lcd_height,
+                    dc_data=self.overlay.model.get_dc_data(),
                 )
             except ImportError:
                 pass  # No dc_writer, working dir already has files
@@ -1045,6 +1053,8 @@ class FormCZTVController:
             overlay_config = dc_to_overlay_config(dc_data)
             self.overlay.set_config(overlay_config)
             self.overlay.set_config_resolution(self.lcd_width, self.lcd_height)
+            # Preserve raw DC data for lossless save round-trip
+            self.overlay.model.set_dc_data(dc_data)
         except Exception as e:
             print(f"[!] Failed to parse DC file: {e}")
 

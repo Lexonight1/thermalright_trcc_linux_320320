@@ -66,9 +66,9 @@ class DisplayElement:
     sub_count: int = 0      # For hardware info - specific sensor
     font_name: str = "Microsoft YaHei"
     font_size: float = 24.0
-    font_style: int = 1  # 0=Regular, 1=Bold, 2=Italic
+    font_style: int = 0  # 0=Regular, 1=Bold, 2=Italic
     font_unit: int = 3   # GraphicsUnit.Point
-    font_charset: int = 0
+    font_charset: int = 134  # GB2312 (Windows default: new Font("微软雅黑", 36f, 0, 3, 134))
     color_argb: tuple = (255, 255, 255, 255)  # ARGB
     text: str = ""      # Custom text content
 
@@ -549,8 +549,8 @@ def parse_dd_format(data: bytes) -> dict:
             font_name = read_string()
             font_size = read_float()
             font_style = read_byte()
-            _font_unit = read_byte()
-            _font_charset = read_byte()
+            font_unit = read_byte()
+            font_charset = read_byte()
 
             # Read color
             alpha = read_byte()
@@ -571,6 +571,8 @@ def parse_dd_format(data: bytes) -> dict:
                 font_name=font_name or "Microsoft YaHei",
                 font_size=max(8, min(72, font_size)) if 0 < font_size < 100 else 24,
                 font_style=font_style,
+                font_unit=font_unit,
+                font_charset=font_charset,
                 color_argb=(alpha, red, green, blue),
                 text=custom_text,
             )
@@ -785,8 +787,11 @@ def dc_to_overlay_config(dc_config: dict, display_width: int = 320, display_heig
             'color': elem.color_hex,
             'font': {
                 'size': font_size,
+                'size_raw': elem.font_size,  # Original DC value for lossless round-trip
                 'style': 'bold' if elem.font_style == 1 else 'regular',
                 'name': elem.font_name,
+                'unit': elem.font_unit,
+                'charset': elem.font_charset,
             },
             'enabled': True,
             'mode_sub': elem.mode_sub,  # Store format variant
