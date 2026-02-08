@@ -11,6 +11,23 @@ import subprocess
 import sys
 
 
+def _sudo_reexec(subcommand):
+    """Re-exec `trcc <subcommand>` as root via sudo with correct PYTHONPATH."""
+    trcc_pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cmd = [
+        "sudo", "env", f"PYTHONPATH={trcc_pkg}",
+        sys.executable, "-m", "trcc.cli", subcommand,
+    ]
+    print("Root required — requesting sudo...")
+    result = subprocess.run(cmd)
+    return result.returncode
+
+
+def _sudo_run(cmd):
+    """Run a command with sudo prepended. Returns subprocess.CompletedProcess."""
+    return subprocess.run(["sudo"] + cmd)
+
+
 def _ensure_extracted(driver):
     """Extract theme/mask archives for the driver's detected resolution."""
     try:
@@ -633,15 +650,7 @@ def setup_udev(dry_run=False):
 
         # Need root — re-exec with sudo automatically
         if os.geteuid() != 0:
-            # Find where trcc package lives so sudo/root can import it
-            trcc_pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            cmd = [
-                "sudo", "env", f"PYTHONPATH={trcc_pkg}",
-                sys.executable, "-m", "trcc.cli", "setup-udev",
-            ]
-            print(f"Root required — requesting sudo...")
-            result = subprocess.run(cmd)
-            return result.returncode
+            return _sudo_reexec("setup-udev")
 
         # Write udev rules
         with open(rules_path, "w") as f:
@@ -750,15 +759,12 @@ def uninstall():
     # Handle root files — auto-elevate with sudo if needed
     root_exists = [p for p in root_files if os.path.exists(p)]
     if root_exists and os.geteuid() != 0:
-        # Remove root files via sudo
-        rm_cmd = ["sudo", "rm", "-f"] + root_exists
-        print(f"Root files found — requesting sudo to remove...")
-        result = subprocess.run(rm_cmd)
+        print("Root files found — requesting sudo to remove...")
+        result = _sudo_run(["rm", "-f"] + root_exists)
         if result.returncode == 0:
             removed.extend(root_exists)
-            # Reload udev rules via sudo
-            subprocess.run(["sudo", "udevadm", "control", "--reload-rules"], check=False)
-            subprocess.run(["sudo", "udevadm", "trigger"], check=False)
+            _sudo_run(["udevadm", "control", "--reload-rules"])
+            _sudo_run(["udevadm", "trigger"])
     else:
         for path_str in root_exists:
             os.remove(path_str)
