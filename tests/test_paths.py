@@ -481,13 +481,13 @@ class TestFindDataDir(unittest.TestCase):
     """Test _find_data_dir search logic."""
 
     def test_returns_src_data_as_fallback(self):
-        """When no valid themes exist, falls back to src/data."""
-        with patch('trcc.paths.SRC_DIR', '/fake/src'), \
+        """When no valid themes exist, falls back to trcc/data."""
+        with patch('trcc.paths._THIS_DIR', '/fake/src/trcc'), \
              patch('trcc.paths.PROJECT_ROOT', '/fake'), \
              patch('trcc.paths.USER_DATA_DIR', '/fake/home/.trcc/data'), \
              patch('os.path.isdir', return_value=False):
             result = _find_data_dir()
-            self.assertEqual(result, '/fake/src/data')
+            self.assertEqual(result, '/fake/src/trcc/data')
 
 
 # ── Targeted coverage: extraction fallbacks and image loading ────────────────

@@ -78,8 +78,6 @@ sources = ["src"]
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
-    "/assets",
-    "/data",
     "/tests",
     "/README.md",
     "/LICENSE",
@@ -87,6 +85,13 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trcc"]
+artifacts = [
+    "*.7z",
+    "*.png",
+    "*.ttf",
+    "*.otf",
+    "*.TTC",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

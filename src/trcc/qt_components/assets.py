@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
 # Asset directory (relative to this file)
-ASSETS_DIR = Path(__file__).parent.parent.parent / 'assets' / 'gui'
+ASSETS_DIR = Path(__file__).parent.parent / 'assets' / 'gui'
 
 
 @lru_cache(maxsize=128)

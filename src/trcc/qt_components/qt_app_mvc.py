@@ -133,7 +133,7 @@ class TRCCMainWindowMVC(QMainWindow):
             )
 
         # Create controller (business logic lives here)
-        self._data_dir = data_dir or Path(__file__).parent.parent.parent / 'data'
+        self._data_dir = data_dir or Path(__file__).parent.parent / 'data'
         self.controller = create_controller(self._data_dir)
 
         # Animation timer (view owns timer, controller owns logic)
@@ -232,7 +232,7 @@ class TRCCMainWindowMVC(QMainWindow):
 
     def _setup_systray(self):
         """Create system tray icon with context menu."""
-        icon_path = Path(__file__).parent.parent.parent / 'assets' / 'icons' / 'trcc.png'
+        icon_path = Path(__file__).parent.parent / 'assets' / 'icons' / 'trcc.png'
         icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
         self.setWindowIcon(icon)
 

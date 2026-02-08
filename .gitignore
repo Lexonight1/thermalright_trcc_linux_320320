@@ -47,41 +47,41 @@ trcc_setup.h
 
 # Theme data: ignore cloud-downloaded themes (numbered dirs like 000a, 001b)
 # but keep default Theme1-5 for supported SCSI resolutions
-src/data/Theme*/[0-9]*/
-src/data/Theme*/Theme.zt
+src/trcc/data/Theme*/[0-9]*/
+src/trcc/data/Theme*/Theme.zt
 
 # Extracted default themes (regenerated from .7z archives at runtime)
 # The .7z archives ARE tracked in git
-src/data/Theme*/Theme[1-5]/
-!src/data/Theme*.7z
+src/trcc/data/Theme*/Theme[1-5]/
+!src/trcc/data/Theme*.7z
 
 # Non-SCSI resolution theme dirs (USBLCDNEW/HID only — not supported yet)
-src/data/Theme320320/
-src/data/Web/320320
-src/data/Web/zt320320
-src/data/Web/zt240240
+src/trcc/data/Theme320320/
+src/trcc/data/Web/320320
+src/trcc/data/Web/zt320320
+src/trcc/data/Web/zt240240
 
 
 # Cloud theme cache (PNGs extracted from .7z at runtime, MP4s downloaded on-demand)
 # .7z archives ARE tracked in git
-src/data/Web/**/*.mp4
-src/data/Web/**/*.png
+src/trcc/data/Web/**/*.mp4
+src/trcc/data/Web/**/*.png
 
 # Cloud mask themes (extracted from zt*.7z archives at runtime)
-src/data/Web/zt*/[0-9]*/
-!src/data/Web/zt*.7z
+src/trcc/data/Web/zt*/[0-9]*/
+!src/trcc/data/Web/zt*.7z
 
 # Dev tooling artifacts
-src/data/settings.json
-src/data/ui_*.json
+src/trcc/data/settings.json
+src/trcc/data/ui_*.json
 
 # User themes / runtime data
-src/data/themes/
-src/data/images/
-src/data/web_cache/
+src/trcc/data/themes/
+src/trcc/data/images/
+src/trcc/data/web_cache/
 
 # Stray files in theme root dirs
-src/data/Theme*/01.png
+src/trcc/data/Theme*/01.png
 
 # Root-level data dir (not src/data)
 /data/
