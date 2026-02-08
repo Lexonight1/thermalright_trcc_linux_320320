@@ -466,14 +466,14 @@ def resume():
                 elif rotation == 270:
                     img = img.transpose(Image.Transpose.ROTATE_90)
 
-                # Convert to RGB565 and send
+                # Convert to RGB565 and send (must match controllers._image_to_rgb565)
                 import numpy as np
-                arr = np.array(img)
-                r = arr[:, :, 0].astype(np.uint16)
-                g = arr[:, :, 1].astype(np.uint16)
-                b = arr[:, :, 2].astype(np.uint16)
-                rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-                frame = rgb565.astype(np.uint16).tobytes()
+                arr = np.array(img, dtype=np.uint16)
+                r = (arr[:, :, 0] >> 3) & 0x1F
+                g = (arr[:, :, 1] >> 2) & 0x3F
+                b = (arr[:, :, 2] >> 3) & 0x1F
+                rgb565 = (r << 11) | (g << 5) | b
+                frame = rgb565.astype('>u2').tobytes()
 
                 driver.send_frame(frame)
                 print(f"  [{dev.product_name}] Sent: {os.path.basename(theme_path)}")
