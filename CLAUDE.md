@@ -31,7 +31,7 @@ Semantic versioning: MAJOR.MINOR.PATCH
 
 ## Test Suite
 
-**1836 tests** across 25 test files — **96% coverage** on non-Qt backend (4696 stmts, 121 miss, 1462 branches, 144 partial)
+**1849 tests** across 25 test files — **96% coverage** on non-Qt backend
 
 CI runs on `main`, `stable`, and `hid-protocol-testing` branches (Python 3.10, 3.11, 3.12).
 CI workflows: `tests.yml` (pytest+pyright), `ci.yml`, `codeql.yml`, `codeql-analysis.yml`, `release.yml`.
@@ -44,32 +44,32 @@ Run per-module: `pytest tests/test_X.py --cov=trcc.X --cov-report=term-missing`
 | Test file | Module covered | Tests | Coverage |
 |-----------|---------------|-------|----------|
 | test_sysinfo_config | sysinfo_config | 18 | 100% |
-| test_controllers | core/controllers | 169 | 99% |
+| test_controllers | core/controllers | 181 | 99% |
 | test_device_implementations | device_implementations | 32 | 99% |
 | test_cloud_downloader | cloud_downloader | 47 | 98% |
-| test_dc_writer | dc_writer | 46 | 98% |
-| test_scsi_device | scsi_device | 35 | 97% |
+| test_dc_writer | dc_writer | 54 | 98% |
+| test_scsi_device | scsi_device | 45 | 97% |
 | test_gif_animator | gif_animator | 86 | 96% |
 | test_sensor_enumerator | sensor_enumerator | 72 | 96% |
 | test_models | core/models | 78 | 96% |
-| test_cli | cli | 66 | 95% |
+| test_cli | cli | 80 | 95% |
 | test_device_detector | device_detector | 60 | 95% |
 | test_paths | paths | 54 | 95% |
 | test_theme_downloader | theme_downloader | 54 | 95% |
 | test_theme_io | theme_io | 17 | 95% |
 | test_system_info | system_info | 107 | 94% |
 | test_lcd_driver | lcd_driver | 25 | 94% |
-| test_dc_parser | dc_parser | 81 | 92% |
+| test_dc_parser | dc_parser | 99 | 92% |
 | test_overlay_renderer | overlay_renderer | 66 | 92% |
 | test_qt_constants | qt_components/constants | 25 | 100% |
 | test_qt_base | qt_components/base | 27 | 83% |
-| test_qt_widgets | qt_components widgets+assets | 44 | varies |
+| test_qt_widgets | qt_components widgets+assets | 59 | varies |
 | test_hid_device | hid_device (HID protocol) | 114 | — |
 | test_device_factory | device_factory (HID routing) | 73 | — |
 | test_led_device | led_device (LED protocol) | 245 | — |
 | test_led_controller | led_controller (FormLED) | 131 | — |
 
-**Total: 1836 tests across 25 test files**
+**Total: 1849 tests across 25 test files**
 
 Qt tests require `QT_QPA_PLATFORM=offscreen` (headless, no display server).
 HID and LED tests (`tests/hid_testing/`) are on the `hid-protocol-testing` branch only.
@@ -431,7 +431,7 @@ Prioritized list of remaining work:
 - pyright basic mode: 0 errors across full codebase
 
 ### 4. ~~Coverage Push to 95%+~~ ✓ Done
-- 880 tests → **1209 tests** → **1836 tests** (including 563 HID/LED tests)
+- 880 tests → **1209 tests** → **1849 tests** (including 563 HID/LED tests)
 - All 18 non-Qt backend modules now **92-100%** (combined **96%**)
 - Modules pushed: gif_animator (50%→96%), overlay_renderer (71%→92%), sensor_enumerator (74%→96%), dc_parser (77%→92%), cli (86%→95%), cloud_downloader (88%→98%), system_info (88%→94%), device_detector (90%→95%), theme_downloader (90%→95%), device_implementations (92%→99%), models (96%→96%), dc_writer (94%→98%), paths (93%→95%), controllers (46%→99%)
 - Remaining uncovered lines are module-level `except ImportError` fallbacks (impractical)
