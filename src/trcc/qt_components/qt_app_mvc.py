@@ -1,7 +1,7 @@
 """
 PyQt6 Main Application Window using MVC Architecture.
 
-This is a View that uses FormCZTVController for all business logic.
+This is a View that uses LCDDeviceController for all business logic.
 The controller can be reused with any GUI framework (Tkinter, GTK, etc.)
 
 Visual polish matches Windows TRCC exactly:
@@ -40,7 +40,7 @@ from ..core import (
     ThemeInfo,
     create_controller,
 )
-from ..core.controllers import FormLEDController
+from ..core.controllers import LEDDeviceController
 from ..dc_writer import CarouselConfig, read_carousel_config, write_carousel_config
 from ..paths import (
     device_config_key,
@@ -111,7 +111,7 @@ class TRCCMainWindowMVC(QMainWindow):
     Main TRCC application window (singleton).
 
     This View:
-    - Owns the FormCZTVController for business logic
+    - Owns the LCDDeviceController for business logic
     - Renders UI with Windows-matching backgrounds via QPalette
     - Forwards user events to controller
     - Subscribes to controller callbacks for updates
@@ -190,8 +190,14 @@ class TRCCMainWindowMVC(QMainWindow):
         self._led_timer.timeout.connect(self._on_led_tick)
 
         # LED controller (lazy — created on first LED device selection)
-        self._led_controller: FormLEDController | None = None
+        self._led_controller: LEDDeviceController | None = None
         self._led_active = False
+        self._led_style_id = 0          # current LED device style_id
+        self._led_sensor_counter = 0    # tick counter for sensor polling (~1s)
+
+        # Drive metrics timer for HR10 (1-second polling, slower than LED tick)
+        self._drive_metrics_timer = QTimer(self)
+        self._drive_metrics_timer.timeout.connect(self._on_drive_metrics_tick)
 
         # Language for localized backgrounds
         self._lang = detect_language()
@@ -212,6 +218,7 @@ class TRCCMainWindowMVC(QMainWindow):
         saved_unit = get_saved_temp_unit()
         self.controller.overlay.set_temp_unit(saved_unit)
         self.uc_system_info.set_temp_unit(saved_unit)
+        self.uc_led_control.set_temp_unit(saved_unit)
         if saved_unit == 1:
             self.uc_about._set_temp('F')
 
@@ -440,7 +447,7 @@ class TRCCMainWindowMVC(QMainWindow):
             btn.setChecked(i == active_btn)
 
     def _show_view(self, view: str):
-        """Switch between the four content views.
+        """Switch between the five content views.
 
         Args:
             view: 'form' (device/themes), 'about' (control center),
@@ -455,6 +462,12 @@ class TRCCMainWindowMVC(QMainWindow):
             self.uc_system_info.start_updates()
         else:
             self.uc_system_info.stop_updates()
+
+        # Start/stop drive metrics timer for HR10 LED devices
+        if view == 'led' and self.uc_led_control.is_hr10:
+            self._drive_metrics_timer.start(1000)
+        else:
+            self._drive_metrics_timer.stop()
 
         # Stop LED timer when leaving LED view
         if view != 'led' and self._led_active:
@@ -478,6 +491,7 @@ class TRCCMainWindowMVC(QMainWindow):
         temp_int = 1 if unit == 'F' else 0
         self.controller.overlay.set_temp_unit(temp_int)
         self.uc_system_info.set_temp_unit(temp_int)
+        self.uc_led_control.set_temp_unit(temp_int)
         save_temp_unit(temp_int)
         self.uc_preview.set_status(f"Temperature: °{unit}")
 
@@ -699,6 +713,7 @@ class TRCCMainWindowMVC(QMainWindow):
 
         # Sync LED panel
         self.uc_led_control.set_language(lang)
+        # LED panel language is updated via set_language (handles both standard and HR10)
 
     def _init_theme_directories(self):
         """Initialize theme browser directories."""
@@ -1607,7 +1622,7 @@ class TRCCMainWindowMVC(QMainWindow):
     def _show_led_view(self, device: DeviceInfo):
         """Show the LED control panel for an LED device.
 
-        Creates FormLEDController if needed, configures for device,
+        Creates LEDDeviceController if needed, configures for device,
         wires signals, and starts the 30ms animation timer.
 
         Matches Windows: Form1 routes device1 to FormLED, not FormCZTV.
@@ -1621,13 +1636,17 @@ class TRCCMainWindowMVC(QMainWindow):
 
         # Create controller on first use
         if self._led_controller is None:
-            self._led_controller = FormLEDController()
+            self._led_controller = LEDDeviceController()
             self._connect_led_signals()
 
-        # Determine style (default style 1 for AX120_DIGITAL)
         from ..led_device import LED_STYLES
-        # Try to get style from device model name
         led_style = 1
+
+        # Resolve LED style from model name.
+        # The model was already identified by probe_led_model() during
+        # device detection, so we match by model name instead of doing
+        # another handshake (which would timeout since firmware already
+        # responded to the detection probe).
         model = device.model or ''
         for style_id, style in LED_STYLES.items():
             if style.model_name == model:
@@ -1636,15 +1655,15 @@ class TRCCMainWindowMVC(QMainWindow):
 
         # Initialize controller for this device
         self._led_controller.initialize(device, led_style)
+        self._led_style_id = led_style
+        self._led_sensor_counter = 0
 
-        # Configure UI panel
+        # All LED devices use the unified UCLedControl panel
         style = LED_STYLES.get(led_style)
         if style:
             self.uc_led_control.initialize(
                 led_style, style.segment_count, style.zone_count, self._lang
             )
-
-        # Show LED panel
         self._show_view('led')
         self._led_active = True
 
@@ -1654,41 +1673,207 @@ class TRCCMainWindowMVC(QMainWindow):
     def _stop_led_view(self):
         """Stop LED mode — save config, stop timer, release protocol."""
         self._led_timer.stop()
+        self._drive_metrics_timer.stop()
         self._led_active = False
         if self._led_controller:
             self._led_controller.cleanup()
 
     def _connect_led_signals(self):
-        """Wire UCLedControl signals to FormLEDController."""
+        """Wire UCLedControl signals to LEDDeviceController."""
         if not self._led_controller:
             return
 
         ctrl = self._led_controller
+        panel = self.uc_led_control
 
-        # Mode/color/brightness → controller
-        self.uc_led_control.mode_changed.connect(
-            lambda mode: ctrl.led.set_mode(mode))
-        self.uc_led_control.color_changed.connect(
-            lambda r, g, b: ctrl.led.set_color(r, g, b))
-        self.uc_led_control.brightness_changed.connect(
-            lambda val: ctrl.led.set_brightness(val))
-        self.uc_led_control.global_toggled.connect(
+        # Mode/color/brightness → zone-aware routing
+        panel.mode_changed.connect(self._on_led_mode_changed)
+        panel.color_changed.connect(self._on_led_color_changed)
+        panel.brightness_changed.connect(self._on_led_brightness_changed)
+        panel.global_toggled.connect(
             lambda on: ctrl.led.toggle_global(on))
-        self.uc_led_control.segment_clicked.connect(
+        panel.segment_clicked.connect(
             lambda idx: ctrl.led.toggle_segment(idx, not ctrl.led.model.state.segment_on[idx]))
+
+        # Zone selection
+        panel.zone_selected.connect(self._on_zone_selected)
+        panel.sync_all_changed.connect(lambda _sync: None)  # routing handled by mode/color/brightness
+
+        # LC2 clock signals
+        panel.clock_format_changed.connect(
+            lambda is_24h: ctrl.led.set_clock_format(is_24h))
+        panel.week_start_changed.connect(
+            lambda is_sun: ctrl.led.set_week_start(is_sun))
+
+        # HR10 display metric selection → controller display value
+        panel.display_metric_changed.connect(self._on_hr10_metric_changed)
+
+        # °C/°F toggle from LED panel → propagate to app-wide setting
+        panel.temp_unit_changed.connect(self._on_temp_unit_changed)
 
         # Controller → view (preview colors)
         ctrl.led.on_preview_update = self._on_led_colors_update
-        ctrl.on_status_update = lambda text: self.uc_led_control.set_status(text)
+        ctrl.on_status_update = lambda text: panel.set_status(text)
+
+    def _on_led_mode_changed(self, mode):
+        """Route mode change to correct zone or global."""
+        ctrl = self._led_controller
+        if not ctrl:
+            return
+        panel = self.uc_led_control
+        if panel.sync_all and ctrl.led.model.state.zones:
+            for i in range(len(ctrl.led.model.state.zones)):
+                ctrl.led.set_zone_mode(i, mode)
+        elif ctrl.led.model.state.zones:
+            ctrl.led.set_zone_mode(panel.selected_zone, mode)
+        else:
+            ctrl.led.set_mode(mode)
+
+    def _on_led_color_changed(self, r, g, b):
+        """Route color change to correct zone or global."""
+        ctrl = self._led_controller
+        if not ctrl:
+            return
+        panel = self.uc_led_control
+        if panel.sync_all and ctrl.led.model.state.zones:
+            for i in range(len(ctrl.led.model.state.zones)):
+                ctrl.led.set_zone_color(i, r, g, b)
+        elif ctrl.led.model.state.zones:
+            ctrl.led.set_zone_color(panel.selected_zone, r, g, b)
+        else:
+            ctrl.led.set_color(r, g, b)
+
+    def _on_led_brightness_changed(self, val):
+        """Route brightness change to correct zone or global."""
+        ctrl = self._led_controller
+        if not ctrl:
+            return
+        panel = self.uc_led_control
+        if panel.sync_all and ctrl.led.model.state.zones:
+            for i in range(len(ctrl.led.model.state.zones)):
+                ctrl.led.set_zone_brightness(i, val)
+        elif ctrl.led.model.state.zones:
+            ctrl.led.set_zone_brightness(panel.selected_zone, val)
+        else:
+            ctrl.led.set_brightness(val)
+
+    def _on_zone_selected(self, zone_index):
+        """Load zone state into panel when a zone is selected."""
+        ctrl = self._led_controller
+        if not ctrl or not ctrl.led.model.state.zones:
+            return
+        zones = ctrl.led.model.state.zones
+        if 0 <= zone_index < len(zones):
+            z = zones[zone_index]
+            self.uc_led_control.load_zone_state(
+                zone_index, z.mode.value, z.color, z.brightness)
 
     def _on_led_tick(self):
         """Called every 30ms — advance LED animation and send to device."""
-        if self._led_controller and self._led_active:
-            self._led_controller.led.tick()
+        if not (self._led_controller and self._led_active):
+            return
+        self._led_controller.led.tick()
+
+        # Sensor polling (~1s = every 33 ticks at 30ms)
+        self._led_sensor_counter += 1
+        if self._led_sensor_counter >= 33:
+            self._led_sensor_counter = 0
+            self._poll_led_sensors()
+
+    def _poll_led_sensors(self):
+        """Poll system metrics and route to appropriate panels and controller."""
+        if not self._led_controller:
+            return
+        try:
+            from ..system_info import get_all_metrics
+            metrics = get_all_metrics()
+        except Exception:
+            return
+
+        # Feed to controller for temp/load-linked LED modes
+        self._led_controller.led.update_metrics(metrics)
+
+        panel = self.uc_led_control
+        style = self._led_style_id
+
+        # Sensor labels (styles 1-3, 5-8, 11)
+        if style in (1, 2, 3, 5, 6, 7, 8, 11):
+            panel.update_sensor_metrics(metrics)
+
+        # LC1 memory (style 4)
+        if style == 4:
+            panel.update_memory_metrics(metrics)
+
+        # LF11 disk (style 10)
+        if style == 10:
+            try:
+                from ..system_info import get_disk_stats, get_disk_temperature
+                disk = get_disk_stats()
+                temp = get_disk_temperature()
+                if temp is not None:
+                    disk['disk_temp'] = temp
+                panel.update_lf11_disk_metrics(disk)
+            except Exception:
+                pass
+
+        # LC2 clock (style 9) — push time to preview
+        if style == 9:
+            import datetime
+            now = datetime.datetime.now()
+            state = self._led_controller.led.model.state
+            hour = now.hour
+            if not state.is_timer_24h and hour > 12:
+                hour -= 12
+            dow = now.weekday()  # 0=Mon
+            if state.is_week_sunday:
+                dow = (dow + 1) % 7  # shift so 0=Sun
+            self.uc_led_control._preview.set_timer(
+                now.month, now.day, hour, now.minute, dow)
 
     def _on_led_colors_update(self, colors):
-        """Forward computed LED colors to the preview widget."""
+        """Forward computed LED colors to the unified LED panel."""
         self.uc_led_control.set_led_colors(colors)
+
+    def _on_hr10_metric_changed(self, metric_key: str):
+        """Handle display metric selection change from LED panel (HR10)."""
+        self._hr10_push_display_value()
+
+    def _hr10_push_display_value(self):
+        """Push the current display text to the LED controller for rendering."""
+        if not self._led_controller or not self.uc_led_control.is_hr10:
+            return
+        panel = self.uc_led_control
+        text, unit = panel.get_display_value()
+
+        # Map unit to indicator set + adjust text for physical layout
+        indicators: set = set()
+        if '\u00b0' in unit:
+            indicators.add('deg')
+            if 'C' in unit:
+                text = text + 'C'
+            elif 'F' in unit:
+                text = text + 'F'
+        if '%' in unit:
+            indicators.add('%')
+        if 'MB' in unit or 'mb' in unit:
+            indicators.add('mbs')
+
+        self._led_controller.led.set_display_value(text, indicators)
+
+    def _on_drive_metrics_tick(self):
+        """Called every 1s — poll drive metrics for HR10 display."""
+        if not self.uc_led_control.is_hr10:
+            return
+        try:
+            from ..system_info import get_disk_stats, get_disk_temperature
+            metrics = get_disk_stats()
+            temp = get_disk_temperature()
+            if temp is not None:
+                metrics['disk_temp'] = temp
+            self.uc_led_control.update_drive_metrics(metrics)
+            self._hr10_push_display_value()
+        except Exception:
+            pass
 
     def _on_capture_requested(self):
         """Launch screen capture overlay → feed to image cutter."""
@@ -1922,6 +2107,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self._metrics_timer.stop()
         self._device_timer.stop()
         self._led_timer.stop()
+        self._drive_metrics_timer.stop()
         if self._led_controller:
             self._led_controller.cleanup()
         self.uc_system_info.stop_updates()

@@ -10,6 +10,8 @@ Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). C
 
 > Unofficial community project, not affiliated with Thermalright. I develop and test on Fedora — if something doesn't work on your distro, please [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues).
 
+![TRCC Linux GUI](doc/screenshots/screenshot.png)
+
 ## Features
 
 - **Themes** — Local, cloud, masks, carousel mode, export/import as `.tr` files
@@ -40,7 +42,7 @@ Run `lsusb` to find your USB ID (`xxxx:xxxx` after `ID`), then match it below.
 **HID LED devices** — RGB LED control:
 | USB ID | Devices |
 |--------|---------|
-| `0416:8001` | AX120 DIGITAL (LED mode) |
+| `0416:8001` | AX120 DIGITAL, HR10 2280 PRO DIGITAL (LED mode) |
 
 > HID devices are auto-detected. See the [HID Testing Guide](doc/HID_TESTING.md) if you have one — I need testers.
 
@@ -154,6 +156,8 @@ trcc send image.png       # Send image to LCD
 trcc test                 # Color cycle test
 trcc download themes-320  # Download cloud themes
 trcc hid-debug            # HID handshake diagnostic
+trcc led-diag             # LED device diagnostic
+trcc hr10-tempd           # HR10 NVMe temperature daemon
 ```
 
 ## Documentation
@@ -167,8 +171,15 @@ trcc hid-debug            # HID handshake diagnostic
 | [Technical Reference](doc/TECHNICAL_REFERENCE.md) | SCSI protocol and file formats |
 | [USBLCD Protocol](doc/USBLCD_PROTOCOL.md) | SCSI protocol reverse-engineered from USBLCD.exe |
 | [USBLCDNEW Protocol](doc/USBLCDNEW_PROTOCOL.md) | USB bulk protocol reverse-engineered from USBLCDNEW.exe |
+| [USBLED Protocol](doc/USBLED_PROTOCOL.md) | HID LED protocol reverse-engineered from FormLED.cs |
 | [HID Testing Guide](doc/HID_TESTING.md) | HID device support (testers wanted) |
 | [Supported Devices](doc/SUPPORTED_DEVICES.md) | Full device list with USB IDs |
+
+## Contributors
+
+A big thanks to everyone who has contributed to this project:
+
+- **[Lcstyle](https://github.com/Lcstyle)** — HR10 2280 PRO Digital support (7-segment display, color wheel, NVMe temperature daemon)
 
 ## Support
 

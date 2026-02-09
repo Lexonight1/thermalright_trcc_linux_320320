@@ -23,13 +23,15 @@ src/trcc/
 ├── hid_device.py                # HID USB transport (PyUSB/HIDAPI) for LCD and LED devices
 ├── led_device.py                # LED RGB protocol (effects, packet builder, HID sender)
 ├── device_factory.py            # Protocol factory (SCSI/HID/LED routing by PID)
+├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
+├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement
-│   └── controllers.py           # FormCZTVController, FormLEDController, MVC controllers
+│   └── controllers.py           # LCDDeviceController, LEDDeviceController, MVC controllers
 └── qt_components/
     ├── qt_app_mvc.py            # Main window (1454x800)
-    ├── base.py                  # BasePanel, ImageLabel, pil_to_pixmap
+    ├── base.py                  # BasePanel, BaseThemeBrowser, pil_to_pixmap, make_icon_button
     ├── constants.py             # Layout coords, sizes, colors, styles
     ├── assets.py                # Asset loader with lru_cache
     ├── eyedropper.py            # Fullscreen color picker
@@ -46,7 +48,10 @@ src/trcc/
     ├── uc_system_info.py        # Sensor dashboard
     ├── uc_sensor_picker.py      # Sensor selection dialog
     ├── uc_info_module.py        # Live system info display
-    ├── uc_led_control.py        # LED RGB control panel
+    ├── uc_led_control.py        # LED RGB control panel (all LED styles 1-13, inc. HR10)
+    ├── uc_screen_led.py         # LED segment visualization (colored circles)
+    ├── uc_color_wheel.py        # HSV color wheel for LED hue selection
+    ├── uc_seven_segment.py      # 7-segment display preview (HR10)
     ├── uc_activity_sidebar.py   # Sensor element picker
     └── uc_about.py              # Settings / about panel
 ```
@@ -88,7 +93,13 @@ The `DeviceProtocolFactory` in `device_factory.py` routes devices to the correct
 - **HID LCD devices** → `HidProtocol` (PyUSB/HIDAPI) — LCD displays via HID
 - **HID LED devices** → `LedProtocol` (PyUSB/HIDAPI) — RGB LED controllers
 
-The GUI auto-routes LED devices to `UCLedControl` (LED panel) instead of the LCD form. `FormLEDController` manages LED effects with a 30ms animation timer, matching Windows FormLED.
+The GUI auto-routes LED devices to `UCLedControl` (LED panel) instead of the LCD form. `LEDDeviceController` manages LED effects with a 30ms animation timer, matching Windows FormLED. The unified LED panel handles all device styles (1-13), including the HR10 2280 PRO Digital which shows a 7-segment preview, color wheel, and drive metrics instead of the standard LED segment circles.
+
+### Shared UI Base Classes
+
+`base.py` provides `BaseThemeBrowser` — the common superclass for local, cloud, and mask theme browsers. It handles grid layout, thumbnail creation, selection state (`_select_item()`), filter buttons, and scrolling. Subclasses override `_on_item_clicked()` for download-vs-select behavior while reusing the visual selection logic.
+
+`UCLedControl` uses a `_create_info_panel()` factory for building labeled metric displays (memory, disk), and module-level stylesheet constants (`_STYLE_INFO_BG`, `_STYLE_INFO_NAME`, etc.) shared across all info panels and buttons.
 
 ### Theme Archives
 

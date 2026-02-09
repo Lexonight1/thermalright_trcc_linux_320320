@@ -2,6 +2,22 @@
 
 ## v1.2.0
 
+### HR10 2280 PRO Digital Support
+- 7-segment display renderer (`hr10_display.py`) — converts text + unit into 31-LED color array
+- NVMe temperature daemon (`hr10-tempd` CLI command) — reads sysfs temp, breathe animation, thermal color gradient
+- LED diagnostic command (`led-diag`) — handshake + test colors for LED devices
+- Interactive HSV color wheel widget (`uc_color_wheel.py`) for LED hue selection
+- 7-segment preview widget (`uc_seven_segment.py`) — QPainter rendering matching physical HR10 display
+- Unified LED panel — all LED device styles (1-13) handled by single `UCLedControl` panel, matching Windows FormLED.cs
+- HR10-specific widgets (drive metrics, display selection, circulate mode) shown conditionally in the LED panel
+- LED segment visualization widget (`uc_screen_led.py`) with colored circles at segment positions
+- Contributor: [Lcstyle](https://github.com/Lcstyle) (GitHub PR #9)
+
+### Controller Naming
+- Renamed `FormCZTVController` → `LCDDeviceController` (LCD orchestrator)
+- Renamed `FormLEDController` → `LEDDeviceController` (LED orchestrator)
+- Consistent naming convention: `{Domain}Controller` for state engines, `{Protocol}DeviceController` for orchestrators
+
 ### Autostart on Login
 - Auto-enable autostart on first GUI launch (matches Windows `KaijiQidong()` behavior)
 - Creates `~/.config/autostart/trcc.desktop` with `trcc --last-one` on first run
@@ -32,6 +48,11 @@
 - Removed unused imports across 10 files
 - Sorted all import blocks (isort)
 - Removed redundant `requirements.txt` (`pyproject.toml` is single source of truth)
+- Deduplicated magic bytes: `led_device.LED_MAGIC` now imports `TYPE2_MAGIC` from `hid_device` (was copy-pasted)
+- Extracted `_select_item()` into `BaseThemeBrowser` — shared visual selection logic for local, cloud, and mask browsers
+- Centralized `pil_to_pixmap()` usage in `UCImageCut` (was inline 5-line conversion)
+- Added `_create_info_panel()` factory in `UCLedControl` — eliminates duplicate QFrame+label creation for mem/disk panels
+- Consolidated 5 repeated stylesheet strings into module-level constants (`_STYLE_INFO_BG`, `_STYLE_INFO_NAME`, etc.)
 
 ### On-Demand Download
 - All 15 LCD resolutions now have bundled `.7z` theme archives (was 4)
@@ -70,7 +91,7 @@
 - Removed `--testing-hid` references from all docs (HID is auto-detected)
 
 ### Testing
-- 1849 tests across 25 test files (up from 1777)
+- 1988 tests across 26 test files (up from 1777)
 - 96% coverage on non-Qt backend
 
 ## v1.1.3
