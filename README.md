@@ -1,35 +1,27 @@
 # TRCC Linux
 
 [![Tests](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/tests.yml/badge.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/tests.yml)
-[![CodeQL](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/codeql.yml/badge.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/codeql.yml)
-[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](CLAUDE.md#test-suite)
-[![Pyright](https://img.shields.io/badge/pyright-passing-brightgreen.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/tests.yml)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/releases)
-[![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
+[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/actions/workflows/tests.yml)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/releases/tag/v1.2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://python.org)
-[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](doc/INSTALL_GUIDE.md)
-[![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41cd52.svg)](https://www.riverbankcomputing.com/software/pyqt/)
-[![Stars](https://img.shields.io/github/stars/Lexonight1/thermalright-trcc-linux)](https://github.com/Lexonight1/thermalright-trcc-linux/stargazers)
-[![Last Commit](https://img.shields.io/github/last-commit/Lexonight1/thermalright-trcc-linux)](https://github.com/Lexonight1/thermalright-trcc-linux/commits)
-[![Issues](https://img.shields.io/github/issues/Lexonight1/thermalright-trcc-linux)](https://github.com/Lexonight1/thermalright-trcc-linux/issues)
+[![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
 Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). Control and customize the LCD displays on Thermalright CPU coolers, AIO pump heads, and fan hubs — entirely from Linux.
 
-> **Note:** This project is under active development. Documentation and features may change. Use at your own risk — this is an unofficial community project, not affiliated with Thermalright.
+> Unofficial community project, not affiliated with Thermalright. I develop and test on Fedora — if something doesn't work on your distro, please [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues).
 
-> **Distro support:** I develop and test on Fedora. The one-liners below cover many distros, but if something doesn't work on yours, please [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues) with your distro name and the error.
+## Features
+
+- **Themes** — Local, cloud, masks, carousel mode, export/import as `.tr` files
+- **Media** — Video/GIF playback, video trimmer, image cropper, screen cast (X11 + Wayland)
+- **Editor** — Overlay text/sensors/date/time, font picker, dynamic scaling, color picker
+- **Hardware** — 77+ sensors, customizable dashboard, multi-device with per-device config, RGB LED control
+- **Display** — 15 resolutions (240x240 to 1920x462), 0/90/180/270 rotation, 3 brightness levels
+- **Extras** — 5 starter themes + 120 masks per resolution, on-demand download, system tray, auto-start
 
 ## Supported Devices
 
-Plug in your device and run `lsusb` in a terminal. Find the line with your device — the USB ID is the `xxxx:xxxx` after `ID`:
-
-```
-Bus 001 Device 008: ID 0416:5302 Winbond Electronics Corp. USBDISPLAY
-                        ^^^^^^^^^
-                        this is your USB ID
-```
-
-Match it to the tables below.
+Run `lsusb` to find your USB ID (`xxxx:xxxx` after `ID`), then match it below.
 
 **SCSI devices** — fully supported:
 | USB ID | Devices |
@@ -38,8 +30,7 @@ Match it to the tables below.
 | `0416:5406` | LC1, LC2, LC3, LC5 (AIO pump heads) |
 | `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME SE |
 
-**HID LCD devices** — experimental (563 tests, needs hardware testers):
-
+**HID LCD devices** — auto-detected, needs hardware testers:
 | USB ID | Devices |
 |--------|---------|
 | `0416:5302` | AS120 VISION, BA120 VISION, FROZEN WARFRAME, FROZEN WARFRAME SE, FROZEN WARFRAME PRO, ELITE VISION, LC5 |
@@ -47,24 +38,19 @@ Match it to the tables below.
 | `0418:5304` | TARAN ARMS |
 
 **HID LED devices** — RGB LED control:
-
 | USB ID | Devices |
 |--------|---------|
 | `0416:8001` | AX120 DIGITAL (LED mode) |
 
-> **HID device?** HID devices are auto-detected — just run `trcc gui`. See the **[HID Testing Guide](doc/HID_TESTING.md)** for details. I don't have one of these devices, so I need testers.
+> HID devices are auto-detected. See the [HID Testing Guide](doc/HID_TESTING.md) if you have one — I need testers.
 
 ## Install
 
-> **New to Linux?** See the **[Install Guide](doc/INSTALL_GUIDE.md)** — it explains every command and covers 25+ distros step by step.
+Find your distro, copy the block, paste in terminal. After it finishes: **unplug and replug the USB cable**, then **open a new terminal** and run `trcc gui`.
 
-Find your distro, copy the block, paste in terminal. After it finishes: **unplug and replug the USB cable** (or reboot if it's not easily accessible), then **open a new terminal** and run `trcc gui`.
+> **`trcc: command not found`?** Open a new terminal — pip installs to `~/.local/bin` which needs a new shell session to appear on PATH.
 
-> **`trcc: command not found`?** Open a new terminal — pip installs to `~/.local/bin` which needs a new shell session to appear on PATH. Or run directly: `PYTHONPATH=src python3 -m trcc.cli gui`
-
-If your distro doesn't package PyQt6, just drop it from the system install line — `pip install -e .` will pull it from PyPI automatically.
-
-See the **[Install Guide](doc/INSTALL_GUIDE.md)** for troubleshooting, optional deps, immutable distros, and more.
+> See the **[Install Guide](doc/INSTALL_GUIDE.md)** for troubleshooting, optional deps, and 25+ distros step by step.
 
 ### Fedora / Nobara
 
@@ -72,7 +58,7 @@ See the **[Install Guide](doc/INSTALL_GUIDE.md)** for troubleshooting, optional 
 sudo dnf install sg3_utils python3-pyqt6 ffmpeg && ([ -d thermalright-trcc-linux ] && git -C thermalright-trcc-linux pull || git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git) && cd thermalright-trcc-linux && pip install --break-system-packages -e . && trcc setup-udev && trcc install-desktop
 ```
 
-### Ubuntu / Debian / Mint / Pop!_OS / Zorin / elementary OS / Xubuntu
+### Ubuntu / Debian / Mint / Pop!_OS / Zorin / elementary OS
 
 ```bash
 sudo apt install sg3-utils python3-pyqt6 ffmpeg python3-pip && ([ -d thermalright-trcc-linux ] && git -C thermalright-trcc-linux pull || git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git) && cd thermalright-trcc-linux && pip install --break-system-packages -e . && trcc setup-udev && trcc install-desktop
@@ -145,21 +131,6 @@ Then:
 ([ -d thermalright-trcc-linux ] && git -C thermalright-trcc-linux pull || git clone -b stable https://github.com/Lexonight1/thermalright-trcc-linux.git) && cd thermalright-trcc-linux && pip install --break-system-packages -e . && trcc install-desktop
 ```
 
-## Support
-
-If this project helped you, consider buying me a coffee:
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/Lexonight1)
-
-## Features
-
-- **Themes** — Local, cloud, masks, carousel mode, export/import as `.tr` files
-- **Media** — Video/GIF playback, video trimmer, image cropper, screen cast (X11 + Wayland)
-- **Editor** — Overlay text/sensors/date/time, font picker, dynamic scaling, eyedropper
-- **Hardware** — 77+ sensors, customizable dashboard, multi-device with per-device config, RGB LED control
-- **Display** — 15 resolutions (240x240 to 1920x462), 0/90/180/270 rotation, 3 brightness levels
-- **Extras** — 5 starter themes + 120 masks per resolution, on-demand theme download, 8 languages, system tray, auto-start
-
 ## Usage
 
 ```bash
@@ -184,7 +155,12 @@ trcc hid-debug            # HID handshake diagnostic
 | [USBLCDNEW Protocol](doc/USBLCDNEW_PROTOCOL.md) | USB bulk protocol reverse-engineered from USBLCDNEW.exe |
 | [HID Testing Guide](doc/HID_TESTING.md) | HID device support (testers wanted) |
 | [Supported Devices](doc/SUPPORTED_DEVICES.md) | Full device list with USB IDs |
-| [Development Status](doc/DEVELOPMENT_STATUS.md) | What's stable, in progress, and planned |
+
+## Support
+
+If this project helped you, consider buying me a coffee:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/Lexonight1)
 
 ## License
 
