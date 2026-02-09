@@ -115,6 +115,11 @@ jobs:
     needs: security-scans
     if: needs.security-scans.result == 'success'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Download security reports
         uses: actions/download-artifact@v4
         with:
