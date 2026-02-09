@@ -234,11 +234,13 @@ class TRCCMainWindowMVC(QMainWindow):
         self._on_device_poll()
         self._device_timer.start(5000)
 
-        # UCDevice auto-selects first device during _setup_ui(), but the signal
-        # fires before _connect_view_signals(). Re-trigger selection now that
-        # callbacks are wired so _active_device_key gets set and config persists.
-        if self.uc_device.selected_device and not self._active_device_key:
-            self._on_device_widget_clicked(self.uc_device.selected_device)
+        # Device may have been auto-selected during create_controller() before
+        # view callbacks were wired. Re-trigger the view's _on_device_selected
+        # directly so _active_device_key gets set and saved theme is restored.
+        if not self._active_device_key:
+            selected = self.controller.devices.get_selected()
+            if selected:
+                self._on_device_selected(selected)
 
     def _apply_dark_theme(self):
         """Apply dark theme via QPalette (not stylesheet - blocks palette on children)."""

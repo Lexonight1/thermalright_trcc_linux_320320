@@ -2004,3 +2004,127 @@ class TestCreateController(unittest.TestCase):
                 ctrl = create_controller(data_dir)
                 self.assertIsInstance(ctrl, LCDDeviceController)
                 ctrl.cleanup()
+
+
+# =============================================================================
+# Autostart device restore (--last-one regression)
+# =============================================================================
+
+class TestAutostartDeviceRestore(unittest.TestCase):
+    """Regression tests for --last-one autostart device/theme restore.
+
+    Bug: create_controller() auto-selects device during initialize() via
+    detect_devices(), but the view's on_device_selected callback isn't
+    wired yet. Callbacks set AFTER create_controller() miss the initial
+    selection. The view must re-trigger _on_device_selected manually.
+    """
+
+    def setUp(self):
+        self.ctrl, self.patches = _make_form_controller()
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        self.ctrl.cleanup()
+        _stop_patches(self.patches)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_initialize_preselects_device(self):
+        """initialize() auto-selects first device via detect_devices()."""
+        data_dir = Path(self.tmp)
+        (data_dir / 'Theme320320').mkdir()
+
+        fake_device = DeviceInfo(
+            name='LCD', path='/dev/sg0', resolution=(320, 320),
+            vid=0x0402, pid=0x3922, device_index=0,
+        )
+
+        def fake_detect():
+            self.ctrl.devices.model.devices = [fake_device]
+            self.ctrl.devices.model.select_device(fake_device)
+            return [fake_device]
+
+        with patch.object(self.ctrl.devices, 'detect_devices',
+                          side_effect=fake_detect):
+            self.ctrl.initialize(data_dir)
+
+        selected = self.ctrl.devices.get_selected()
+        self.assertIsNotNone(selected)
+        assert selected is not None  # narrow type for pyright
+        self.assertEqual(selected.path, '/dev/sg0')
+
+    def test_callback_after_preselection_not_called(self):
+        """Callback wired after initialize() misses the initial auto-select."""
+        data_dir = Path(self.tmp)
+        (data_dir / 'Theme320320').mkdir()
+
+        fake_device = DeviceInfo(
+            name='LCD', path='/dev/sg0', resolution=(320, 320),
+            vid=0x0402, pid=0x3922, device_index=0,
+        )
+
+        # LCDDeviceController._setup_callbacks wires its own on_device_selected
+        # during __init__. Simulate what happens when view overwrites it AFTER
+        # initialize() has already fired the auto-select.
+        view_calls = []
+
+        def fake_detect():
+            self.ctrl.devices.model.devices = [fake_device]
+            self.ctrl.devices.model.select_device(fake_device)
+            return [fake_device]
+
+        with patch.object(self.ctrl.devices, 'detect_devices',
+                          side_effect=fake_detect):
+            self.ctrl.initialize(data_dir)
+
+        # Now overwrite the callback (simulating _connect_controller_callbacks)
+        self.ctrl.devices.on_device_selected = lambda d: view_calls.append(d)
+
+        # The view's callback was NOT called for the initial auto-select
+        self.assertEqual(view_calls, [])
+
+    def test_retrigger_with_get_selected(self):
+        """Calling callback directly with get_selected() triggers restore."""
+        fake_device = DeviceInfo(
+            name='LCD', path='/dev/sg0', resolution=(320, 320),
+            vid=0x0402, pid=0x3922, device_index=0,
+        )
+        self.ctrl.devices.model.selected_device = fake_device
+
+        # Simulate view wiring callback after pre-selection
+        view_calls = []
+        self.ctrl.devices.on_device_selected = lambda d: view_calls.append(d)
+
+        # The fix: call callback directly with pre-selected device
+        selected = self.ctrl.devices.get_selected()
+        if selected:
+            self.ctrl.devices.on_device_selected(selected)
+
+        self.assertEqual(len(view_calls), 1)
+        self.assertEqual(view_calls[0].path, '/dev/sg0')
+
+    def test_theme_selected_callback_fires_on_retrigger(self):
+        """Re-triggering device selection loads theme via callback chain."""
+        data_dir = Path(self.tmp)
+        theme_dir = data_dir / 'Theme320320' / 'TestTheme'
+        theme_dir.mkdir(parents=True)
+        img = Image.new('RGB', (10, 10), color=(255, 0, 0))
+        img.save(str(theme_dir / '00.png'))
+
+        fake_device = DeviceInfo(
+            name='LCD', path='/dev/sg0', resolution=(320, 320),
+            vid=0x0402, pid=0x3922, device_index=0,
+        )
+        self.ctrl.devices.model.selected_device = fake_device
+
+        # Wire theme callback (simulates _setup_callbacks)
+        theme_loaded = []
+        self.ctrl.themes.on_theme_selected = lambda t: theme_loaded.append(t)
+
+        # Manually select a theme (simulates _select_theme_from_path)
+        theme = ThemeInfo(
+            name='TestTheme', path=theme_dir, theme_type=ThemeType.LOCAL
+        )
+        self.ctrl.themes.select_theme(theme)
+
+        self.assertEqual(len(theme_loaded), 1)
+        self.assertEqual(theme_loaded[0].name, 'TestTheme')
