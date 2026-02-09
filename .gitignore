@@ -28,6 +28,9 @@ ENV/
 *~
 *.code-workspace
 
+# AI tooling
+CLAUDE.md
+
 # OS
 .DS_Store
 Thumbs.db
