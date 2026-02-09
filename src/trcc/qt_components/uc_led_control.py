@@ -16,8 +16,8 @@ FormLED.cs which is one form for all LED device types.
 from typing import Dict, List, Optional, Tuple
 
 try:
-    from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-    from PyQt6.QtGui import QColor, QPalette, QPixmap
+    from PyQt6.QtCore import QRect, Qt, QTimer, pyqtSignal
+    from PyQt6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
     from PyQt6.QtWidgets import (
         QCheckBox,
         QFrame,
@@ -174,6 +174,79 @@ CIRCULATE_DEFAULT_S = 5
 
 if PYQT6_AVAILABLE:
 
+    class UCInfoImage(QWidget):
+        """Sensor gauge widget matching Windows UCInfoImage.cs.
+
+        Shows a background label image (P0M{n}.png), a progress bar fill
+        (P环H{n}.png) drawn at variable width, and a numeric value overlay.
+        Each widget is 240x30 pixels.
+
+        From FormLED.cs: ucInfoImage1-6 display CPU/GPU temp/clock/usage.
+        """
+
+        def __init__(self, index: int, parent=None):
+            super().__init__(parent)
+            self.setFixedSize(240, 30)
+
+            self._index = index  # 1-6
+            self._value = 0.0
+            self._text = "--"
+            self._unit = ""
+            self._mode = 1  # 1=temp/percent, 2=MHz/RPM
+
+            # Load assets
+            self._bg_pixmap = Assets.pixmap(f"P0M{index}.png")
+            self._bar_pixmap = Assets.pixmap(f"P环H{index}.png")
+
+        def set_value(self, value: float, text: str, unit: str = "") -> None:
+            """Update displayed value.
+
+            Args:
+                value: Numeric value (0-100 for temp/percent, 0-5000 for MHz).
+                text: Formatted display string (e.g. "65").
+                unit: Unit suffix (e.g. "°C", "%", "MHz").
+            """
+            self._value = value
+            self._text = text
+            self._unit = unit
+            self.update()
+
+        def set_mode(self, mode: int) -> None:
+            """Set value scaling mode: 1=temp/percent (0-100), 2=MHz/RPM (0-5000)."""
+            self._mode = mode
+
+        def paintEvent(self, event):
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+            # Background image
+            if self._bg_pixmap and not self._bg_pixmap.isNull():
+                p.drawPixmap(0, 0, self._bg_pixmap)
+
+            # Progress bar (x=35, y=22, max width=200, height=3)
+            if self._bar_pixmap and not self._bar_pixmap.isNull():
+                if self._mode == 1:  # temp or percent: 0-100 → 0-200px
+                    bar_w = max(0, min(200, int(self._value * 2)))
+                else:  # MHz/RPM: 0-5000 → 0-200px
+                    bar_w = max(0, min(200, int(self._value / 25)))
+                if bar_w > 0:
+                    p.drawPixmap(
+                        35, 22, bar_w, 3,
+                        self._bar_pixmap,
+                        0, 0, bar_w, 3,
+                    )
+
+            # Value text overlay
+            font = QFont("Segoe UI", 9)
+            font.setBold(True)
+            p.setFont(font)
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(QRect(115, 5, 80, 20), Qt.AlignmentFlag.AlignLeft, self._text)
+            p.setPen(QColor(180, 180, 180))
+            p.drawText(QRect(170, 5, 60, 20), Qt.AlignmentFlag.AlignLeft, self._unit)
+
+            p.end()
+
     class UCLedControl(QWidget):
         """LED control panel matching Windows FormLED.
 
@@ -197,6 +270,8 @@ if PYQT6_AVAILABLE:
         # LC2 clock signals (style 9)
         clock_format_changed = pyqtSignal(bool)      # True = 24h
         week_start_changed = pyqtSignal(bool)        # True = Sunday
+        # Temperature unit signal
+        temp_unit_changed = pyqtSignal(str)          # "C" or "F"
 
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -608,46 +683,57 @@ if PYQT6_AVAILABLE:
             self._btn_mon.setVisible(False)
 
             # ============================================================
-            # Sensor info panel (styles 1-3, 5-8, 11 — hidden by default)
+            # UCInfoImage sensor gauges (styles 1-3, 5-8, 11)
+            # Matches Windows FormLED ucInfoImage1-6 layout.
             # ============================================================
 
-            self._sensor_bg = QFrame(self)
-            self._sensor_bg.setGeometry(30, 640, 500, 80)
-            self._sensor_bg.setStyleSheet(
-                "background-color: rgba(20, 20, 20, 200); "
-                "border: 1px solid #444; border-radius: 6px;"
-            )
-            self._sensor_bg.setVisible(False)
-
-            self._sensor_labels: Dict[str, QLabel] = {}
-            self._sensor_name_labels: List[QLabel] = []
-            sensor_defs = [
-                ("CPU Temp:", "cpu_temp", "-- \u00b0C"),
-                ("CPU Load:", "cpu_load", "-- %"),
-                ("CPU Fan:", "cpu_fan", "-- RPM"),
-                ("GPU Temp:", "gpu_temp", "-- \u00b0C"),
-                ("GPU Load:", "gpu_load", "-- %"),
-                ("GPU Fan:", "gpu_fan", "-- RPM"),
+            # 6 UCInfoImage widgets: CPU temp/clock/usage, GPU temp/clock/usage
+            # Windows layout: col1 x=16, col2 x=276, rows y=659/707/755
+            INFO_DEFS = [
+                (1, "cpu_temp", 1),   # M1 CPU Temp (mode=1: temp/percent)
+                (2, "cpu_clock", 2),  # M2 CPU Clock (mode=2: MHz)
+                (3, "cpu_usage", 1),  # M3 CPU Usage (mode=1: percent)
+                (4, "gpu_temp", 1),   # M4 GPU Temp
+                (5, "gpu_clock", 2),  # M5 GPU Clock
+                (6, "gpu_usage", 1),  # M6 GPU Usage
             ]
-            for i, (label_text, key, default) in enumerate(sensor_defs):
-                col = i // 3
-                row = i % 3
-                x = 45 + col * 250
-                y = 648 + row * 24
+            self._info_images: Dict[str, UCInfoImage] = {}
+            for idx, (img_num, key, mode) in enumerate(INFO_DEFS):
+                col = idx // 3
+                row = idx % 3
+                x = 16 + col * 260
+                y = 659 + row * 36
+                widget = UCInfoImage(img_num, self)
+                widget.setGeometry(x, y, 240, 30)
+                widget.set_mode(mode)
+                widget.setVisible(False)
+                self._info_images[key] = widget
 
-                name_label = QLabel(label_text, self)
-                name_label.setGeometry(x, y, 80, 20)
-                name_label.setStyleSheet("color: #aaa; font-size: 11px;")
-                name_label.setVisible(False)
-                self._sensor_name_labels.append(name_label)
+            # °C/°F toggle buttons (near sensor widgets)
+            self._btn_celsius = QPushButton("\u00b0C", self)
+            self._btn_celsius.setGeometry(16, 770, 40, 24)
+            self._btn_celsius.setCheckable(True)
+            self._btn_celsius.setChecked(True)
+            self._btn_celsius.setStyleSheet(
+                "QPushButton { background: #444; color: #aaa; border: 1px solid #666; "
+                "border-radius: 4px; font-size: 11px; }"
+                "QPushButton:checked { background: #2196F3; color: white; "
+                "border: 1px solid #42A5F5; }"
+            )
+            self._btn_celsius.clicked.connect(lambda: self._set_temp_unit_btn(False))
+            self._btn_celsius.setVisible(False)
 
-                value_label = QLabel(default, self)
-                value_label.setGeometry(x + 85, y, 100, 20)
-                value_label.setStyleSheet(
-                    "color: white; font-size: 11px; font-weight: bold;"
-                )
-                value_label.setVisible(False)
-                self._sensor_labels[key] = value_label
+            self._btn_fahrenheit = QPushButton("\u00b0F", self)
+            self._btn_fahrenheit.setGeometry(60, 770, 40, 24)
+            self._btn_fahrenheit.setCheckable(True)
+            self._btn_fahrenheit.setStyleSheet(
+                "QPushButton { background: #444; color: #aaa; border: 1px solid #666; "
+                "border-radius: 4px; font-size: 11px; }"
+                "QPushButton:checked { background: #2196F3; color: white; "
+                "border: 1px solid #42A5F5; }"
+            )
+            self._btn_fahrenheit.clicked.connect(lambda: self._set_temp_unit_btn(True))
+            self._btn_fahrenheit.setVisible(False)
 
             # ============================================================
             # LC1 memory info panel (style 4 — hidden by default)
@@ -841,6 +927,9 @@ if PYQT6_AVAILABLE:
                 unit_int: 0 = °C, 1 = °F (matches app config).
             """
             self._temp_unit = "\u00b0F" if unit_int == 1 else "\u00b0C"
+            # Sync °C/°F button visuals
+            self._btn_celsius.setChecked(unit_int == 0)
+            self._btn_fahrenheit.setChecked(unit_int == 1)
             if self._is_hr10:
                 self._update_display_value()
 
@@ -1218,6 +1307,13 @@ if PYQT6_AVAILABLE:
             self._btn_mon.setChecked(not is_sunday)
             self.week_start_changed.emit(is_sunday)
 
+        def _set_temp_unit_btn(self, is_fahrenheit: bool):
+            """Handle °C/°F toggle button click."""
+            self._btn_celsius.setChecked(not is_fahrenheit)
+            self._btn_fahrenheit.setChecked(is_fahrenheit)
+            self._temp_unit = "\u00b0F" if is_fahrenheit else "\u00b0C"
+            self.temp_unit_changed.emit("F" if is_fahrenheit else "C")
+
         # -- Visibility helpers --
 
         def _set_lc2_visibility(self, visible: bool):
@@ -1230,12 +1326,11 @@ if PYQT6_AVAILABLE:
             self._btn_mon.setVisible(visible)
 
         def _set_sensor_visibility(self, visible: bool):
-            """Show/hide sensor info labels."""
-            self._sensor_bg.setVisible(visible)
-            for lbl in self._sensor_name_labels:
-                lbl.setVisible(visible)
-            for lbl in self._sensor_labels.values():
-                lbl.setVisible(visible)
+            """Show/hide UCInfoImage sensor gauges and °C/°F buttons."""
+            for widget in self._info_images.values():
+                widget.setVisible(visible)
+            self._btn_celsius.setVisible(visible)
+            self._btn_fahrenheit.setVisible(visible)
 
         def _set_mem_visibility(self, visible: bool):
             """Show/hide LC1 memory info labels."""
@@ -1256,24 +1351,30 @@ if PYQT6_AVAILABLE:
         # -- Sensor/memory/disk update methods --
 
         def update_sensor_metrics(self, metrics: Dict[str, float]):
-            """Update live sensor values (for non-HR10 styles)."""
+            """Update UCInfoImage sensor gauges (for non-HR10 styles)."""
             unit = self._temp_unit
             if 'cpu_temp' in metrics:
                 t = metrics['cpu_temp']
                 if unit == "\u00b0F":
                     t = t * 9 / 5 + 32
-                self._sensor_labels['cpu_temp'].setText(f"{t:.0f} {unit}")
+                self._info_images['cpu_temp'].set_value(t, f"{t:.0f}", unit)
+            if 'cpu_freq' in metrics:
+                f = metrics['cpu_freq']
+                self._info_images['cpu_clock'].set_value(f, f"{f:.0f}", "MHz")
             if 'cpu_percent' in metrics:
-                self._sensor_labels['cpu_load'].setText(
-                    f"{metrics['cpu_percent']:.0f}%")
+                v = metrics['cpu_percent']
+                self._info_images['cpu_usage'].set_value(v, f"{v:.0f}", "%")
             if 'gpu_temp' in metrics:
                 t = metrics['gpu_temp']
                 if unit == "\u00b0F":
                     t = t * 9 / 5 + 32
-                self._sensor_labels['gpu_temp'].setText(f"{t:.0f} {unit}")
+                self._info_images['gpu_temp'].set_value(t, f"{t:.0f}", unit)
+            if 'gpu_clock' in metrics:
+                f = metrics['gpu_clock']
+                self._info_images['gpu_clock'].set_value(f, f"{f:.0f}", "MHz")
             if 'gpu_usage' in metrics:
-                self._sensor_labels['gpu_load'].setText(
-                    f"{metrics['gpu_usage']:.0f}%")
+                v = metrics['gpu_usage']
+                self._info_images['gpu_usage'].set_value(v, f"{v:.0f}", "%")
 
         def update_memory_metrics(self, metrics: Dict[str, float]):
             """Update memory info labels (LC1 style 4)."""

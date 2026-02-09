@@ -1708,6 +1708,9 @@ class TRCCMainWindowMVC(QMainWindow):
         # HR10 display metric selection → controller display value
         panel.display_metric_changed.connect(self._on_hr10_metric_changed)
 
+        # °C/°F toggle from LED panel → propagate to app-wide setting
+        panel.temp_unit_changed.connect(self._on_temp_unit_changed)
+
         # Controller → view (preview colors)
         ctrl.led.on_preview_update = self._on_led_colors_update
         ctrl.on_status_update = lambda text: panel.set_status(text)

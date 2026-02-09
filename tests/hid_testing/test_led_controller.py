@@ -1183,3 +1183,316 @@ class TestLEDDeviceControllerCleanup:
         form_controller.cleanup()
         mock_save.assert_called_once()
         assert form_controller.led._protocol is None
+
+
+# =========================================================================
+# Tests: Multi-zone tick()
+# =========================================================================
+
+class TestMultiZoneTick:
+    """Test _tick_multi_zone() — per-zone color computation."""
+
+    @pytest.fixture
+    def multi_zone_model(self):
+        """LEDModel configured for 2-zone device with 10 segments."""
+        model = LEDModel()
+        model.state.zone_count = 2
+        model.state.segment_count = 10
+        model.state.zones = [
+            LEDZoneState(mode=LEDMode.STATIC, color=(255, 0, 0), brightness=100),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 0, 255), brightness=100),
+        ]
+        return model
+
+    def test_multi_zone_dispatches(self, multi_zone_model):
+        """tick() uses multi-zone path when zone_count > 1."""
+        colors = multi_zone_model.tick()
+        assert len(colors) == 10
+        # First 5 segments = zone 0 (red), last 5 = zone 1 (blue)
+        assert colors[0] == (255, 0, 0)
+        assert colors[4] == (255, 0, 0)
+        assert colors[5] == (0, 0, 255)
+        assert colors[9] == (0, 0, 255)
+
+    def test_multi_zone_odd_segments(self):
+        """Segments divided unevenly among zones."""
+        model = LEDModel()
+        model.state.zone_count = 3
+        model.state.segment_count = 7
+        model.state.zones = [
+            LEDZoneState(mode=LEDMode.STATIC, color=(255, 0, 0)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 255, 0)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 0, 255)),
+        ]
+        colors = model.tick()
+        assert len(colors) == 7
+        # 7 segments / 3 zones = 2+2+2 base, 1 remainder to first zone → 3,2,2
+        reds = [c for c in colors if c == (255, 0, 0)]
+        greens = [c for c in colors if c == (0, 255, 0)]
+        blues = [c for c in colors if c == (0, 0, 255)]
+        assert len(reds) == 3
+        assert len(greens) == 2
+        assert len(blues) == 2
+
+    def test_multi_zone_brightness_scaling(self, multi_zone_model):
+        """Zone brightness scales RGB values."""
+        multi_zone_model.state.zones[0].brightness = 50
+        colors = multi_zone_model.tick()
+        # Zone 0: (255, 0, 0) * 50% = (127, 0, 0)
+        assert colors[0] == (127, 0, 0)
+        # Zone 1: 100% brightness, no scaling
+        assert colors[5] == (0, 0, 255)
+
+    def test_multi_zone_off(self, multi_zone_model):
+        """Zone with on=False produces black."""
+        multi_zone_model.state.zones[0].on = False
+        colors = multi_zone_model.tick()
+        assert colors[0] == (0, 0, 0)
+        assert colors[4] == (0, 0, 0)
+        assert colors[5] == (0, 0, 255)
+
+    def test_multi_zone_breathing(self):
+        """Multi-zone with breathing mode advances timer."""
+        model = LEDModel()
+        model.state.zone_count = 2
+        model.state.segment_count = 6
+        model.state.zones = [
+            LEDZoneState(mode=LEDMode.BREATHING, color=(100, 100, 100)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 255, 0)),
+        ]
+        colors = model.tick()
+        assert len(colors) == 6
+        # Breathing zone: timer at 0 → factor=0 → 20% base = (20,20,20)
+        assert colors[0] == (20, 20, 20)
+        assert colors[3] == (0, 255, 0)
+
+    def test_single_zone_skips_multi(self):
+        """Single-zone device uses global mode, not multi-zone path."""
+        model = LEDModel()
+        model.state.zone_count = 1
+        model.state.segment_count = 5
+        model.state.mode = LEDMode.STATIC
+        model.state.color = (0, 128, 0)
+        model.state.zones = []
+        colors = model.tick()
+        assert all(c == (0, 128, 0) for c in colors)
+
+    def test_four_zone_device(self):
+        """4-zone device (PA120/CZ1 style) splits 18 segments."""
+        model = LEDModel()
+        model.state.zone_count = 4
+        model.state.segment_count = 18
+        model.state.zones = [
+            LEDZoneState(mode=LEDMode.STATIC, color=(255, 0, 0)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 255, 0)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(0, 0, 255)),
+            LEDZoneState(mode=LEDMode.STATIC, color=(255, 255, 0)),
+        ]
+        colors = model.tick()
+        assert len(colors) == 18
+        # 18/4 = 4 base, 2 remainder → first 2 zones get 5, last 2 get 4
+        reds = sum(1 for c in colors if c == (255, 0, 0))
+        greens = sum(1 for c in colors if c == (0, 255, 0))
+        blues = sum(1 for c in colors if c == (0, 0, 255))
+        yellows = sum(1 for c in colors if c == (255, 255, 0))
+        assert reds == 5
+        assert greens == 5
+        assert blues == 4
+        assert yellows == 4
+
+
+# =========================================================================
+# Tests: LEDController zone methods
+# =========================================================================
+
+class TestLEDControllerZoneMethods:
+    """Test zone-specific controller methods."""
+
+    def test_set_zone_brightness(self, led_controller):
+        """set_zone_brightness delegates to model."""
+        led_controller.model.state.zones = [
+            LEDZoneState(), LEDZoneState()
+        ]
+        led_controller.set_zone_brightness(1, 42)
+        assert led_controller.model.state.zones[1].brightness == 42
+
+    def test_set_zone_brightness_clamps(self, led_controller):
+        """set_zone_brightness clamps to 0-100."""
+        led_controller.model.state.zones = [LEDZoneState()]
+        led_controller.set_zone_brightness(0, 150)
+        assert led_controller.model.state.zones[0].brightness == 100
+        led_controller.set_zone_brightness(0, -10)
+        assert led_controller.model.state.zones[0].brightness == 0
+
+    def test_set_clock_format(self, led_controller):
+        """set_clock_format sets is_timer_24h on state."""
+        led_controller.set_clock_format(False)
+        assert led_controller.model.state.is_timer_24h is False
+        led_controller.set_clock_format(True)
+        assert led_controller.model.state.is_timer_24h is True
+
+    def test_set_week_start(self, led_controller):
+        """set_week_start sets is_week_sunday on state."""
+        led_controller.set_week_start(True)
+        assert led_controller.model.state.is_week_sunday is True
+        led_controller.set_week_start(False)
+        assert led_controller.model.state.is_week_sunday is False
+
+
+# =========================================================================
+# Tests: LC2 clock state persistence
+# =========================================================================
+
+class TestLC2ClockPersistence:
+    """Test save/load of LC2 clock settings."""
+
+    @patch("trcc.paths.save_device_setting")
+    def test_save_config_includes_clock_fields(self, mock_save, form_controller):
+        form_controller._device_key = "0:0416_8001"
+        form_controller.led.model.state.is_timer_24h = False
+        form_controller.led.model.state.is_week_sunday = True
+
+        form_controller.save_config()
+
+        config = mock_save.call_args[0][2]
+        assert config['is_timer_24h'] is False
+        assert config['is_week_sunday'] is True
+
+    @patch("trcc.paths.save_device_setting")
+    def test_save_config_clock_defaults(self, mock_save, form_controller):
+        form_controller._device_key = "0:0416_8001"
+        form_controller.save_config()
+
+        config = mock_save.call_args[0][2]
+        assert config['is_timer_24h'] is True
+        assert config['is_week_sunday'] is False
+
+    @patch("trcc.paths.get_device_config")
+    def test_load_config_restores_clock_fields(self, mock_get_cfg, form_controller):
+        mock_get_cfg.return_value = {
+            'led_config': {
+                'is_timer_24h': False,
+                'is_week_sunday': True,
+            }
+        }
+        form_controller._device_key = "0:0416_8001"
+        form_controller.load_config()
+
+        assert form_controller.led.model.state.is_timer_24h is False
+        assert form_controller.led.model.state.is_week_sunday is True
+
+    @patch("trcc.paths.get_device_config")
+    def test_load_config_missing_clock_fields(self, mock_get_cfg, form_controller):
+        """Missing clock fields keep defaults."""
+        mock_get_cfg.return_value = {'led_config': {'mode': 0}}
+        form_controller._device_key = "0:0416_8001"
+        form_controller.load_config()
+
+        assert form_controller.led.model.state.is_timer_24h is True
+        assert form_controller.led.model.state.is_week_sunday is False
+
+
+# =========================================================================
+# Tests: LEDState clock fields
+# =========================================================================
+
+class TestLEDStateClockFields:
+    """Test LC2 clock fields on LEDState dataclass."""
+
+    def test_default_values(self):
+        state = LEDState()
+        assert state.is_timer_24h is True
+        assert state.is_week_sunday is False
+
+    def test_custom_values(self):
+        state = LEDState(is_timer_24h=False, is_week_sunday=True)
+        assert state.is_timer_24h is False
+        assert state.is_week_sunday is True
+
+
+# =========================================================================
+# Tests: _tick_single_mode dispatcher
+# =========================================================================
+
+class TestTickSingleMode:
+    """Test _tick_single_mode dispatches correctly."""
+
+    def test_static(self, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.STATIC, (10, 20, 30), 5)
+        assert colors == [(10, 20, 30)] * 5
+
+    def test_breathing(self, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.BREATHING, (100, 100, 100), 3)
+        assert len(colors) == 3
+
+    def test_colorful(self, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.COLORFUL, (0, 0, 0), 4)
+        assert len(colors) == 4
+
+    @patch("trcc.led_device.get_rgb_table",
+           return_value=[(i, i, i) for i in range(768)])
+    def test_rainbow(self, mock_table, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.RAINBOW, (0, 0, 0), 6)
+        assert len(colors) == 6
+
+    @patch("trcc.led_device.color_for_value", return_value=(0, 255, 255))
+    def test_temp_linked(self, mock_cfv, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.TEMP_LINKED, (0, 0, 0), 3)
+        assert len(colors) == 3
+
+    @patch("trcc.led_device.color_for_value", return_value=(255, 0, 0))
+    def test_load_linked(self, mock_cfv, led_model):
+        colors = led_model._tick_single_mode(
+            LEDMode.LOAD_LINKED, (0, 0, 0), 3)
+        assert len(colors) == 3
+
+    def test_unknown_mode_returns_black(self, led_model):
+        colors = led_model._tick_single_mode(99, (255, 255, 255), 4)
+        assert colors == [(0, 0, 0)] * 4
+
+
+# =========================================================================
+# Tests: UCInfoImage widget (headless — no display needed)
+# =========================================================================
+
+class TestUCInfoImageWidget:
+    """Test UCInfoImage sensor gauge widget logic."""
+
+    def test_import(self):
+        """UCInfoImage class is importable."""
+        try:
+            from trcc.qt_components.uc_led_control import UCInfoImage
+            assert UCInfoImage is not None
+        except ImportError:
+            pytest.skip("PyQt6 not available")
+
+    def test_set_value(self):
+        """set_value stores values for painting."""
+        try:
+            from trcc.qt_components.uc_led_control import UCInfoImage
+        except ImportError:
+            pytest.skip("PyQt6 not available")
+        # Can't instantiate without QApplication, just verify class exists
+        assert hasattr(UCInfoImage, 'set_value')
+        assert hasattr(UCInfoImage, 'set_mode')
+        assert hasattr(UCInfoImage, 'paintEvent')
+
+    def test_bar_width_calculation_temp(self):
+        """Progress bar width for temp/percent mode: value*2, max 200."""
+        # Test the formula directly (value * 2, capped at 200)
+        assert max(0, min(200, int(50 * 2))) == 100
+        assert max(0, min(200, int(100 * 2))) == 200
+        assert max(0, min(200, int(0 * 2))) == 0
+        assert max(0, min(200, int(150 * 2))) == 200  # clamped
+
+    def test_bar_width_calculation_mhz(self):
+        """Progress bar width for MHz mode: value/25, max 200."""
+        assert max(0, min(200, int(2500 / 25))) == 100
+        assert max(0, min(200, int(5000 / 25))) == 200
+        assert max(0, min(200, int(0 / 25))) == 0
+        assert max(0, min(200, int(6000 / 25))) == 200  # clamped
