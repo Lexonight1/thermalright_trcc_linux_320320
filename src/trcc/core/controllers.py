@@ -22,6 +22,7 @@ from ..paths import (
     ensure_web_extracted,
     ensure_web_masks_extracted,
     get_saved_resolution,
+    get_theme_dir,
     get_web_dir,
     get_web_masks_dir,
     save_resolution,
@@ -579,8 +580,8 @@ class LCDDeviceController:
         ensure_web_extracted(self.lcd_width, self.lcd_height)
         ensure_web_masks_extracted(self.lcd_width, self.lcd_height)
 
-        # Set theme directories
-        theme_dir = data_dir / f'Theme{self.lcd_width}{self.lcd_height}'
+        # Set theme directories (use get_theme_dir which checks both pkg and user dirs)
+        theme_dir = Path(get_theme_dir(self.lcd_width, self.lcd_height))
         web_dir = Path(get_web_dir(self.lcd_width, self.lcd_height))
         masks_dir = Path(get_web_masks_dir(self.lcd_width, self.lcd_height))
 
@@ -614,16 +615,15 @@ class LCDDeviceController:
         ensure_web_masks_extracted(width, height)
 
         # Reload theme directories for new resolution
-        if hasattr(self, '_data_dir') and self._data_dir:
-            theme_dir = self._data_dir / f'Theme{width}{height}'
-            web_dir = Path(get_web_dir(width, height))
-            masks_dir = Path(get_web_masks_dir(width, height))
-            self.themes.set_directories(
-                local_dir=theme_dir if theme_dir.exists() else None,
-                web_dir=web_dir if web_dir.exists() else None,
-                masks_dir=masks_dir,
-            )
-            self.themes.load_local_themes((width, height))
+        theme_dir = Path(get_theme_dir(width, height))
+        web_dir = Path(get_web_dir(width, height))
+        masks_dir = Path(get_web_masks_dir(width, height))
+        self.themes.set_directories(
+            local_dir=theme_dir if theme_dir.exists() else None,
+            web_dir=web_dir if web_dir.exists() else None,
+            masks_dir=masks_dir,
+        )
+        self.themes.load_local_themes((width, height))
 
         if self.on_resolution_changed:
             self.on_resolution_changed(width, height)

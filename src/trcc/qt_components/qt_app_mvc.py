@@ -46,6 +46,7 @@ from ..paths import (
     device_config_key,
     get_device_config,
     get_saved_temp_unit,
+    get_theme_dir,
     get_web_dir,
     get_web_masks_dir,
     save_device_setting,
@@ -532,7 +533,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self.uc_theme_setting.set_resolution(width, height)
 
         # Reload theme directories for new resolution
-        theme_dir = self._data_dir / f'Theme{width}{height}'
+        theme_dir = Path(get_theme_dir(width, height))
         if theme_dir.exists():
             self.uc_theme_local.set_theme_directory(theme_dir)
             # Load carousel config for new resolution
@@ -721,7 +722,7 @@ class TRCCMainWindowMVC(QMainWindow):
         """Initialize theme browser directories."""
         w, h = self.controller.lcd_width, self.controller.lcd_height
 
-        theme_dir = self._data_dir / f'Theme{w}{h}'
+        theme_dir = Path(get_theme_dir(w, h))
         self.uc_theme_local.set_theme_directory(theme_dir)
         if theme_dir.exists():
             # Load carousel config (Theme.dc) after themes are loaded
@@ -834,7 +835,7 @@ class TRCCMainWindowMVC(QMainWindow):
             # Auto-load first local theme so config is always populated
             # (ensures --last-one works after first GUI session)
             w, h = device.resolution
-            theme_base = self._data_dir / f'Theme{w}{h}'
+            theme_base = Path(get_theme_dir(w, h))
             if theme_base.exists():
                 for item in sorted(theme_base.iterdir()):
                     if item.is_dir() and (item / '00.png').exists():
@@ -1228,7 +1229,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self.uc_preview.set_status(msg)
         if success:
             w, h = self.controller.lcd_width, self.controller.lcd_height
-            theme_dir = self._data_dir / f'Theme{w}{h}'
+            theme_dir = Path(get_theme_dir(w, h))
             self.uc_theme_local.set_theme_directory(theme_dir)
             self.uc_theme_local.load_themes()
             # Persist saved theme path for --last-one resume
@@ -1257,7 +1258,7 @@ class TRCCMainWindowMVC(QMainWindow):
             self.uc_preview.set_status(msg)
             if success:
                 w, h = self.controller.lcd_width, self.controller.lcd_height
-                theme_dir = self._data_dir / f'Theme{w}{h}'
+                theme_dir = Path(get_theme_dir(w, h))
                 self.uc_theme_local.set_theme_directory(theme_dir)
                 self.uc_theme_local.load_themes()
 
@@ -1447,7 +1448,7 @@ class TRCCMainWindowMVC(QMainWindow):
     def _get_theme_dir(self) -> Path:
         """Get current theme directory for this resolution."""
         w, h = self.controller.lcd_width, self.controller.lcd_height
-        return self._data_dir / f'Theme{w}{h}'
+        return Path(get_theme_dir(w, h))
 
     def _save_carousel_config(self):
         """Save carousel/slideshow config to Theme.dc (Windows cmd=48)."""

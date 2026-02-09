@@ -48,6 +48,7 @@ FORM_PATCHES = [
     'trcc.core.controllers.ensure_themes_extracted',
     'trcc.core.controllers.ensure_web_extracted',
     'trcc.core.controllers.ensure_web_masks_extracted',
+    'trcc.core.controllers.get_theme_dir',
     'trcc.core.controllers.get_web_dir',
     'trcc.core.controllers.get_web_masks_dir',
 ]
@@ -59,6 +60,8 @@ def _make_form_controller():
     for target in FORM_PATCHES:
         if 'get_saved_resolution' in target:
             m = patch(target, return_value=(320, 320))
+        elif 'get_theme_dir' in target:
+            m = patch(target, return_value='/tmp/themes')
         elif 'get_web_dir' in target or 'get_web_masks_dir' in target:
             m = patch(target, return_value='/tmp/web')
         else:
@@ -385,6 +388,7 @@ class TestLCDDeviceController(unittest.TestCase):
             patch('trcc.core.controllers.ensure_themes_extracted'),
             patch('trcc.core.controllers.ensure_web_extracted'),
             patch('trcc.core.controllers.ensure_web_masks_extracted'),
+            patch('trcc.core.controllers.get_theme_dir', return_value='/tmp/themes'),
             patch('trcc.core.controllers.get_web_dir', return_value='/tmp/web'),
             patch('trcc.core.controllers.get_web_masks_dir', return_value='/tmp/masks'),
         ]
@@ -533,6 +537,7 @@ class TestLCDDeviceControllerRotation(unittest.TestCase):
             patch('trcc.core.controllers.ensure_themes_extracted'),
             patch('trcc.core.controllers.ensure_web_extracted'),
             patch('trcc.core.controllers.ensure_web_masks_extracted'),
+            patch('trcc.core.controllers.get_theme_dir', return_value='/tmp/themes'),
             patch('trcc.core.controllers.get_web_dir', return_value='/tmp/web'),
             patch('trcc.core.controllers.get_web_masks_dir', return_value='/tmp/masks'),
         ]
@@ -1999,6 +2004,7 @@ class TestCreateController(unittest.TestCase):
                  patch('trcc.core.controllers.ensure_themes_extracted'), \
                  patch('trcc.core.controllers.ensure_web_extracted'), \
                  patch('trcc.core.controllers.ensure_web_masks_extracted'), \
+                 patch('trcc.core.controllers.get_theme_dir', return_value=tmp), \
                  patch('trcc.core.controllers.get_web_dir', return_value=tmp), \
                  patch('trcc.core.controllers.get_web_masks_dir', return_value=tmp):
                 ctrl = create_controller(data_dir)
