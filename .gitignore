@@ -10,6 +10,11 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
 # Virtual environment
 .venv/
 env/
@@ -33,7 +38,41 @@ Thumbs.db
 # Logs
 *.log
 
-# Decompiled/reference code (not for distribution)
+# ──────────────────────────────────────────────
+# Theme & Web archives: .7z files ARE tracked.
+# Extracted dirs are regenerated at runtime via on-demand download.
+# ──────────────────────────────────────────────
+
+# Extracted theme dirs (from Theme*.7z archives)
+src/trcc/data/Theme*/Theme[1-5]/
+src/trcc/data/Theme*/Custom_*/
+src/trcc/data/Theme*/[0-9]*/
+src/trcc/data/Theme*/Theme.zt
+src/trcc/data/Theme*/Theme.dc
+src/trcc/data/Theme*/01.png
+
+# Extracted Web dirs (from *.7z and zt*.7z archives)
+src/trcc/data/Web/[0-9]*/
+src/trcc/data/Web/zt*/[0-9]*/
+src/trcc/data/Web/**/*.mp4
+src/trcc/data/Web/**/*.png
+
+# Keep all .7z archives tracked
+!src/trcc/data/Theme*.7z
+!src/trcc/data/Web/*.7z
+
+# Runtime data
+src/trcc/data/web_cache/
+src/trcc/data/themes/
+src/trcc/data/images/
+src/trcc/data/settings.json
+src/trcc/data/ui_*.json
+
+# ──────────────────────────────────────────────
+# Dev / reference files (not for distribution)
+# ──────────────────────────────────────────────
+
+# Decompiled Windows code
 decompiled/
 TRCC_decompiled/
 TRCC_decompiled
@@ -42,85 +81,38 @@ TRCC_decompiled
 trcc_setup.c
 trcc_setup.h
 
-# Extracted Windows resources at root level (not for distribution)
+# Extracted Windows resources at root level
 /assets/
 
-# Theme data: ignore cloud-downloaded themes (numbered dirs like 000a, 001b)
-# but keep default Theme1-5 for supported SCSI resolutions
-src/trcc/data/Theme*/[0-9]*/
-src/trcc/data/Theme*/Theme.zt
-
-# Extracted default themes (regenerated from .7z archives at runtime)
-# The .7z archives ARE tracked in git
-src/trcc/data/Theme*/Theme[1-5]/
-!src/trcc/data/Theme*.7z
-
-# Extracted theme dirs (regenerated from .7z at runtime)
-src/trcc/data/Theme320320/
-# Extracted Web cache dirs (regenerated from .7z at runtime)
-src/trcc/data/Web/320320
-src/trcc/data/Web/zt320320
-src/trcc/data/Web/zt240240
-
-
-# Cloud theme cache (PNGs extracted from .7z at runtime, MP4s downloaded on-demand)
-# .7z archives ARE tracked in git
-src/trcc/data/Web/**/*.mp4
-src/trcc/data/Web/**/*.png
-
-# Cloud mask themes (extracted from zt*.7z archives at runtime)
-src/trcc/data/Web/zt*/[0-9]*/
-!src/trcc/data/Web/zt*.7z
-
-# Dev tooling artifacts
-src/trcc/data/settings.json
-src/trcc/data/ui_*.json
-
-# User themes / runtime data
-src/trcc/data/themes/
-src/trcc/data/images/
-src/trcc/data/web_cache/
-
-# Stray files in theme root dirs
-src/trcc/data/Theme*/01.png
-
-# Root-level data dir (not src/data)
-/data/
-
-# Test screenshots/comparison photos
-expected_photos/
-
-# Dev shell scripts and old udev/systemd files (replaced by trcc setup-udev)
-/*.sh
-!install.sh
-99-trcc.rules
-trcc-quirk-fix.service
-
-# Dev/probe/test scripts at root
+# Dev scripts at root
 /test_*.py
 /probe_*.py
 /core.py
 /src/core.py
 /src/gif_animator.py
 /gif_animator.py
+/*.sh
+!install.sh
 
-# Dev-only tooling
+# Dev tooling
 setup_tools/
 tools/
+
+# Old udev/systemd files (replaced by trcc setup-udev)
+99-trcc.rules
+trcc-quirk-fix.service
 
 # Scan/audit reports
 clamscan_report.txt
 
-# Desktop entry (installed copies — the repo source is tracked)
-# trcc.desktop is tracked in git
+# Test screenshots
+expected_photos/
 
-# Built theme packages (can be regenerated)
+# Built theme packages
 packages/
 
-# Large binary docs (too big for git)
-doc/*.pdf
+# Root-level data dir
+/data/
 
-# Build artifacts
-dist/
-build/
-*.egg-info/
+# Large binary docs
+doc/*.pdf
