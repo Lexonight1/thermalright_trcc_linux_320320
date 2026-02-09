@@ -298,9 +298,12 @@ def ensure_themes_extracted(width: int, height: int) -> bool:
     if _has_actual_themes(user_theme_dir):
         return True
 
+    log.info("Themes not found for %dx%d — fetching archive...", width, height)
+
     # Find or download the archive
     archive = _fetch_theme_archive(width, height)
     if archive is None:
+        log.warning("Could not obtain Theme%d%d.7z (no local archive, download failed)", width, height)
         return False
 
     # Extract to whichever dir is writable (prefer package dir, fall back to user)
@@ -315,7 +318,10 @@ def ensure_themes_extracted(width: int, height: int) -> bool:
     except OSError:
         target = user_theme_dir
 
-    return _extract_7z(archive, target)
+    ok = _extract_7z(archive, target)
+    if ok:
+        log.info("Themes ready at %s", target)
+    return ok
 
 
 def _fetch_web_archive(archive_name: str) -> Optional[str]:
@@ -360,9 +366,12 @@ def ensure_web_extracted(width: int, height: int) -> bool:
     if check_fn(user_web_dir):
         return True
 
+    log.info("Web previews not found for %dx%d — fetching archive...", width, height)
+
     # Find or download archive
     archive = _fetch_web_archive(f'{res_key}.7z')
     if archive is None:
+        log.warning("Could not obtain %s.7z (no local archive, download failed)", res_key)
         return False
 
     # Extract to writable location
@@ -376,7 +385,10 @@ def ensure_web_extracted(width: int, height: int) -> bool:
     except OSError:
         target = user_web_dir
 
-    return _extract_7z(archive, target)
+    ok = _extract_7z(archive, target)
+    if ok:
+        log.info("Web previews ready at %s", target)
+    return ok
 
 
 def ensure_web_masks_extracted(width: int, height: int) -> bool:
@@ -396,9 +408,12 @@ def ensure_web_masks_extracted(width: int, height: int) -> bool:
     if _has_actual_themes(user_masks_dir):
         return True
 
+    log.info("Mask themes not found for %dx%d — fetching archive...", width, height)
+
     # Find or download archive
     archive = _fetch_web_archive(f'{res_key}.7z')
     if archive is None:
+        log.warning("Could not obtain %s.7z (no local archive, download failed)", res_key)
         return False
 
     # Extract to writable location
@@ -412,7 +427,10 @@ def ensure_web_masks_extracted(width: int, height: int) -> bool:
     except OSError:
         target = user_masks_dir
 
-    return _extract_7z(archive, target)
+    ok = _extract_7z(archive, target)
+    if ok:
+        log.info("Mask themes ready at %s", target)
+    return ok
 
 
 def find_resource(filename: str, search_paths: Optional[list] = None) -> Optional[str]:
