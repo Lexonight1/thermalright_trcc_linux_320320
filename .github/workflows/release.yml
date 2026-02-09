@@ -39,7 +39,7 @@ jobs:
           artifacts: dist/*
 
       - name: Upload dist to actions artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist-${{ github.ref_name }}
           path: dist/*
