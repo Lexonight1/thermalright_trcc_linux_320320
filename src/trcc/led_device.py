@@ -533,7 +533,19 @@ def _led_probe_cache_path() -> 'Path':
     return config_dir / 'led_probe_cache.json'
 
 
-def _save_probe_cache(vid: int, pid: int, info: LedHandshakeInfo) -> None:
+def _probe_cache_key(vid: int, pid: int, usb_path: str = '') -> str:
+    """Build a cache key that disambiguates devices sharing VID:PID.
+
+    LC1 and HR10 both use 0416:8001.  When both are connected, the USB
+    bus path (e.g. "2-1.4") distinguishes them.
+    """
+    if usb_path:
+        return f"{vid:04x}_{pid:04x}_{usb_path}"
+    return f"{vid:04x}_{pid:04x}"
+
+
+def _save_probe_cache(vid: int, pid: int, info: LedHandshakeInfo,
+                      usb_path: str = '') -> None:
     """Cache a successful probe result to disk."""
     import json
     try:
@@ -541,7 +553,7 @@ def _save_probe_cache(vid: int, pid: int, info: LedHandshakeInfo) -> None:
         cache = {}
         if cache_path.exists():
             cache = json.loads(cache_path.read_text())
-        key = f"{vid:04x}_{pid:04x}"
+        key = _probe_cache_key(vid, pid, usb_path)
         cache[key] = {
             'pm': info.pm,
             'sub_type': info.sub_type,
@@ -553,7 +565,8 @@ def _save_probe_cache(vid: int, pid: int, info: LedHandshakeInfo) -> None:
         pass
 
 
-def _load_probe_cache(vid: int, pid: int) -> Optional[LedHandshakeInfo]:
+def _load_probe_cache(vid: int, pid: int,
+                      usb_path: str = '') -> Optional[LedHandshakeInfo]:
     """Load a cached probe result from disk."""
     import json
     try:
@@ -561,8 +574,11 @@ def _load_probe_cache(vid: int, pid: int) -> Optional[LedHandshakeInfo]:
         if not cache_path.exists():
             return None
         cache = json.loads(cache_path.read_text())
-        key = f"{vid:04x}_{pid:04x}"
+        # Try bus-path-specific key first, then fall back to VID:PID-only
+        key = _probe_cache_key(vid, pid, usb_path)
         entry = cache.get(key)
+        if not entry and usb_path:
+            entry = cache.get(_probe_cache_key(vid, pid))
         if not entry:
             return None
         pm = entry['pm']
@@ -578,21 +594,28 @@ def _load_probe_cache(vid: int, pid: int) -> Optional[LedHandshakeInfo]:
         return None
 
 
-def probe_led_model(vid: int = LED_VID, pid: int = LED_PID) -> Optional[LedHandshakeInfo]:
+def probe_led_model(vid: int = LED_VID, pid: int = LED_PID,
+                    usb_path: str = '') -> Optional[LedHandshakeInfo]:
     """Probe an LED device to discover its model via HID handshake.
 
-    Opens a temporary USB transport, performs the DA/DB/DC/DD handshake,
-    extracts the PM byte and sub_type to identify the device model,
-    then closes the transport.
+    Checks the disk cache first (keyed by VID:PID:bus_path).  Only
+    performs a live USB handshake when no cached result exists, since
+    the firmware only responds to the handshake once per power cycle.
 
-    The firmware only responds to the handshake once per power cycle.
-    Successful probes are cached to disk so subsequent app launches
-    (without USB reset) still identify the correct model.
+    Args:
+        vid: USB vendor ID.
+        pid: USB product ID.
+        usb_path: USB bus path (e.g. "2-1.4") for cache disambiguation.
 
     Returns:
         LedHandshakeInfo with pm, sub_type, style, and model_name,
         or None if the probe fails and no cached result exists.
     """
+    # Cache-first: avoid consuming the one-shot handshake unnecessarily.
+    cached = _load_probe_cache(vid, pid, usb_path)
+    if cached is not None:
+        return cached
+
     transport = None
     try:
         from .hid_device import PYUSB_AVAILABLE, HIDAPI_AVAILABLE
@@ -603,18 +626,17 @@ def probe_led_model(vid: int = LED_VID, pid: int = LED_PID) -> Optional[LedHands
             from .hid_device import HidApiTransport
             transport = HidApiTransport(vid, pid)
         else:
-            return _load_probe_cache(vid, pid)
+            return None
 
         transport.open()
         sender = LedHidSender(transport)
         info = sender.handshake()
         if info:
-            _save_probe_cache(vid, pid, info)
+            _save_probe_cache(vid, pid, info, usb_path)
         return info
     except Exception:
         # Handshake failed (firmware already responded or device busy).
-        # Fall back to cached result from a previous successful probe.
-        return _load_probe_cache(vid, pid)
+        return None
     finally:
         if transport is not None:
             try:

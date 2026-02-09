@@ -34,8 +34,12 @@ except ImportError:
 
 try:
     import hid as hidapi
-    HIDAPI_AVAILABLE = True
+    # cython-hidapi uses hid.Device(), hidapi PyPI uses hid.device().
+    # Resolve to whichever exists so callers use _HidDeviceClass().
+    _HidDeviceClass = getattr(hidapi, 'device', None) or getattr(hidapi, 'Device', None)
+    HIDAPI_AVAILABLE = _HidDeviceClass is not None
 except ImportError:
+    _HidDeviceClass = None
     HIDAPI_AVAILABLE = False
 
 
@@ -684,7 +688,7 @@ class HidApiTransport(UsbTransport):
         kwargs = {'vid': self._vid, 'pid': self._pid}
         if self._serial:
             kwargs['serial'] = self._serial
-        self._device = hidapi.device(**kwargs)
+        self._device = _HidDeviceClass(**kwargs)
         self._device.nonblocking = 0  # blocking reads
         self._is_open = True
 

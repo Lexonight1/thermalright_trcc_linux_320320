@@ -1775,8 +1775,7 @@ class TRCCMainWindowMVC(QMainWindow):
         if not self._led_controller or not self._hr10_active:
             return
         panel = self.uc_hr10_control
-        text = panel._display._value_text.strip()
-        unit = panel._display._unit_text
+        text, unit = panel.get_display_value()
 
         # Map unit to indicator set + adjust text for physical layout
         indicators: set = set()

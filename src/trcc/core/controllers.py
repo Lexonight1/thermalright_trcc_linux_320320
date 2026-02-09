@@ -1316,37 +1316,27 @@ class LEDController:
         if colors and self._protocol:
             if self._hr10_mode and self._hr10_mask:
                 # HR10: expand animation color to 31 LEDs via digit mask.
-                # The base color drives all lit segments on the device.
                 from ..hr10_display import LED_COUNT
                 base_color = colors[0] if colors else (0, 0, 0)
-                hr10_colors = [
+                send_colors = [
                     base_color if self._hr10_mask[i] else (0, 0, 0)
                     for i in range(LED_COUNT)
                 ]
-                brightness = self.model.state.brightness
-                global_on = self.model.state.global_on
-                try:
-                    success = self._protocol.send_led_data(
-                        hr10_colors, None, global_on, brightness
-                    )
-                    if self.on_send_complete:
-                        self.on_send_complete(success)
-                except Exception:
-                    pass
-                # Don't call on_preview_update here — the model callback
-                # already sent the animation color for the preview widget.
+                is_on = None
             else:
+                send_colors = colors
                 is_on = self.model.state.segment_on
-                global_on = self.model.state.global_on
-                brightness = self.model.state.brightness
-                try:
-                    success = self._protocol.send_led_data(
-                        colors, is_on, global_on, brightness
-                    )
-                    if self.on_send_complete:
-                        self.on_send_complete(success)
-                except Exception:
-                    pass
+
+            brightness = self.model.state.brightness
+            global_on = self.model.state.global_on
+            try:
+                success = self._protocol.send_led_data(
+                    send_colors, is_on, global_on, brightness
+                )
+                if self.on_send_complete:
+                    self.on_send_complete(success)
+            except Exception:
+                pass
 
     def _on_model_state_changed(self, state) -> None:
         """Forward model state changes to view."""

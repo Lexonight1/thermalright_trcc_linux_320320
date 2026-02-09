@@ -210,9 +210,9 @@ def select_profile(model_name: str) -> dict:
 
 
 def run_daemon(
-    color: Tuple[int, int, int] = (255, 255, 255),
     brightness: int = 100,
     model_substr: str = "9100",
+    unit: str = "C",
     verbose: bool = False,
 ) -> int:
     """Main daemon loop: read NVMe temp → display on HR10.
@@ -222,13 +222,10 @@ def run_daemon(
     - Breathing animation that speeds up as temperature rises
     - Fast red blinking above the throttle threshold (~80°C)
 
-    The static --color flag is ignored in favor of the thermal gradient.
-    Use brightness to set the peak brightness level.
-
     Args:
-        color: RGB tuple (unused — overridden by thermal gradient).
         brightness: Peak LED brightness 0-100.
         model_substr: Substring to match in NVMe model name.
+        unit: Temperature display unit — "C" or "F".
         verbose: Print status messages on each update.
 
     Returns:
@@ -316,10 +313,14 @@ def run_daemon(
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    print(f"Displaying temperature (brightness={brightness}%, thermal colors)")
+    use_f = (unit.upper() == "F")
+    unit_label = "°F" if use_f else "°C"
+    unit_suffix = "F" if use_f else "C"
+    print(f"Displaying temperature in {unit_label} "
+          f"(brightness={brightness}%, thermal colors)")
     print("Press Ctrl+C to stop.")
 
-    last_sent_f: Optional[float] = None
+    last_sent_display: Optional[float] = None
     last_send_time = 0.0
     threshold = 2.0
     refresh_interval = 5.0
@@ -350,13 +351,13 @@ def run_daemon(
                 continue
 
             temp_c = last_temp_c
-            temp_f = celsius_to_f(temp_c)
+            display_temp = celsius_to_f(temp_c) if use_f else temp_c
 
             # Determine if text content has changed (needs USB update for digits)
             text_changed = False
-            if last_sent_f is None:
+            if last_sent_display is None:
                 text_changed = True
-            elif abs(temp_f - last_sent_f) > threshold:
+            elif abs(display_temp - last_sent_display) > threshold:
                 text_changed = True
             elif (now - last_send_time) >= refresh_interval:
                 text_changed = True
@@ -366,10 +367,9 @@ def run_daemon(
             breathe_mult = breathe_brightness(temp_c, throttle_c, phase)
             effective_brightness = int(brightness * breathe_mult)
 
-            # Build the display text: temperature in °F with degree indicator
+            # Build the display text with unit suffix + degree indicator
             # render_display handles the digit layout directly
-            temp_f_display = celsius_to_f(temp_c)
-            text = f"{temp_f_display:.0f}F"
+            text = f"{display_temp:.0f}{unit_suffix}"
             led_colors = render_display(text, thermal_color, {'deg'})
 
             # Always send when breathing is active (brightness is changing)
@@ -382,11 +382,11 @@ def run_daemon(
                 )
                 sender.send_led_data(packet)
                 if text_changed:
-                    last_sent_f = temp_f
+                    last_sent_display = display_temp
                     last_send_time = now
                     if verbose:
                         print(
-                            f"  {temp_f:.0f}°F ({temp_c:.1f}°C) "
+                            f"  {display_temp:.0f}{unit_label} ({temp_c:.1f}°C) "
                             f"color=({thermal_color[0]},{thermal_color[1]},{thermal_color[2]}) "
                             f"bright={effective_brightness}%"
                         )

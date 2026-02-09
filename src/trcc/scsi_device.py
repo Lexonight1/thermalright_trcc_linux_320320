@@ -179,26 +179,27 @@ def find_lcd_devices() -> List[Dict]:
 
             model = dev.model
             button_image = dev.button_image
+            probe_info = None
 
             # For LED devices sharing a VID:PID (e.g. 0416:8001), probe
             # the firmware via HID handshake to discover the real model.
             # Without this, all devices default to AX120_DIGITAL.
+            # Passes usb_path so the cache can distinguish LC1 from HR10.
             if dev.implementation == 'hid_led':
                 try:
                     from .led_device import probe_led_model
-                    info = probe_led_model(dev.vid, dev.pid)
+                    info = probe_led_model(dev.vid, dev.pid,
+                                           usb_path=dev.usb_path)
                     if info and info.model_name:
                         model = info.model_name
-                        # Clear button_image — sidebar will show text label
-                        # for models without a dedicated image asset.
-                        button_image = ''
+                        probe_info = info
                 except Exception:
                     pass  # Fall back to registry default
 
             devices.append({
                 'name': f"{dev.vendor_name} {dev.product_name}",
                 'path': hid_path,
-                'resolution': (320, 320),  # Will be updated after HID handshake
+                'resolution': (0, 0),  # LED devices have no pixel resolution
                 'vendor': dev.vendor_name,
                 'product': dev.product_name,
                 'model': model,
@@ -208,6 +209,7 @@ def find_lcd_devices() -> List[Dict]:
                 'protocol': 'hid',
                 'device_type': device_type,
                 'implementation': dev.implementation,
+                'probe_info': probe_info,
             })
 
     # Sort by path for stable ordinal assignment
