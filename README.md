@@ -10,6 +10,8 @@ Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). C
 
 > Unofficial community project, not affiliated with Thermalright. I develop and test on Fedora — if something doesn't work on your distro, please [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues).
 
+![TRCC Linux GUI](doc/screenshots/screenshot.png)
+
 ## Features
 
 - **Themes** — Local, cloud, masks, carousel mode, export/import as `.tr` files
