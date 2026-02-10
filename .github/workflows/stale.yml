@@ -1,0 +1,22 @@
+name: Close stale issues
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # daily at midnight UTC
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 5
+          days-before-close: 0
+          stale-issue-message: "Closing — no response for 5 days. Feel free to reopen if you still need help!"
+          stale-issue-label: stale
+          exempt-issue-labels: pinned
+          only-labels: ''
+          operations-per-run: 30
