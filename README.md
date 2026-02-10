@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/Lexonight1/thermalright-trcc-linux/releases/tag/v1.2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=flat&logo=buy-me-a-coffee)](https://buymeacoffee.com/Lexonight1)
 
 Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). Control and customize the LCD displays on Thermalright CPU coolers, AIO pump heads, and fan hubs — entirely from Linux.
 
@@ -190,12 +191,6 @@ A big thanks to everyone who has contributed to this project:
 - **[PantherX12max](https://github.com/PantherX12max)** — Trofeo Vision LCD hardware testing
 - **[shadowepaxeor-glitch](https://github.com/shadowepaxeor-glitch)** — AX120 Digital hardware testing & USB descriptor dumps
 - **[Xentrino](https://github.com/Xentrino)** — Peerless Assassin 120 Digital ARGB White hardware testing
-
-## Support
-
-If this project helped you, consider buying me a coffee:
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/Lexonight1)
 
 ## License
 
