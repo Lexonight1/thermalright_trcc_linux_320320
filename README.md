@@ -10,6 +10,14 @@ Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.0.3). C
 
 > Unofficial community project, not affiliated with Thermalright. I develop and test on Fedora — if something doesn't work on your distro, please [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues).
 
+### Testers Wanted
+
+I don't own every Thermalright device — if you have one that isn't fully supported yet, I need your help. Testing takes about 2 minutes: just run `lsusb` and `trcc detect --all`, then [open an issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues/new) with the output. Devices I'm especially looking for:
+
+- **Mjolnir VISION / VISION PRO** — LCD + LED, untested on Linux
+- **GRAND VISION, Stream Vision, FROZEN WARFRAME Ultra** — newer Vision-series AIOs
+- **Any HID LCD device** (`0416:5302`, `0418:5303`, `0418:5304`) — working but needs real-world confirmation
+
 ![TRCC Linux GUI](doc/screenshots/screenshot.png)
 
 ## Features
@@ -42,7 +50,7 @@ Run `lsusb` to find your USB ID (`xxxx:xxxx` after `ID`), then match it below.
 **HID LED devices** — RGB LED control:
 | USB ID | Devices |
 |--------|---------|
-| `0416:8001` | AX120 DIGITAL, HR10 2280 PRO DIGITAL (LED mode) |
+| `0416:8001` | AX120 DIGITAL, PA120 DIGITAL, Peerless Assassin 120 DIGITAL, HR10 2280 PRO DIGITAL, and others (model auto-detected via handshake) |
 
 > HID devices are auto-detected. See the [HID Testing Guide](doc/HID_TESTING.md) if you have one — I need testers.
 
