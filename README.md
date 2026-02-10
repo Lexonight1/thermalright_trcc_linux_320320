@@ -180,6 +180,7 @@ A big thanks to everyone who has contributed to this project:
 
 - **[Lcstyle](https://github.com/Lcstyle)** — HR10 2280 PRO Digital support (7-segment display, color wheel, NVMe temperature daemon)
 - **[shadowepaxeor-glitch](https://github.com/shadowepaxeor-glitch)** — AX120 Digital hardware testing & USB descriptor dumps
+- **[Xentrino](https://github.com/Xentrino)** — Peerless Assassin 120 Digital ARGB White hardware testing
 
 ## Support
 
