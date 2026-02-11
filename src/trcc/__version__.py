@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -15,3 +15,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #         scan, os.system→subprocess.run
 # 1.2.0 - Autostart on login, reference theme save (config.json), resume command,
 #         ruff linting, protocol reverse engineering docs, 1836 tests
+# 1.2.1 - Fix RGB565 byte order for non-320x320 SCSI devices, fix GUI crash on
+#         HID handshake failure, add verbose debug logging (trcc -vv gui)
