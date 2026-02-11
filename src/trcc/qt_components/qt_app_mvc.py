@@ -797,9 +797,13 @@ class TRCCMainWindowMVC(QMainWindow):
             device.device_index, device.vid, device.pid)
         self.uc_preview.set_status(f"Device: {device.path}")
 
-        # Update resolution if changed
-        if device.resolution != (self.controller.lcd_width, self.controller.lcd_height):
-            self._on_resolution_changed(*device.resolution)
+        # Update resolution if changed (skip (0,0) — HID handshake failed)
+        w, h = device.resolution
+        if (w, h) == (0, 0):
+            self.uc_preview.set_status("Handshake failed — replug device and restart")
+            return
+        if (w, h) != (self.controller.lcd_width, self.controller.lcd_height):
+            self._on_resolution_changed(w, h)
 
         # Restore per-device brightness and rotation
         cfg = get_device_config(self._active_device_key)

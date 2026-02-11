@@ -73,11 +73,21 @@ class LCDDeviceImplementation(ABC):
         """Delay between frames (seconds)"""
         return 0.0
 
+    @property
+    def pixel_byte_order(self) -> str:
+        """RGB565 byte order: '>' big-endian or '<' little-endian.
+
+        Windows TRCC ImageTo565 uses big-endian only for 320x320 (is320x320)
+        and SPIMode=2 (FBL 51/53). All other resolutions use little-endian.
+        """
+        if (self.width, self.height) == (320, 320):
+            return '>'
+        return '<'
+
     def rgb_to_bytes(self, r: int, g: int, b: int) -> bytes:
-        """Convert RGB to device pixel format"""
-        # RGB565 big-endian (default)
+        """Convert RGB to device pixel format (RGB565)."""
         pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-        return struct.pack('>H', pixel)
+        return struct.pack(f'{self.pixel_byte_order}H', pixel)
 
     def detect_resolution(self, device_path: str, verbose: bool = False) -> bool:
         """

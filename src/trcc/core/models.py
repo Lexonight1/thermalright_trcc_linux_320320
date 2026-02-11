@@ -289,6 +289,7 @@ class DeviceModel:
                     device_index=d.get('device_index', 0),
                     protocol=d.get('protocol', 'scsi'),
                     device_type=d.get('device_type', 1),
+                    implementation=d.get('implementation', 'generic'),
                 )
                 for d in raw_devices
             ]

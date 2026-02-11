@@ -206,13 +206,18 @@ Triggered when shared memory byte[3] == 0x7F.
 
 ## Pixel Format
 
-RGB565 big-endian, 2 bytes per pixel:
+RGB565, 2 bytes per pixel. **Byte order is resolution-dependent** (from Windows TRCC `ImageTo565`):
+
+- **320×320** (`is320x320`): big-endian — byte[0]=RRRRRGGG, byte[1]=GGGBBBBB
+- **Other resolutions** (240×240, 480×480, etc.): little-endian — byte[0]=GGGBBBBB, byte[1]=RRRRRGGG
 
 ```python
 r5 = (r >> 3) & 0x1F   # 5 bits red
 g6 = (g >> 2) & 0x3F   # 6 bits green
 b5 = (b >> 3) & 0x1F   # 5 bits blue
-pixel = (r5 << 11) | (g6 << 5) | b5  # uint16, stored big-endian
+pixel = (r5 << 11) | (g6 << 5) | b5  # uint16
+# 320x320: struct.pack('>H', pixel)   — big-endian
+# other:   struct.pack('<H', pixel)   — little-endian
 ```
 
 Total frame size = width × height × 2 bytes.

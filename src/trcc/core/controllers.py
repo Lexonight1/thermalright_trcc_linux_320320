@@ -41,8 +41,15 @@ from .models import (
 )
 
 
-def image_to_rgb565(img: Any) -> bytes:
-    """Convert PIL Image to RGB565 bytes (big-endian, masked)."""
+def image_to_rgb565(img: Any, byte_order: str = '>') -> bytes:
+    """Convert PIL Image to RGB565 bytes.
+
+    Windows TRCC ImageTo565: big-endian for 320x320, little-endian otherwise.
+
+    Args:
+        img: PIL Image.
+        byte_order: '>' for big-endian, '<' for little-endian.
+    """
     if img.mode != 'RGB':
         img = img.convert('RGB')
 
@@ -51,7 +58,7 @@ def image_to_rgb565(img: Any) -> bytes:
     g = (arr[:, :, 1] >> 2) & 0x3F
     b = (arr[:, :, 2] >> 3) & 0x1F
     rgb565 = (r << 11) | (g << 5) | b
-    return rgb565.astype('>u2').tobytes()
+    return rgb565.astype(f'{byte_order}u2').tobytes()
 
 
 def apply_rotation(image: Any, rotation: int) -> Any:
@@ -1095,8 +1102,16 @@ class LCDDeviceController:
             self._handle_error(f"LCD send error: {e}")
 
     def _image_to_rgb565(self, img: Any) -> bytes:
-        """Convert PIL Image to RGB565 bytes."""
-        return image_to_rgb565(img)
+        """Convert PIL Image to RGB565 bytes.
+
+        Byte order matches Windows TRCC ImageTo565:
+        big-endian for 320x320, little-endian for other resolutions.
+        """
+        byte_order = '>'
+        device = self.devices.get_selected()
+        if device and device.protocol == 'scsi' and device.resolution != (320, 320):
+            byte_order = '<'
+        return image_to_rgb565(img, byte_order)
 
     # =========================================================================
     # Callbacks from sub-controllers
