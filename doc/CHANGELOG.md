@@ -1,5 +1,58 @@
 # Changelog
 
+## v1.2.8
+
+### KISS Refactor
+- Consolidated 5 duplicate Settings tab handlers (`_on_color_changed`, `_on_position_changed`, `_on_font_changed`, `_on_format_changed`, `_on_text_changed`) into single `_update_selected(**fields)` method in `uc_theme_setting.py`
+- Each handler is now a one-liner delegating to `_update_selected` with keyword args
+- Removed dead `set_format_options()` method from `overlay_renderer.py` (never called)
+- Removed 6 dead LED legacy stubs from `models.py` (`_tick_static`, `_tick_breathing`, `_tick_colorful`, `_tick_rainbow`, `_tick_temp_linked`, `_tick_load_linked`) — production dispatches via `_tick_single_mode` directly
+
+## v1.2.7
+
+### Strip Theme Data from Wheel
+- Removed all theme data from the pip wheel — themes download on first run only
+- `_has_actual_themes()` now requires PNG files (ignores leftover `.dc` files)
+
+## v1.2.6
+
+### Config Marker Verification
+- Fixed stale config marker: `is_resolution_installed()` now verifies data exists on disk
+- Added debug logging for theme setup, tab switches, and directory verification
+
+## v1.2.5
+
+### One-Time Data Setup
+- Download themes/previews/masks once per resolution, tracked in `~/.trcc/config.json`
+- `is_resolution_installed()` / `mark_resolution_installed()` skip re-download on subsequent launches
+- Custom themes saved to `~/.trcc/data/` (survives pip upgrades)
+
+## v1.2.4
+
+### Fix pip Upgrade Data Loss
+- Theme archives now extract to `~/.trcc/data/` instead of site-packages
+- `install-desktop` generates `.desktop` file inline for pip installs (no bundled template needed)
+
+## v1.2.3
+
+### Logging Refactor
+- Replaced `print()` with `logging` across 12 modules
+- Thread-safe device send with lock
+- Extracted `_setup_theme_dirs()` helper
+- Suppressed `pyusb` deprecation warning (`_pack_` in ctypes)
+
+## v1.2.2
+
+### Fix Local Theme Loading
+- Fixed local themes not loading from pip install (`Custom_*` dirs blocked on-demand download)
+
+## v1.2.1
+
+### Debug Logging & HID Fix
+- Fixed RGB565 byte order for non-320x320 SCSI devices
+- Fixed GUI crash on HID handshake failure
+- Added verbose debug logging (`trcc -vv gui`)
+
 ## v1.2.0
 
 ### HR10 2280 PRO Digital Support
@@ -91,7 +144,7 @@
 - Removed `--testing-hid` references from all docs (HID is auto-detected)
 
 ### Testing
-- 1988 tests across 26 test files (up from 1777)
+- 2029 tests across 27 test files (up from 1777)
 - 96% coverage on non-Qt backend
 
 ## v1.1.3

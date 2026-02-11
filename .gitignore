@@ -117,5 +117,8 @@ packages/
 # Root-level data dir
 /data/
 
+# Call graph images
+trcc_callgraph*
+
 # Large binary docs
 doc/*.pdf

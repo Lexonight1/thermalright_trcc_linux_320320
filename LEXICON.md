@@ -45,9 +45,16 @@ Shared terminology so everyone uses the same names.
 | **Mask archive** | `zt{W}{H}.7z` — cloud mask overlay templates |
 | **RGB565** | 16-bit pixel format (5R/6G/5B) sent to LCD via SCSI |
 
+## Settings Tab
+| Term | Meaning |
+|------|---------|
+| **`_update_selected(**fields)`** | Single handler for all overlay config changes — updates selected element and propagates |
+| **`require_mode`** | Optional guard in `_update_selected` — only applies update if element's `mode` matches |
+| **`mode_sub`** | Sub-format selector within a mode (e.g., 0=24H, 1=12H for time) |
+
 ## Directories
 | Term | Meaning |
 |------|---------|
 | **DATA_DIR** | Package data dir (`src/trcc/data/` or site-packages equivalent) |
-| **USER_DATA_DIR** | User writable data (`~/.trcc/data/`) — fallback for pip installs |
+| **USER_DATA_DIR** | User writable data (`~/.trcc/data/`) — primary data location, survives pip upgrades |
 | **Config dir** | Per-device config (`~/.trcc/config/{pid}/`) |
