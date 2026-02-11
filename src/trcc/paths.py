@@ -61,13 +61,18 @@ def read_sysfs(path: str) -> Optional[str]:
 
 
 def _has_actual_themes(theme_dir: str) -> bool:
-    """Check if a Theme* directory has actual theme subfolders (not just .gitkeep)."""
+    """Check if a Theme* directory has actual theme subfolders (not just placeholders).
+
+    Skips dotfiles and Custom_* placeholder dirs that ship with the wheel
+    but don't contain downloadable default themes.
+    """
     if not os.path.isdir(theme_dir):
         return False
     for item in os.listdir(theme_dir):
-        # Theme subfolders are like "000a", "001b", etc.
         item_path = os.path.join(theme_dir, item)
-        if os.path.isdir(item_path) and not item.startswith('.'):
+        if (os.path.isdir(item_path)
+                and not item.startswith('.')
+                and not item.startswith('Custom_')):
             return True
     return False
 

@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -17,3 +17,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #         ruff linting, protocol reverse engineering docs, 1836 tests
 # 1.2.1 - Fix RGB565 byte order for non-320x320 SCSI devices, fix GUI crash on
 #         HID handshake failure, add verbose debug logging (trcc -vv gui)
+# 1.2.2 - Fix local themes not loading from pip install (Custom_ dirs blocked
+#         on-demand download), bump for PyPI
