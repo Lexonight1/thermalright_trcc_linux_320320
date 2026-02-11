@@ -93,15 +93,17 @@ def _find_data_dir() -> str:
 
     for candidate in candidates:
         if os.path.isdir(candidate):
-            # Check if this directory has Theme* folders with actual content
             for item in os.listdir(candidate):
                 if item.startswith('Theme'):
                     theme_path = os.path.join(candidate, item)
                     if _has_actual_themes(theme_path):
+                        log.debug("Data dir: %s (found themes in %s)", candidate, item)
                         return candidate
 
     # Fallback to trcc/data even if empty
-    return os.path.join(_THIS_DIR, 'data')
+    fallback = os.path.join(_THIS_DIR, 'data')
+    log.debug("Data dir: %s (fallback — no themes found yet)", fallback)
+    return fallback
 
 
 # Data directories
@@ -259,183 +261,130 @@ def _download_archive(url: str, dest_path: str, timeout: int = 60) -> bool:
     return False
 
 
-def _fetch_theme_archive(width: int, height: int) -> Optional[str]:
-    """Download a theme archive from GitHub if not bundled locally.
 
-    Checks the package data dir first, then the user data dir.
-    Downloads to user data dir (~/.trcc/data/) if not found anywhere.
+def _writable_target(preferred: str, fallback: str) -> str:
+    """Return preferred dir if writable, else fallback to user dir."""
+    try:
+        os.makedirs(preferred, exist_ok=True)
+        probe = os.path.join(preferred, '.write_test')
+        with open(probe, 'w') as f:
+            f.write('')
+        os.remove(probe)
+        return preferred
+    except OSError:
+        log.debug("Not writable: %s — using %s", preferred, fallback)
+        return fallback
 
-    Returns the path to the .7z file, or None if unavailable.
+
+def _fetch_and_extract(
+    label: str,
+    pkg_dir: str,
+    user_dir: str,
+    archive_name: str,
+    check_fn,
+    fetch_fn,
+) -> bool:
+    """Unified fetch-and-extract for themes, web previews, and masks.
+
+    1. Check pkg_dir and user_dir for existing content via check_fn.
+    2. If neither has content, locate or download the .7z via fetch_fn.
+    3. Extract to the first writable directory.
+
+    Returns True if content is available after this call.
     """
-    archive_name = f'Theme{width}{height}.7z'
+    if check_fn(pkg_dir):
+        log.debug("%s: found at %s", label, pkg_dir)
+        return True
+    if check_fn(user_dir):
+        log.debug("%s: found at %s", label, user_dir)
+        return True
 
-    # Check package data dir (bundled with pip install)
-    pkg_archive = os.path.join(DATA_DIR, archive_name)
-    if os.path.isfile(pkg_archive):
-        return pkg_archive
+    log.info("%s not found — fetching %s ...", label, archive_name)
 
-    # Check user data dir (previously downloaded)
-    user_archive = os.path.join(USER_DATA_DIR, archive_name)
-    if os.path.isfile(user_archive):
-        return user_archive
+    archive = fetch_fn(archive_name)
+    if archive is None:
+        log.warning("%s: could not obtain %s (no local copy, download failed)", label, archive_name)
+        return False
 
-    # Download from GitHub
+    target = _writable_target(pkg_dir, user_dir)
+    ok = _extract_7z(archive, target)
+    if ok:
+        log.info("%s ready at %s", label, target)
+    else:
+        log.warning("%s: extraction of %s failed", label, archive_name)
+    return ok
+
+
+def _fetch_theme_archive_by_name(archive_name: str) -> Optional[str]:
+    """Locate or download a Theme .7z archive."""
+    pkg = os.path.join(DATA_DIR, archive_name)
+    if os.path.isfile(pkg):
+        return pkg
+    user = os.path.join(USER_DATA_DIR, archive_name)
+    if os.path.isfile(user):
+        return user
     url = GITHUB_THEME_BASE_URL + archive_name
-    if _download_archive(url, user_archive):
-        return user_archive
+    if _download_archive(url, user):
+        return user
+    return None
 
+
+def _fetch_web_archive(archive_name: str) -> Optional[str]:
+    """Locate or download a Web .7z archive."""
+    pkg = os.path.join(DATA_DIR, 'Web', archive_name)
+    if os.path.isfile(pkg):
+        return pkg
+    user = os.path.join(USER_DATA_DIR, 'Web', archive_name)
+    if os.path.isfile(user):
+        return user
+    url = GITHUB_THEME_BASE_URL + 'Web/' + archive_name
+    if _download_archive(url, user):
+        return user
     return None
 
 
 def ensure_themes_extracted(width: int, height: int) -> bool:
-    """Extract default themes from .7z archive if not already present.
-
-    Checks both the package data dir and user data dir for themes.
-    If the .7z archive is not found locally, downloads it from GitHub.
-    """
-    # Check package data dir first
-    theme_dir = get_theme_dir(width, height)
-    if _has_actual_themes(theme_dir):
-        return True
-
-    # Check user data dir
-    user_theme_dir = os.path.join(USER_DATA_DIR, f'Theme{width}{height}')
-    if _has_actual_themes(user_theme_dir):
-        return True
-
-    log.info("Themes not found for %dx%d — fetching archive...", width, height)
-
-    # Find or download the archive
-    archive = _fetch_theme_archive(width, height)
-    if archive is None:
-        log.warning("Could not obtain Theme%d%d.7z (no local archive, download failed)", width, height)
-        return False
-
-    # Extract to whichever dir is writable (prefer package dir, fall back to user)
-    target = theme_dir
-    try:
-        os.makedirs(target, exist_ok=True)
-        # Test writability
-        test_file = os.path.join(target, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('')
-        os.remove(test_file)
-    except OSError:
-        target = user_theme_dir
-
-    ok = _extract_7z(archive, target)
-    if ok:
-        log.info("Themes ready at %s", target)
-    return ok
+    """Extract default themes from .7z archive if not already present."""
+    name = f'Theme{width}{height}'
+    return _fetch_and_extract(
+        label=f"Themes {width}x{height}",
+        pkg_dir=os.path.join(DATA_DIR, name),
+        user_dir=os.path.join(USER_DATA_DIR, name),
+        archive_name=f'{name}.7z',
+        check_fn=_has_actual_themes,
+        fetch_fn=_fetch_theme_archive_by_name,
+    )
 
 
-def _fetch_web_archive(archive_name: str) -> Optional[str]:
-    """Download a Web archive from GitHub if not bundled locally.
-
-    Checks the package Web dir first, then the user data dir.
-    Downloads to user data dir (~/.trcc/data/Web/) if not found.
-
-    Returns the path to the .7z file, or None if unavailable.
-    """
-    pkg_archive = os.path.join(DATA_DIR, 'Web', archive_name)
-    if os.path.isfile(pkg_archive):
-        return pkg_archive
-
-    user_archive = os.path.join(USER_DATA_DIR, 'Web', archive_name)
-    if os.path.isfile(user_archive):
-        return user_archive
-
-    url = GITHUB_THEME_BASE_URL + 'Web/' + archive_name
-    if _download_archive(url, user_archive):
-        return user_archive
-
-    return None
+def _has_any_content(d: str) -> bool:
+    """Check if a directory exists and has any files/subdirs."""
+    return os.path.isdir(d) and bool(os.listdir(d))
 
 
 def ensure_web_extracted(width: int, height: int) -> bool:
-    """Extract cloud theme previews from .7z archive if not already present.
-
-    Checks both package and user data dirs. Downloads from GitHub if needed.
-    """
-    def check_fn(d: str) -> bool:
-        return os.path.isdir(d) and bool(os.listdir(d))
+    """Extract cloud theme previews from .7z archive if not already present."""
     res_key = f'{width}{height}'
-
-    # Check package data dir
-    web_dir = get_web_dir(width, height)
-    if check_fn(web_dir):
-        return True
-
-    # Check user data dir
-    user_web_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
-    if check_fn(user_web_dir):
-        return True
-
-    log.info("Web previews not found for %dx%d — fetching archive...", width, height)
-
-    # Find or download archive
-    archive = _fetch_web_archive(f'{res_key}.7z')
-    if archive is None:
-        log.warning("Could not obtain %s.7z (no local archive, download failed)", res_key)
-        return False
-
-    # Extract to writable location
-    target = web_dir
-    try:
-        os.makedirs(target, exist_ok=True)
-        test_file = os.path.join(target, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('')
-        os.remove(test_file)
-    except OSError:
-        target = user_web_dir
-
-    ok = _extract_7z(archive, target)
-    if ok:
-        log.info("Web previews ready at %s", target)
-    return ok
+    return _fetch_and_extract(
+        label=f"Web previews {width}x{height}",
+        pkg_dir=os.path.join(DATA_DIR, 'Web', res_key),
+        user_dir=os.path.join(USER_DATA_DIR, 'Web', res_key),
+        archive_name=f'{res_key}.7z',
+        check_fn=_has_any_content,
+        fetch_fn=_fetch_web_archive,
+    )
 
 
 def ensure_web_masks_extracted(width: int, height: int) -> bool:
-    """Extract cloud mask themes from .7z archive if not already present.
-
-    Checks both package and user data dirs. Downloads from GitHub if needed.
-    """
+    """Extract cloud mask themes from .7z archive if not already present."""
     res_key = f'zt{width}{height}'
-
-    # Check package data dir
-    masks_dir = get_web_masks_dir(width, height)
-    if _has_actual_themes(masks_dir):
-        return True
-
-    # Check user data dir
-    user_masks_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
-    if _has_actual_themes(user_masks_dir):
-        return True
-
-    log.info("Mask themes not found for %dx%d — fetching archive...", width, height)
-
-    # Find or download archive
-    archive = _fetch_web_archive(f'{res_key}.7z')
-    if archive is None:
-        log.warning("Could not obtain %s.7z (no local archive, download failed)", res_key)
-        return False
-
-    # Extract to writable location
-    target = masks_dir
-    try:
-        os.makedirs(target, exist_ok=True)
-        test_file = os.path.join(target, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('')
-        os.remove(test_file)
-    except OSError:
-        target = user_masks_dir
-
-    ok = _extract_7z(archive, target)
-    if ok:
-        log.info("Mask themes ready at %s", target)
-    return ok
+    return _fetch_and_extract(
+        label=f"Mask themes {width}x{height}",
+        pkg_dir=os.path.join(DATA_DIR, 'Web', res_key),
+        user_dir=os.path.join(USER_DATA_DIR, 'Web', res_key),
+        archive_name=f'{res_key}.7z',
+        check_fn=_has_actual_themes,
+        fetch_fn=_fetch_web_archive,
+    )
 
 
 def find_resource(filename: str, search_paths: Optional[list] = None) -> Optional[str]:

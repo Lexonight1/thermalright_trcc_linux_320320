@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -19,3 +19,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #         HID handshake failure, add verbose debug logging (trcc -vv gui)
 # 1.2.2 - Fix local themes not loading from pip install (Custom_ dirs blocked
 #         on-demand download), bump for PyPI
+# 1.2.3 - Refactor: print→logging across 12 modules, thread-safe device send,
+#         extract _setup_theme_dirs helper, pyusb deprecation warning filter

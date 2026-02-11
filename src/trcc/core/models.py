@@ -5,6 +5,7 @@ These models can be used by any GUI framework (Tkinter, PyQt6, etc.)
 """
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
@@ -269,8 +270,9 @@ class DeviceModel:
     on_selection_changed: Optional[Callable[[Optional[DeviceInfo]], None]] = None
     on_send_complete: Optional[Callable[[bool], None]] = None
 
-    # Send state
+    # Send state (guarded by _send_lock for thread safety)
     _send_busy: bool = False
+    _send_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def detect_devices(self) -> List[DeviceInfo]:
         """Detect connected LCD devices."""
@@ -336,17 +338,16 @@ class DeviceModel:
         Returns:
             True if send was successful.
         """
-        if not self.selected_device or self._send_busy:
-            return False
+        with self._send_lock:
+            if self._send_busy:
+                return False
+            self._send_busy = True
 
         try:
             from ..device_factory import DeviceProtocolFactory
-            self._send_busy = True
 
             protocol = DeviceProtocolFactory.get_protocol(self.selected_device)
             success = protocol.send_image(image_data, width, height)
-
-            self._send_busy = False
 
             if self.on_send_complete:
                 self.on_send_complete(success)
@@ -354,14 +355,17 @@ class DeviceModel:
             return success
 
         except Exception as e:
-            self._send_busy = False
-            print(f"[!] Device send error: {e}")
+            log.error("Device send error: %s", e)
             return False
+        finally:
+            with self._send_lock:
+                self._send_busy = False
 
     @property
     def is_busy(self) -> bool:
         """Check if device is busy sending."""
-        return self._send_busy
+        with self._send_lock:
+            return self._send_busy
 
 
 # =============================================================================
@@ -477,7 +481,7 @@ class VideoModel:
             return True
 
         except Exception as e:
-            print(f"[!] Failed to load video: {e}")
+            log.error("Failed to load video: %s", e)
             return False
 
     def play(self):
@@ -742,7 +746,7 @@ class OverlayModel:
             return True
 
         except Exception as e:
-            print(f"[!] Failed to load DC file: {e}")
+            log.error("Failed to load DC file: %s", e)
             return False
 
 

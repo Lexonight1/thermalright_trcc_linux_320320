@@ -1507,7 +1507,7 @@ class TRCCMainWindowMVC(QMainWindow):
         try:
             write_carousel_config(config, str(theme_dir / 'Theme.dc'))
         except Exception as e:
-            print(f"Failed to save carousel config: {e}")
+            log.error("Failed to save carousel config: %s", e)
 
     def _load_carousel_config(self, theme_dir: Path):
         """Load carousel/slideshow config from Theme.dc."""
@@ -2006,7 +2006,7 @@ class TRCCMainWindowMVC(QMainWindow):
         except ImportError:
             pass
         except Exception as e:
-            print(f"[device_poll] {e}")
+            log.error("Device poll error: %s", e)
 
     def _on_rotation_change(self, index):
         """Handle rotation combobox change (Windows UpDateUCComboBox1).

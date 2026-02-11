@@ -15,6 +15,8 @@ Matches Windows TRCC UCSystemInfoOptions:
 
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPalette
 from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
@@ -29,6 +31,8 @@ from ..sysinfo_config import (
 )
 from .assets import load_pixmap
 from .constants import Colors
+
+log = logging.getLogger(__name__)
 
 # Grid layout (from Windows UCSystemInfoOptions.cs)
 PANEL_W = 266
@@ -517,4 +521,4 @@ class UCSystemInfo(QWidget):
             for panel in self._panels_list:
                 panel.update_values(readings)
         except Exception as e:
-            print(f"[!] Error updating metrics: {e}")
+            log.error("Error updating metrics: %s", e)

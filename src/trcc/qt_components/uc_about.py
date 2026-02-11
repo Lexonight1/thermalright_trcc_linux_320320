@@ -14,6 +14,7 @@ Windows controls (from UCAbout.cs):
 - Language checkboxes at y=373/403
 """
 
+import logging
 import shutil
 import webbrowser
 from pathlib import Path
@@ -25,6 +26,8 @@ from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton
 from .assets import Assets, load_pixmap
 from .base import BasePanel, create_image_button
 from .constants import Layout, Sizes, Styles
+
+log = logging.getLogger(__name__)
 
 # Linux autostart desktop file
 _AUTOSTART_DIR = Path.home() / '.config' / 'autostart'
@@ -74,11 +77,11 @@ def _set_autostart(enabled: bool):
     if enabled:
         _AUTOSTART_DIR.mkdir(parents=True, exist_ok=True)
         _AUTOSTART_FILE.write_text(_make_desktop_entry())
-        print(f"[+] Autostart enabled: {_AUTOSTART_FILE}")
+        log.info("Autostart enabled: %s", _AUTOSTART_FILE)
     else:
         if _AUTOSTART_FILE.exists():
             _AUTOSTART_FILE.unlink()
-        print("[-] Autostart disabled")
+        log.info("Autostart disabled")
 
 
 def ensure_autostart():
@@ -105,7 +108,7 @@ def ensure_autostart():
         expected = _make_desktop_entry()
         if current != expected:
             _AUTOSTART_FILE.write_text(expected)
-            print(f"[~] Autostart refreshed: {_AUTOSTART_FILE}")
+            log.info("Autostart refreshed: %s", _AUTOSTART_FILE)
 
     return _is_autostart_enabled()
 

@@ -5,6 +5,8 @@ Shows real-time hardware sensor values that can be clicked to add to overlay.
 Matches Windows TRCC right-side Activity panel.
 """
 
+import logging
+
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
@@ -17,6 +19,8 @@ except ImportError:
     SYSINFO_AVAILABLE = False
     def get_all_metrics():
         return {}
+
+log = logging.getLogger(__name__)
 
 
 # Category colors matching Windows TRCC
@@ -260,4 +264,4 @@ class UCActivitySidebar(QWidget):
             for item in self._sensor_items:
                 item.update_value(metrics)
         except Exception as e:
-            print(f"[!] Activity sidebar update error: {e}")
+            log.error("Activity sidebar update error: %s", e)

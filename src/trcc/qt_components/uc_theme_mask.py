@@ -7,14 +7,17 @@ Shows cloud layout masks with download functionality.
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
 from trcc.paths import is_safe_archive_member
 
 from .base import BaseThemeBrowser, BaseThumbnail
+
+log = logging.getLogger(__name__)
 
 try:
     import PIL  # noqa: F401 — PIL_AVAILABLE guard
@@ -65,6 +68,7 @@ class UCThemeMask(BaseThemeBrowser):
         self._resolution = "320x320"
         self._local_masks = set()
         super().__init__(parent)
+        self.download_finished.connect(self._on_download_complete)
 
     def _create_thumbnail(self, item_info: dict) -> MaskThumbnail:
         return MaskThumbnail(item_info)
@@ -89,6 +93,7 @@ class UCThemeMask(BaseThemeBrowser):
         self._local_masks.clear()
 
         if not PIL_AVAILABLE:
+            log.warning("refresh_masks: PIL not available")
             self._show_empty_message()
             return
 
@@ -123,6 +128,9 @@ class UCThemeMask(BaseThemeBrowser):
                     'is_local': False,
                 })
 
+        log.debug("refresh_masks: %d local, %d cloud, dir=%s",
+                   len(self._local_masks), len(masks) - len(self._local_masks),
+                   self.mask_directory)
         self._populate_grid(masks)
 
     def _on_item_clicked(self, item_info: dict):
@@ -136,15 +144,21 @@ class UCThemeMask(BaseThemeBrowser):
         else:
             self._download_cloud_mask(item_info['name'])
 
+    def _on_download_complete(self, mask_id: str, success: bool):
+        """Handle download completion on the main thread — refresh grid."""
+        if success:
+            log.info("Mask %s downloaded — refreshing grid", mask_id)
+            self.refresh_masks()
+
     def _download_cloud_mask(self, mask_id: str):
         """Download a cloud mask from the server."""
         if not self.mask_directory or not self._resolution:
-            print("[!] Cannot download mask: directory or resolution not set")
+            log.warning("Cannot download mask: directory or resolution not set")
             return
 
         base_url = self.CLOUD_URLS.get(self._resolution)
         if not base_url:
-            print(f"[!] No cloud URL for resolution {self._resolution}")
+            log.warning("No cloud URL for resolution %s", self._resolution)
             return
 
         self.download_started.emit(mask_id)
@@ -160,7 +174,7 @@ class UCThemeMask(BaseThemeBrowser):
                 assert self.mask_directory is not None
                 mask_dir = self.mask_directory / mask_id
 
-                print(f"[+] Downloading mask {mask_id} from {mask_url}")
+                log.info("Downloading mask %s from %s", mask_id, mask_url)
 
                 req = urllib.request.Request(mask_url, headers={
                     'User-Agent': 'TRCC-Linux/1.0'
@@ -177,25 +191,24 @@ class UCThemeMask(BaseThemeBrowser):
                                 if not is_safe_archive_member(info.filename):
                                     continue
                                 zf.extract(info, mask_dir)
-                            print(f"[+] Extracted mask {mask_id}")
+                            log.info("Extracted mask %s", mask_id)
                     except zipfile.BadZipFile:
                         mask_dir.mkdir(parents=True, exist_ok=True)
                         (mask_dir / "Theme.png").write_bytes(data)
 
-                    QTimer.singleShot(100, self.refresh_masks)
+                    # Signal triggers refresh on main thread (thread-safe)
                     self.download_finished.emit(mask_id, True)
 
                 except urllib.error.HTTPError as e:
                     if e.code == 404:
                         self._download_mask_files(mask_id, base_url, mask_dir)
-                        QTimer.singleShot(100, self.refresh_masks)
                         self.download_finished.emit(mask_id, True)
                     else:
-                        print(f"[!] HTTP Error {e.code} downloading mask {mask_id}")
+                        log.warning("HTTP %d downloading mask %s", e.code, mask_id)
                         self.download_finished.emit(mask_id, False)
 
             except Exception as e:
-                print(f"[!] Failed to download mask {mask_id}: {e}")
+                log.warning("Failed to download mask %s: %s", mask_id, e)
                 self.download_finished.emit(mask_id, False)
 
         thread = threading.Thread(target=download_task, daemon=True)
@@ -215,12 +228,12 @@ class UCThemeMask(BaseThemeBrowser):
                 req = urllib.request.Request(url, headers={'User-Agent': 'TRCC-Linux/1.0'})
                 with urllib.request.urlopen(req, timeout=30) as response:
                     (mask_dir / filename).write_bytes(response.read())
-                    print(f"[+] Downloaded {mask_id}/{filename}")
+                    log.info("Downloaded %s/%s", mask_id, filename)
             except urllib.error.HTTPError as e:
                 if e.code != 404:
-                    print(f"[!] HTTP Error {e.code} downloading {mask_id}/{filename}")
+                    log.warning("HTTP %d downloading %s/%s", e.code, mask_id, filename)
             except Exception as e:
-                print(f"[!] Failed to download {mask_id}/{filename}: {e}")
+                log.warning("Failed to download %s/%s: %s", mask_id, filename, e)
 
     def get_selected_mask(self):
         return self.selected_item

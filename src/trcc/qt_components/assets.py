@@ -6,11 +6,14 @@ Images are extracted from Windows TRCC resources using tools/extract_resx_images
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
+
+log = logging.getLogger(__name__)
 
 # Asset directory (relative to this file)
 ASSETS_DIR = Path(__file__).parent.parent / 'assets' / 'gui'
@@ -45,7 +48,7 @@ def load_pixmap(name: str, scale_width: int | None = None, scale_height: int | N
     """
     path = get_asset_path(name)
     if not path.exists():
-        print(f"[!] Asset not found: {name}")
+        log.warning("Asset not found: %s", name)
         return QPixmap()
 
     pixmap = QPixmap(str(path))

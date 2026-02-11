@@ -12,6 +12,7 @@ Provides common functionality:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
@@ -33,6 +34,8 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+
+log = logging.getLogger(__name__)
 
 
 class BasePanel(QFrame):
@@ -388,7 +391,7 @@ class BaseThumbnail(ClickableFrame):
                 bg.paste(img, offset)
                 self.thumb_label.setPixmap(pil_to_pixmap(bg))
             except Exception as e:
-                print(f"[!] Failed to load thumbnail: {e}")
+                log.warning("Failed to load thumbnail: %s", e)
                 self._show_placeholder()
         else:
             self._show_placeholder()

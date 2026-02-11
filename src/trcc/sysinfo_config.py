@@ -9,8 +9,11 @@ image selection, and a user-editable name.
 """
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,7 +86,7 @@ class SysInfoConfig:
                 if self.panels:
                     return self.panels
             except Exception as e:
-                print(f"[!] Failed to load sysinfo config: {e}")
+                log.error("Failed to load sysinfo config: %s", e)
 
         # Default panels
         self.panels = self.defaults()

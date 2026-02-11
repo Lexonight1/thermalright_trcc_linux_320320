@@ -544,6 +544,21 @@ class LCDDeviceController:
         # Wire up sub-controller callbacks
         self._setup_callbacks()
 
+    def _setup_theme_dirs(self, width: int, height: int):
+        """Extract, locate, and wire theme/web/mask directories for a resolution."""
+        ensure_themes_extracted(width, height)
+        ensure_web_extracted(width, height)
+        ensure_web_masks_extracted(width, height)
+
+        theme_dir = Path(get_theme_dir(width, height))
+        web_dir = Path(get_web_dir(width, height))
+        masks_dir = Path(get_web_masks_dir(width, height))
+        self.themes.set_directories(
+            local_dir=theme_dir if theme_dir.exists() else None,
+            web_dir=web_dir if web_dir.exists() else None,
+            masks_dir=masks_dir,
+        )
+
     def _setup_callbacks(self):
         """Wire up sub-controller callbacks."""
         # Theme selection -> load and preview
@@ -591,22 +606,7 @@ class LCDDeviceController:
         # Extract all .7z archives for this resolution if needed
         # Skip for LED-only devices (no LCD, resolution is 0×0)
         if self.lcd_width and self.lcd_height:
-            ensure_themes_extracted(self.lcd_width, self.lcd_height)
-            ensure_web_extracted(self.lcd_width, self.lcd_height)
-            ensure_web_masks_extracted(self.lcd_width, self.lcd_height)
-
-            # Set theme directories (use get_theme_dir which checks both pkg and user dirs)
-            theme_dir = Path(get_theme_dir(self.lcd_width, self.lcd_height))
-            web_dir = Path(get_web_dir(self.lcd_width, self.lcd_height))
-            masks_dir = Path(get_web_masks_dir(self.lcd_width, self.lcd_height))
-
-            self.themes.set_directories(
-                local_dir=theme_dir if theme_dir.exists() else None,
-                web_dir=web_dir if web_dir.exists() else None,
-                masks_dir=masks_dir,
-            )
-
-            # Load initial themes
+            self._setup_theme_dirs(self.lcd_width, self.lcd_height)
             self.themes.load_local_themes((self.lcd_width, self.lcd_height))
 
         # Detect devices
@@ -628,19 +628,7 @@ class LCDDeviceController:
         # Extract all .7z archives for this resolution if needed
         # Skip for LED-only devices (no LCD, resolution is 0×0)
         if width and height:
-            ensure_themes_extracted(width, height)
-            ensure_web_extracted(width, height)
-            ensure_web_masks_extracted(width, height)
-
-            # Reload theme directories for new resolution
-            theme_dir = Path(get_theme_dir(width, height))
-            web_dir = Path(get_web_dir(width, height))
-            masks_dir = Path(get_web_masks_dir(width, height))
-            self.themes.set_directories(
-                local_dir=theme_dir if theme_dir.exists() else None,
-                web_dir=web_dir if web_dir.exists() else None,
-                masks_dir=masks_dir,
-            )
+            self._setup_theme_dirs(width, height)
             self.themes.load_local_themes((width, height))
 
         if self.on_resolution_changed:
@@ -912,7 +900,7 @@ class LCDDeviceController:
             mask_position = self._parse_mask_position(dc_path, mask_img)
             self.overlay.set_theme_mask(mask_img, mask_position)
         except Exception as e:
-            print(f"[!] Failed to load mask: {e}")
+            log.error("Failed to load mask: %s", e)
 
     def load_image_file(self, path: Path):
         """Load a static image file (from settings panel 'Load Image')."""
@@ -1180,7 +1168,7 @@ class LCDDeviceController:
                     self.overlay.model.set_dc_data({'display_options': display_options})
                     return display_options
             except Exception as e:
-                print(f"[!] Failed to load config.json, falling back to DC: {e}")
+                log.warning("Failed to load config.json, falling back to DC: %s", e)
 
         # Fall back to binary config1.dc
         if not dc_path or not dc_path.exists():
@@ -1195,7 +1183,7 @@ class LCDDeviceController:
             self.overlay.model.set_dc_data(dc_data)
             return dc_data.get('display_options', {})
         except Exception as e:
-            print(f"[!] Failed to parse DC file: {e}")
+            log.error("Failed to parse DC file: %s", e)
             return {}
 
     def _render_and_send(self):
@@ -1232,7 +1220,7 @@ class LCDDeviceController:
 
     def _handle_error(self, message: str):
         """Handle error."""
-        print(f"[!] {message}")
+        log.error("%s", message)
         if self.on_error:
             self.on_error(message)
 
@@ -1385,8 +1373,8 @@ class LEDController:
                 )
                 if self.on_send_complete:
                     self.on_send_complete(success)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("LED send error: %s", e)
 
     def _on_model_state_changed(self, state) -> None:
         """Forward model state changes to view."""
@@ -1493,7 +1481,7 @@ class LEDDeviceController:
             config['is_week_sunday'] = state.is_week_sunday
             save_device_setting(self._device_key, 'led_config', config)
         except Exception as e:
-            print(f"[!] Failed to save LED config: {e}")
+            log.error("Failed to save LED config: %s", e)
 
     def load_config(self) -> None:
         """Restore LED state from per-device config."""
@@ -1536,7 +1524,7 @@ class LEDDeviceController:
             if 'is_week_sunday' in led_config:
                 state.is_week_sunday = led_config['is_week_sunday']
         except Exception as e:
-            print(f"[!] Failed to load LED config: {e}")
+            log.error("Failed to load LED config: %s", e)
 
     def cleanup(self) -> None:
         """Save config and release resources."""

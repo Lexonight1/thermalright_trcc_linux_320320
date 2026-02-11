@@ -274,7 +274,7 @@ def send_image_to_device(
         _send_frame(device_path, rgb565_data, width, height)
         return True
     except Exception as e:
-        print(f"[!] SCSI send failed ({device_path}): {e}")
+        log.error("SCSI send failed (%s): %s", device_path, e)
         # Allow re-init on next attempt
         _initialized_devices.discard(device_path)
         return False

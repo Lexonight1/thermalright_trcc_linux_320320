@@ -33,11 +33,14 @@ Usage:
     results = downloader.download_category("a", max_themes=20)
 """
 
+import logging
 import threading
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+log = logging.getLogger(__name__)
 
 # Category definitions matching Windows FormCZTV.CheakWebFile
 # (prefix, display_name, count)
@@ -282,7 +285,7 @@ class CloudThemeDownloader:
         try:
             return self._download_file(url, dest_path, on_progress)
         except Exception as e:
-            print(f"[!] Failed to download {theme_id}: {e}")
+            log.error("Failed to download %s: %s", theme_id, e)
             return None
 
     def download_preview(
@@ -421,21 +424,21 @@ class CloudThemeDownloader:
 
         except HTTPError as e:
             if e.code == 404:
-                print(f"[!] Theme not found: {url}")
+                log.warning("Theme not found: %s", url)
             else:
-                print(f"[!] HTTP Error {e.code}: {url}")
+                log.error("HTTP %d: %s", e.code, url)
             return None
 
         except URLError as e:
-            print(f"[!] Network Error: {e.reason}")
+            log.error("Network error: %s", e.reason)
             return None
 
         except InterruptedError:
-            print("[!] Download cancelled")
+            log.info("Download cancelled")
             return None
 
         except Exception as e:
-            print(f"[!] Download error: {e}")
+            log.error("Download error: %s", e)
             return None
 
     def get_all_theme_ids(self) -> List[str]:

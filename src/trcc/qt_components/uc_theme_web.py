@@ -13,6 +13,7 @@ Windows behavior:
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from pathlib import Path
@@ -22,6 +23,8 @@ from PyQt6.QtGui import QMovie
 
 from .base import BaseThemeBrowser, BaseThumbnail
 from .constants import Layout, Sizes
+
+log = logging.getLogger(__name__)
 
 
 def _ensure_thumb_gif(mp4_path: str, size: int = Sizes.THUMB_IMAGE) -> str | None:
@@ -179,6 +182,7 @@ class UCThemeWeb(BaseThemeBrowser):
         self._clear_grid()
 
         if not self.web_directory:
+            log.debug("load_themes: no web_directory set")
             self._show_empty_message()
             return
 
@@ -215,6 +219,8 @@ class UCThemeWeb(BaseThemeBrowser):
                 'is_local': is_local,
             })
 
+        log.debug("load_themes: %d themes (%d cached), dir=%s",
+                   len(themes), len(cached), self.web_directory)
         self._populate_grid(themes)
 
     def _on_item_clicked(self, item_info: dict):
@@ -254,7 +260,7 @@ class UCThemeWeb(BaseThemeBrowser):
                 else:
                     self.download_finished.emit(theme_id, False)
             except Exception as e:
-                print(f"[!] Cloud theme download failed: {e}")
+                log.error("Cloud theme download failed: %s", e)
                 self.download_finished.emit(theme_id, False)
 
         thread = threading.Thread(target=download_task, daemon=True)
