@@ -501,6 +501,30 @@ def save_temp_unit(unit: int):
     save_config(config)
 
 
+def is_resolution_installed(width: int, height: int) -> bool:
+    """Check if theme data for this resolution has already been downloaded."""
+    key = f"{width}x{height}"
+    return key in load_config().get("installed_resolutions", [])
+
+
+def mark_resolution_installed(width: int, height: int):
+    """Record that theme data for this resolution is ready."""
+    config = load_config()
+    installed: list = config.get("installed_resolutions", [])
+    key = f"{width}x{height}"
+    if key not in installed:
+        installed.append(key)
+        config["installed_resolutions"] = installed
+        save_config(config)
+
+
+def clear_installed_resolutions():
+    """Remove all resolution-installed markers (used by uninstall)."""
+    config = load_config()
+    config.pop("installed_resolutions", None)
+    save_config(config)
+
+
 # =========================================================================
 # Per-device configuration
 # =========================================================================

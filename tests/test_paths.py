@@ -15,6 +15,7 @@ from trcc.paths import (
     _find_data_dir,
     _has_actual_themes,
     build_search_paths,
+    clear_installed_resolutions,
     device_config_key,
     ensure_themes_extracted,
     ensure_web_extracted,
@@ -26,8 +27,10 @@ from trcc.paths import (
     get_theme_dir,
     get_web_dir,
     get_web_masks_dir,
+    is_resolution_installed,
     load_config,
     load_image,
+    mark_resolution_installed,
     save_config,
     save_device_setting,
     save_resolution,
@@ -196,6 +199,58 @@ class TestTempUnitConfig(unittest.TestCase):
     def test_save_fahrenheit(self):
         save_temp_unit(1)
         self.assertEqual(get_saved_temp_unit(), 1)
+
+
+class TestResolutionInstalled(unittest.TestCase):
+    """Test one-time resolution install tracking."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.config_path = os.path.join(self.tmp, 'config.json')
+        self.patches = [
+            patch('trcc.paths.CONFIG_PATH', self.config_path),
+            patch('trcc.paths.CONFIG_DIR', self.tmp),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_not_installed_by_default(self):
+        self.assertFalse(is_resolution_installed(320, 320))
+
+    def test_mark_and_check(self):
+        mark_resolution_installed(320, 320)
+        self.assertTrue(is_resolution_installed(320, 320))
+        self.assertFalse(is_resolution_installed(480, 480))
+
+    def test_mark_is_idempotent(self):
+        mark_resolution_installed(320, 320)
+        mark_resolution_installed(320, 320)
+        config = load_config()
+        self.assertEqual(config["installed_resolutions"].count("320x320"), 1)
+
+    def test_multiple_resolutions(self):
+        mark_resolution_installed(320, 320)
+        mark_resolution_installed(480, 480)
+        self.assertTrue(is_resolution_installed(320, 320))
+        self.assertTrue(is_resolution_installed(480, 480))
+
+    def test_clear_removes_all(self):
+        mark_resolution_installed(320, 320)
+        mark_resolution_installed(480, 480)
+        clear_installed_resolutions()
+        self.assertFalse(is_resolution_installed(320, 320))
+        self.assertFalse(is_resolution_installed(480, 480))
+
+    def test_clear_on_empty_config(self):
+        # Should not raise
+        clear_installed_resolutions()
+        self.assertFalse(is_resolution_installed(320, 320))
 
 
 class TestDeviceConfigKey(unittest.TestCase):

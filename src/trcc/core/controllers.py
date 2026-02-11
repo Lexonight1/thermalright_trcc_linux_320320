@@ -26,6 +26,8 @@ from ..paths import (
     get_theme_dir,
     get_web_dir,
     get_web_masks_dir,
+    is_resolution_installed,
+    mark_resolution_installed,
     save_resolution,
 )
 from .models import (
@@ -546,9 +548,11 @@ class LCDDeviceController:
 
     def _setup_theme_dirs(self, width: int, height: int):
         """Extract, locate, and wire theme/web/mask directories for a resolution."""
-        ensure_themes_extracted(width, height)
-        ensure_web_extracted(width, height)
-        ensure_web_masks_extracted(width, height)
+        if not is_resolution_installed(width, height):
+            ensure_themes_extracted(width, height)
+            ensure_web_extracted(width, height)
+            ensure_web_masks_extracted(width, height)
+            mark_resolution_installed(width, height)
 
         theme_dir = Path(get_theme_dir(width, height))
         web_dir = Path(get_web_dir(width, height))

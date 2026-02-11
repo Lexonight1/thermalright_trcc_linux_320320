@@ -1237,7 +1237,8 @@ class TRCCMainWindowMVC(QMainWindow):
         if not name:
             self.uc_preview.set_status("Enter a theme name first")
             return
-        success, msg = self.controller.save_theme(name, self._data_dir)
+        from trcc.paths import USER_DATA_DIR
+        success, msg = self.controller.save_theme(name, Path(USER_DATA_DIR))
         self.uc_preview.set_status(msg)
         if success:
             w, h = self.controller.lcd_width, self.controller.lcd_height

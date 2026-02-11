@@ -29,7 +29,7 @@ def _sudo_run(cmd):
 
 
 def _ensure_extracted(driver):
-    """Extract theme/mask archives for the driver's detected resolution."""
+    """Extract theme/mask archives for the driver's detected resolution (one-time)."""
     try:
         if driver.implementation:
             w, h = driver.implementation.resolution
@@ -37,10 +37,14 @@ def _ensure_extracted(driver):
                 ensure_themes_extracted,
                 ensure_web_extracted,
                 ensure_web_masks_extracted,
+                is_resolution_installed,
+                mark_resolution_installed,
             )
-            ensure_themes_extracted(w, h)
-            ensure_web_extracted(w, h)
-            ensure_web_masks_extracted(w, h)
+            if not is_resolution_installed(w, h):
+                ensure_themes_extracted(w, h)
+                ensure_web_extracted(w, h)
+                ensure_web_masks_extracted(w, h)
+                mark_resolution_installed(w, h)
     except Exception:
         pass  # Non-fatal — themes are optional for CLI commands
 
@@ -1020,6 +1024,11 @@ def uninstall():
     import shutil
     from pathlib import Path
 
+    from trcc.paths import clear_installed_resolutions
+
+    # Clear resolution markers before wiping config dir
+    clear_installed_resolutions()
+
     home = Path.home()
 
     # Files that require root to remove
@@ -1143,6 +1152,10 @@ def download_themes(pack=None, show_list=False, force=False, show_info=False):
         if show_info:
             pack_info(pack)
             return 0
+
+        if force:
+            from trcc.paths import clear_installed_resolutions
+            clear_installed_resolutions()
 
         return download_pack(pack, force=force)
 
