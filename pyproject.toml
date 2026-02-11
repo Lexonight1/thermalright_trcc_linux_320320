@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trcc-linux"
-version = "1.2.6"
+version = "1.2.7"
 description = "Linux implementation of Thermalright LCD Control Center"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -86,15 +86,22 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trcc"]
-exclude = ["**/*.7z", "**/web_cache/**"]
+exclude = [
+    "**/*.7z",
+    "**/web_cache/**",
+    # Theme/web data is downloaded on first run — never ship in wheel.
+    "**/data/Theme*/**",
+    "**/data/Web/**",
+]
 artifacts = [
-    "**/*.png",
-    "**/*.gif",
-    "**/*.ttf",
-    "**/*.otf",
-    "**/*.TTC",
-    "**/*.desktop",
-    "**/*.svg",
+    # Only GUI assets — never data/ (themes are downloaded on first run).
+    "**/assets/**/*.png",
+    "**/assets/**/*.gif",
+    "**/assets/**/*.ttf",
+    "**/assets/**/*.otf",
+    "**/assets/**/*.TTC",
+    "**/assets/**/*.desktop",
+    "**/assets/**/*.svg",
 ]
 
 [tool.pytest.ini_options]

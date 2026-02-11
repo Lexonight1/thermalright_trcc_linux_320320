@@ -73,10 +73,20 @@ class TestHasActualThemes(unittest.TestCase):
             Path(d, '.gitkeep').touch()
             self.assertFalse(_has_actual_themes(d))
 
-    def test_dir_with_subdirs(self):
+    def test_dir_with_subdirs_and_pngs(self):
         with tempfile.TemporaryDirectory() as d:
-            os.mkdir(os.path.join(d, '000a'))
+            subdir = os.path.join(d, '000a')
+            os.mkdir(subdir)
+            Path(subdir, '01.png').touch()
             self.assertTrue(_has_actual_themes(d))
+
+    def test_dir_with_subdirs_no_pngs(self):
+        """Subdirs without PNGs (e.g. leftover config1.dc) are not valid themes."""
+        with tempfile.TemporaryDirectory() as d:
+            subdir = os.path.join(d, '000a')
+            os.mkdir(subdir)
+            Path(subdir, 'config1.dc').touch()
+            self.assertFalse(_has_actual_themes(d))
 
 
 class TestFindResource(unittest.TestCase):
@@ -227,9 +237,10 @@ class TestResolutionInstalled(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _create_theme_dir(self, width, height):
-        """Create a fake theme directory with a subfolder so _has_actual_themes passes."""
+        """Create a fake theme directory with a subfolder + PNG so _has_actual_themes passes."""
         theme_dir = os.path.join(self.user_data, f'Theme{width}{height}', 'DefaultTheme')
         os.makedirs(theme_dir, exist_ok=True)
+        Path(theme_dir, '00.png').touch()
 
     def test_not_installed_by_default(self):
         self.assertFalse(is_resolution_installed(320, 320))

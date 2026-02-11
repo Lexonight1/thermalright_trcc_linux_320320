@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.6"
+__version__ = "1.2.7"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -27,3 +27,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #         track in config, custom themes saved to ~/.trcc/data/ (survives upgrades)
 # 1.2.6 - Fix stale config marker (verify data on disk), add debug logging for
 #         theme setup, tab switches, directory verification
+# 1.2.7 - Strip all theme data from wheel (download on first run only), fix
+#         _has_actual_themes to require PNGs (ignore leftover .dc files)

@@ -61,10 +61,11 @@ def read_sysfs(path: str) -> Optional[str]:
 
 
 def _has_actual_themes(theme_dir: str) -> bool:
-    """Check if a Theme* directory has actual theme subfolders (not just placeholders).
+    """Check if a Theme* directory has actual theme subfolders with image content.
 
-    Skips dotfiles and Custom_* placeholder dirs that ship with the wheel
-    but don't contain downloadable default themes.
+    A valid theme subdir must contain at least one .png file (00.png, Theme.png, etc.).
+    Skips dotfiles, Custom_* placeholder dirs, and dirs with only config files
+    (leftover from old pip installs).
     """
     if not os.path.isdir(theme_dir):
         return False
@@ -73,7 +74,9 @@ def _has_actual_themes(theme_dir: str) -> bool:
         if (os.path.isdir(item_path)
                 and not item.startswith('.')
                 and not item.startswith('Custom_')):
-            return True
+            # Verify the theme subdir has at least one .png file
+            if any(f.endswith('.png') for f in os.listdir(item_path)):
+                return True
     return False
 
 
