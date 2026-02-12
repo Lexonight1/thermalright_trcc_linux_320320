@@ -5,7 +5,6 @@ Finds Thermalright LCD and LED devices and maps them to SCSI or HID devices.
 
 Supported devices (SCSI — stable):
 - Thermalright: VID=0x87CD, PID=0x70DB
-- Thermalright: VID=0x87AD, PID=0x70DB  (GrandVision series)
 - Winbond:      VID=0x0416, PID=0x5406
 - ALi Corp:     VID=0x0402, PID=0x3922
 
@@ -16,6 +15,7 @@ Supported devices (HID LCD — auto-detected when plugged in):
 
 Supported devices (HID LED — RGB controllers, auto-detected when plugged in):
 - Winbond:      VID=0x0416, PID=0x8001  (64-byte reports)
+- ChiZhu Tech:  VID=0x87AD, PID=0x70DB  (GrandVision series, case 257)
 """
 
 import logging
@@ -53,14 +53,6 @@ class DetectedDevice:
 # Users can override model via config if needed.
 KNOWN_DEVICES = {
     (0x87CD, 0x70DB): {
-        "vendor": "Thermalright",
-        "product": "LCD Display (USBLCD)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "thermalright_lcd_v1"
-    },
-    # Same chip (ChiZhu Tech USBDISPLAY), different VID — GrandVision 360 AIO etc.
-    (0x87AD, 0x70DB): {
         "vendor": "Thermalright",
         "product": "LCD Display (USBLCD)",
         "model": "CZTV",
@@ -119,18 +111,30 @@ _HID_LCD_DEVICES = {
     },
 }
 
-# LED HID devices (RGB controllers — FormLED in Windows, not FormCZTV)
-# These use 64-byte HID reports for LED color control, not LCD image display.
-# device1: UsbHidDevice(1046, 32769) = 0x0416:0x8001, 64-byte packets
-# NOTE: All LED devices share PID 0x8001 — AX120 Digital, PA120 Digital,
-# Peerless Assassin 120 Digital, etc.  The actual model is resolved at runtime
-# via the PM byte from the HID handshake (see led_device.PM_TO_MODEL).
+# LED HID devices (RGB controllers + case 257 LCD+LED combos)
+# These use 64-byte HID reports. Case 1 devices (0416:8001) are LED-only.
+# Case 257 devices (87AD:70DB) are LCD+LED combos that also use FormCZTV.
+# The actual model is resolved at runtime via the PM byte from the HID
+# handshake (see led_device.PM_TO_MODEL).
 _LED_DEVICES = {
+    # device1: UsbHidDevice(1046, 32769) = 0x0416:0x8001, 64-byte packets
+    # Case 1 — LED-only (AX120 Digital, PA120 Digital, etc.)
     (0x0416, 0x8001): {
         "vendor": "Winbond",
         "product": "LED Controller (HID)",
         "model": "LED_DIGITAL",
         "button_image": "A1CZTV",
+        "implementation": "hid_led",
+        "protocol": "hid",
+        "device_type": 1,
+    },
+    # Case 257 — LCD+LED combo (GrandVision, Core Vision, Hyper Vision, etc.)
+    # ChiZhu Tech USBDISPLAY — same 64-byte HID protocol as device1
+    (0x87AD, 0x70DB): {
+        "vendor": "ChiZhu Tech",
+        "product": "LCD+LED Display (HID)",
+        "model": "GRAND_VISION",
+        "button_image": "A1GRAND_VISION",
         "implementation": "hid_led",
         "protocol": "hid",
         "device_type": 1,
@@ -390,9 +394,9 @@ def get_default_device() -> Optional[DetectedDevice]:
     if not devices:
         return None
 
-    # Prefer Thermalright device, then any other
+    # Prefer Thermalright SCSI device, then any other
     for device in devices:
-        if device.vid in (0x87CD, 0x87AD):
+        if device.vid == 0x87CD:
             return device
 
     return devices[0]
