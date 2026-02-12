@@ -297,12 +297,18 @@ Edit `/etc/nixos/configuration.nix`:
     p7zip
   ];
 
-  # Allow your user to access SCSI generic devices
+  # Allow your user to access Thermalright USB devices
   services.udev.extraRules = ''
-    # Thermalright LCD displays
-    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0660"
-    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0660"
-    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0660"
+    # SCSI LCD devices
+    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0666"
+    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87ad", ATTRS{idProduct}=="70db", MODE="0666"
+    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0666"
+    SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0666"
+    # HID LCD/LED devices
+    SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5302", MODE="0666"
+    SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5303", MODE="0666"
+    SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5304", MODE="0666"
+    SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="8001", MODE="0666"
   '';
 }
 ```
@@ -1089,256 +1095,21 @@ trcc download themes-320   # Download 320x320 themes
 
 ## Troubleshooting
 
-### "trcc: command not found" after reboot
-
-**Cause:** `pip install` puts the `trcc` script in `~/.local/bin/`, which isn't in your shell's `PATH` on many distros. It may work right after install but disappear after a reboot.
-
-**Fix:** Add `~/.local/bin` to your PATH permanently:
-```bash
-# Bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Zsh (Arch, Garuda, some Manjaro)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Fish
-fish_add_path ~/.local/bin
-```
-
-> **Note:** Fedora typically includes `~/.local/bin` in PATH automatically. Ubuntu/Debian add it conditionally in `~/.profile`, but only if the directory already exists at login time — so the first install may not take effect until a second reboot. Adding it to `~/.bashrc` avoids this race condition.
-
-### "No compatible TRCC LCD device detected"
-
-**Cause:** The LCD isn't showing up as a SCSI device.
-
-**Fix:**
-1. Make sure the USB cable is plugged into both the cooler and your computer
-2. Run the udev setup if you haven't already: `trcc setup-udev`
-3. Unplug and replug the USB cable (or reboot)
-4. Check if the device appears: `ls /dev/sg*`
-5. Check `dmesg | tail -20` right after plugging in to see kernel messages
-
-### "Permission denied" when accessing the device
-
-**Cause:** Udev rules not set up, or you need to reboot after setup.
-
-**Fix:**
-```bash
-trcc setup-udev
-# Then unplug/replug USB cable, or reboot
-```
-
-### "Error: PyQt6 not available"
-
-**Cause:** PyQt6 isn't installed.
-
-**Fix:** Install it for your distro (see Step 1), or:
-```bash
-pip install PyQt6
-```
-
-### No system tray icon on GNOME
-
-**Cause:** GNOME removed built-in system tray support. Without it, TRCC can't show a tray icon.
-
-**Impact:** The app will still work — closing the window quits normally instead of minimizing to tray.
-
-**Fix (optional):** Install the AppIndicator extension to get tray support:
-```bash
-# Fedora
-sudo dnf install gnome-shell-extension-appindicator
-
-# Ubuntu / Debian
-sudo apt install gnome-shell-extension-appindicator-support
-```
-Then enable it in the **Extensions** app and log out/in.
-
-### "Qt_6_PRIVATE_API not found" when launching GUI
-
-**Cause:** The pip-installed PyQt6 bundles its own Qt6 libraries, but your system's Qt6 (`/lib64/libQt6Core.so.6`) is being loaded instead. The version mismatch causes a symbol error. This is common on Fedora 42+ and other distros with newer system Qt6.
-
-**Fix (recommended):** Use the system PyQt6 package instead of pip, so it matches the system Qt6:
-```bash
-# Fedora
-sudo dnf install python3-pyqt6
-pip uninstall PyQt6 PyQt6-Qt6 PyQt6-sip
-
-# Ubuntu/Debian
-sudo apt install python3-pyqt6
-pip uninstall PyQt6 PyQt6-Qt6 PyQt6-sip
-
-# Arch
-sudo pacman -S python-pyqt6
-pip uninstall PyQt6 PyQt6-Qt6 PyQt6-sip
-
-# openSUSE
-sudo zypper install python3-qt6
-pip uninstall PyQt6 PyQt6-Qt6 PyQt6-sip
-```
-
-**Fix (alternative):** If the system package isn't available, force the pip PyQt6 to use its own bundled Qt6 libraries:
-```bash
-LD_LIBRARY_PATH=$(python3 -c "import PyQt6; print(PyQt6.__path__[0])")/Qt6/lib trcc gui
-```
-
-> **Why this happens:** pip's PyQt6 wheel is compiled against a specific Qt6 version. When your system has a different Qt6 version in `/lib64/`, the linker finds the system one first, causing the `Qt_6_PRIVATE_API` mismatch. The system `python3-pyqt6` package is built against the same Qt6, so they always match.
-
-### LCD stays blank or shows old image
-
-**Cause:** The device may need a reset.
-
-**Fix:**
-```bash
-trcc reset
-```
-
-### Video/GIF playback not working
-
-**Cause:** FFmpeg not installed.
-
-**Fix:** Install ffmpeg for your distro (see Step 1):
-```bash
-# Fedora / Nobara
-sudo dnf install ffmpeg
-
-# Ubuntu / Debian
-sudo apt install ffmpeg
-
-# Arch / CachyOS / Garuda
-sudo pacman -S ffmpeg
-
-# openSUSE
-sudo zypper install ffmpeg
-
-# Void
-sudo xbps-install ffmpeg
-
-# Gentoo
-sudo emerge media-video/ffmpeg
-
-# Alpine
-sudo apk add ffmpeg
-
-# NixOS — add to configuration.nix:
-#   environment.systemPackages = [ pkgs.ffmpeg ];
-```
-
-### GUI looks wrong / elements overlapping
-
-**Cause:** Display scaling (HiDPI) interfering with the fixed-size layout.
-
-**Fix:** Try running with scaling disabled:
-```bash
-QT_AUTO_SCREEN_SCALE_FACTOR=0 trcc gui
-```
-
-### "externally-managed-environment" error during pip install
-
-**Cause:** Your distro protects system Python packages (common on Fedora 38+, Ubuntu 23.04+, Debian 12+, Arch, openSUSE Tumbleweed).
-
-**Fix:** Use one of these approaches:
-```bash
-# Approach 1: Allow pip to install alongside system packages
-pip install --break-system-packages -e .
-
-# Approach 2: Use a virtual environment
-python3 -m venv ~/trcc-env
-source ~/trcc-env/bin/activate
-pip install -e .
-# Remember to activate the venv each time: source ~/trcc-env/bin/activate
-```
-
-### Screen cast shows black/blank on Wayland (GNOME/KDE)
-
-**Cause:** GNOME and KDE Wayland don't allow direct screen capture for security. PipeWire portal is needed.
-
-**Fix:** Install PipeWire dependencies:
-```bash
-# Fedora / Nobara
-sudo dnf install python3-gobject python3-dbus pipewire-devel
-
-# Ubuntu / Debian
-sudo apt install python3-gi python3-dbus python3-gst-1.0
-
-# Arch / CachyOS / Garuda
-sudo pacman -S python-gobject python-dbus python-gst
-
-# openSUSE
-sudo zypper install python3-gobject python3-dbus-python python3-gstreamer
-```
-
-When you enable Screen Cast, a system dialog will pop up asking you to grant permission. This is normal — select the screen/monitor you want to capture and click "Share".
-
-> **Note:** Screen cast works automatically on X11 and Wayland with wlroots-based compositors (Sway, Hyprland). The PipeWire portal is only needed for GNOME and KDE Wayland sessions.
-
-### Device detected but nothing displays / sg_raw errors
-
-**Cause:** The UAS (USB Attached SCSI) kernel driver interferes with these LCD devices.
-
-**Fix:** The `trcc setup-udev` command should have created a USB quirk file. Verify it exists:
-```bash
-cat /etc/modprobe.d/trcc-lcd.conf
-```
-
-If it's missing, recreate it:
-```bash
-trcc setup-udev
-# Unplug/replug USB cable, or reboot
-```
-
-If the problem persists, try manually blacklisting UAS for your device:
-```bash
-echo "options usb-storage quirks=87cd:70db:u,0416:5406:u,0402:3922:u" | sudo tee /etc/modprobe.d/trcc-lcd.conf
-sudo update-initramfs -u  # Debian/Ubuntu
-# or
-sudo dracut --force       # Fedora/RHEL
-```
-
-### HID device detected but "No USB backend available"
-
-**Cause:** Neither `pyusb` nor `hidapi` is installed. HID devices need one of these.
-
-**Fix:**
-```bash
-# Install pyusb (preferred)
-pip install pyusb
-# Also need the system library:
-sudo apt install libusb-1.0-0-dev    # Debian/Ubuntu
-sudo dnf install libusb1-devel       # Fedora
-sudo pacman -S libusb                # Arch
-
-# Or install hidapi (alternative)
-pip install hidapi
-sudo apt install libhidapi-dev       # Debian/Ubuntu
-sudo dnf install hidapi-devel        # Fedora
-sudo pacman -S hidapi                # Arch
-```
-
-### HID device detected but "Permission denied" on USB
-
-**Cause:** udev rules not set up for HID USB devices, or missing group membership.
-
-**Fix:**
-```bash
-# Set up udev rules (covers both SCSI and HID)
-trcc setup-udev
-# Unplug and replug USB cable
-
-# If that doesn't work, add the rule manually:
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="0416", ATTR{idProduct}=="5302", MODE="0660"' | sudo tee -a /etc/udev/rules.d/99-trcc-lcd.rules
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="0418", ATTR{idProduct}=="5303", MODE="0660"' | sudo tee -a /etc/udev/rules.d/99-trcc-lcd.rules
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="0418", ATTR{idProduct}=="5304", MODE="0660"' | sudo tee -a /etc/udev/rules.d/99-trcc-lcd.rules
-sudo udevadm control --reload-rules
-# Unplug and replug USB cable
-```
-
-### NixOS: "trcc setup-udev" doesn't work
-
-**Cause:** NixOS manages udev rules declaratively. The `setup-udev` command can't write to `/etc/udev/rules.d/`.
-
-**Fix:** Add the rules to your `configuration.nix` (see [NixOS section](#nixos)).
+For the full troubleshooting guide, see **[Troubleshooting](TROUBLESHOOTING.md)**.
+
+Quick fixes for the most common issues:
+
+| Problem | Fix |
+|---------|-----|
+| `trcc: command not found` | Open a new terminal, or add `~/.local/bin` to PATH |
+| No device detected | `trcc setup-udev` then unplug/replug USB |
+| Permission denied | `pip install --upgrade trcc-linux` then `trcc setup-udev` |
+| Permission denied on SELinux (Bazzite, Silverblue) | Upgrade to v1.2.16+ which uses `MODE="0666"` |
+| PyQt6 not available | Install system package: `sudo dnf install python3-pyqt6` |
+| Qt_6_PRIVATE_API not found | Use system PyQt6 instead of pip version |
+| HID handshake None | Upgrade to v1.2.9+, power-cycle USB, run `trcc hid-debug` |
+| externally-managed-environment | Use `--break-system-packages` or a venv |
+| NixOS: setup-udev fails | Add udev rules to `configuration.nix` (see [NixOS section](#nixos)) |
 
 ---
 

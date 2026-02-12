@@ -153,9 +153,16 @@ environment.systemPackages = with pkgs; [
   python3Packages.psutil sg3_utils ffmpeg p7zip
 ];
 services.udev.extraRules = ''
-  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0660"
-  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0660"
-  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0660"
+  # SCSI LCD devices
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0666"
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87ad", ATTRS{idProduct}=="70db", MODE="0666"
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0666"
+  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0666"
+  # HID LCD/LED devices
+  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5302", MODE="0666"
+  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5303", MODE="0666"
+  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5304", MODE="0666"
+  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="8001", MODE="0666"
 '';
 ```
 Then:
@@ -181,6 +188,7 @@ See the **[CLI Reference](doc/CLI_REFERENCE.md)** for all 15 commands, options, 
 | Document | Description |
 |----------|-------------|
 | [Install Guide](doc/INSTALL_GUIDE.md) | Installation for all major distros |
+| [Troubleshooting](doc/TROUBLESHOOTING.md) | Common issues and fixes |
 | [CLI Reference](doc/CLI_REFERENCE.md) | All commands, options, and troubleshooting |
 | [Changelog](doc/CHANGELOG.md) | Version history |
 | [Architecture](doc/ARCHITECTURE.md) | Project layout and design |

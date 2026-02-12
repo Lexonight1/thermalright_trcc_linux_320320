@@ -10,6 +10,7 @@ These devices have been tested on real hardware and are confirmed working with T
 |---------|-----------|--------|
 | Frozen Warframe series (SE, PRO, Ultra) | SCSI (0402:3922) | 320x320 |
 | Thermalright LCD Display | SCSI (87CD:70DB) | 320x320 |
+| GrandVision 360 AIO | SCSI (87AD:70DB) | 320x320 |
 | Winbond LCD Display | SCSI (0416:5406) | 320x320 |
 
 ---
@@ -18,12 +19,21 @@ These devices have been tested on real hardware and are confirmed working with T
 
 These devices have been identified by testers but are still being validated.
 
+### HID LCD Devices (Handshake Pending)
+
+| Product | Connection | Issue | Status |
+|---------|-----------|-------|--------|
+| Assassin Spirit 120 Vision ARGB | HID (0416:5302) | [#16](https://github.com/Lexonight1/thermalright-trcc-linux/issues/16) | Detected, handshake pending (awaiting v1.2.9+ retest) |
+| Mjolnir Vision 360 | SCSI (87AD:70DB) | [#22](https://github.com/Lexonight1/thermalright-trcc-linux/issues/22) | Same VID:PID as GrandVision — should work, awaiting retest |
+
 ### LED + Segment Display (RGB Fan Control, Temperature Readout)
 
-| Product | Connection | Tester Status |
-|---------|-----------|---------------|
-| Assassin X 120 R Digital | HID (0416:8001) | LED RGB control working |
-| HR10 2280 PRO Digital | HID (0416:8001) | 7-segment display, NVMe temp daemon, color wheel |
+| Product | Connection | Issue | Status |
+|---------|-----------|-------|--------|
+| Assassin X 120 R Digital | HID (0416:8001) | [#5](https://github.com/Lexonight1/thermalright-trcc-linux/issues/5) | LED RGB working |
+| HR10 2280 PRO Digital | HID (0416:8001) | [#1](https://github.com/Lexonight1/thermalright-trcc-linux/issues/1) | 7-segment display, NVMe temp daemon, color wheel |
+| Peerless Assassin 120 Digital ARGB White | HID (0416:8001) | [#15](https://github.com/Lexonight1/thermalright-trcc-linux/issues/15) | LED partially working, handshake pending (awaiting PM/SUB fix retest) |
+| Phantom Spirit 120 Digital EVO | HID (0416:8001) | [#19](https://github.com/Lexonight1/thermalright-trcc-linux/issues/19) | Detected, handshake pending (awaiting v1.2.9+ retest) |
 
 ---
 
@@ -87,6 +97,7 @@ All devices connect through one of these USB VID:PIDs:
 | VID:PID | Protocol | Display | Products |
 |---------|----------|---------|----------|
 | 87CD:70DB | SCSI | Full LCD | Older LCD screens |
+| 87AD:70DB | SCSI | Full LCD | GrandVision 360 AIO |
 | 0402:3922 | SCSI | Full LCD | Frozen Warframe series (SE/PRO/Ultra) |
 | 0416:5406 | SCSI | Full LCD | Winbond LCD variant |
 | 0416:52E2 | HID | Full LCD | Vision/Warframe (newer HW) |

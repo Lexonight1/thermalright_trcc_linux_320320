@@ -59,6 +59,14 @@ KNOWN_DEVICES = {
         "button_image": "A1CZTV",
         "implementation": "thermalright_lcd_v1"
     },
+    # USB 87AD:70DB - GrandVision 360 AIO (ChiZhu Tech, case 257 LCD+LED combo)
+    (0x87AD, 0x70DB): {
+        "vendor": "ChiZhu Tech",
+        "product": "GrandVision 360 AIO (USBLCD)",
+        "model": "GRAND_VISION",
+        "button_image": "A1CZTV",
+        "implementation": "thermalright_lcd_v1"
+    },
     (0x0416, 0x5406): {
         "vendor": "Winbond",
         "product": "LCD Display (USBLCD)",

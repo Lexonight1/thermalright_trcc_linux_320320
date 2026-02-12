@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.2.16
+
+### SELinux/Immutable Distro Fix
+- **Fixed**: udev rules using `TAG+="uaccess"` which fails on SELinux-enforcing distros (Bazzite, Silverblue, Fedora Atomic)
+- Now uses `MODE="0666"` for all udev rules — works universally across all Linux distros
+
+## v1.2.15
+
+### Stale Udev Detection
+- **Auto-detect stale udev rules**: `trcc detect` now warns when USB storage quirk is missing and prompts `sudo trcc setup-udev` + reboot
+- Prevents confusing "no device found" errors after adding new device support
+
+## v1.2.14
+
+### GrandVision 360 AIO Support
+- Added GrandVision 360 AIO (VID `87AD:70DB`) as a known SCSI device
+- Fixed sysfs VID readback for non-standard vendor IDs
+- Device layer dedup: lcd_driver delegates to scsi_device, extracted `_create_usb_transport()`, `get_frame_chunks()` single source of truth
+- Fixed LED PM/SUB byte offset (`pm=resp[5], sub=resp[4]`) — was off by one due to Windows Report ID prepend
+
+## v1.2.13
+
+### Format Button Fix
+- **Fixed**: Format buttons (time/date/temp) not updating preview on fresh install
+- Set `overlay_enabled` on theme load so format changes render immediately
+- Persist format preferences (time_format, date_format, temp_unit) across theme changes via `conf.save_format_pref()`
+
 ## v1.2.12
 
 ### Fresh Install Overlay Fix
