@@ -17,7 +17,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 from .device_base import DeviceHandler, HandshakeResult
 from .hid_device import (
@@ -116,33 +116,40 @@ LED_STYLES = {
 # -------------------------------------------------------------------------
 # PM registry — single source of truth for PM → (style, model, button image)
 # -------------------------------------------------------------------------
-# Replaces the former PM_TO_STYLE, PM_TO_MODEL, LED_PM_TO_BUTTON_IMAGE dicts.
-# Each entry: (style_id, model_name, button_image)
-_PM_REGISTRY: dict[int, tuple[int, str, str]] = {
-    1:   (1, "FROZEN_HORIZON_PRO", "A1FROZEN HORIZON PRO"),
-    2:   (1, "FROZEN_MAGIC_PRO", "A1FROZEN MAGIC PRO"),
-    3:   (1, "AX120_DIGITAL", "A1AX120 DIGITAL"),
-    16:  (2, "PA120_DIGITAL", "A1PA120 DIGITAL"),
-    23:  (2, "RK120_DIGITAL", "A1RK120 DIGITAL"),
-    32:  (3, "AK120_DIGITAL", "A1AK120 Digital"),
-    48:  (5, "LF8", "A1LF8"),
-    49:  (5, "LF10", "A1LF10"),
-    80:  (6, "LF12", "A1LF12"),
-    96:  (7, "LF10", "A1LF10"),
-    112: (9, "LC2", "A1LC2"),
-    128: (4, "LC1", "A1LC1"),
-    129: (10, "LF11", "A1LF11"),
-    144: (11, "LF15", "A1LF15"),
-    160: (12, "LF13", "A1LF13"),
-    208: (8, "CZ1", "A1CZ1"),
+
+class PmEntry(NamedTuple):
+    """PM registry entry mapping a firmware PM byte to device metadata."""
+    style_id: int
+    model_name: str
+    button_image: str
+
+
+_PM_REGISTRY: dict[int, PmEntry] = {
+    1:   PmEntry(1, "FROZEN_HORIZON_PRO", "A1FROZEN HORIZON PRO"),
+    2:   PmEntry(1, "FROZEN_MAGIC_PRO", "A1FROZEN MAGIC PRO"),
+    3:   PmEntry(1, "AX120_DIGITAL", "A1AX120 DIGITAL"),
+    16:  PmEntry(2, "PA120_DIGITAL", "A1PA120 DIGITAL"),
+    23:  PmEntry(2, "RK120_DIGITAL", "A1RK120 DIGITAL"),
+    32:  PmEntry(3, "AK120_DIGITAL", "A1AK120 Digital"),
+    48:  PmEntry(5, "LF8", "A1LF8"),
+    49:  PmEntry(5, "LF10", "A1LF10"),
+    80:  PmEntry(6, "LF12", "A1LF12"),
+    96:  PmEntry(7, "LF10", "A1LF10"),
+    112: PmEntry(9, "LC2", "A1LC2"),
+    128: PmEntry(4, "LC1", "A1LC1"),
+    129: PmEntry(10, "LF11", "A1LF11"),
+    144: PmEntry(11, "LF15", "A1LF15"),
+    160: PmEntry(12, "LF13", "A1LF13"),
+    208: PmEntry(8, "CZ1", "A1CZ1"),
 }
 # PA120 variants (PMs 17-22, 24-31) all map to style 2.
+_PA120 = PmEntry(2, "PA120_DIGITAL", "A1PA120 DIGITAL")
 for _pm in range(17, 32):
     if _pm not in _PM_REGISTRY:
-        _PM_REGISTRY[_pm] = (2, "PA120_DIGITAL", "A1PA120 DIGITAL")
+        _PM_REGISTRY[_pm] = _PA120
 
 # Backward-compat: PM → style_id (used by cli.py, tests)
-PM_TO_STYLE: dict[int, int] = {pm: entry[0] for pm, entry in _PM_REGISTRY.items()}
+PM_TO_STYLE: dict[int, int] = {pm: e.style_id for pm, e in _PM_REGISTRY.items()}
 
 
 def get_led_button_image(pm: int, sub: int = 0) -> Optional[str]:
@@ -151,7 +158,7 @@ def get_led_button_image(pm: int, sub: int = 0) -> Optional[str]:
     Returns None if PM is unknown.
     """
     entry = _PM_REGISTRY.get(pm)
-    return entry[2] if entry else None
+    return entry.button_image if entry else None
 
 
 def get_model_for_pm(pm: int, sub_type: int = 0) -> str:
@@ -164,7 +171,7 @@ def get_model_for_pm(pm: int, sub_type: int = 0) -> str:
     if override:
         return override[1]
     entry = _PM_REGISTRY.get(pm)
-    return entry[1] if entry else f"Unknown (pm={pm})"
+    return entry.model_name if entry else f"Unknown (pm={pm})"
 
 # (pm, sub_type) → style override for devices that share a PM byte.
 # HR10 2280 Pro Digital shares PM=128 with LC1 but has sub_type=129.
@@ -310,7 +317,7 @@ def get_style_for_pm(pm: int, sub_type: int = 0) -> LedDeviceStyle:
     if override:
         return LED_STYLES[override[0]]
     entry = _PM_REGISTRY.get(pm)
-    return LED_STYLES[entry[0] if entry else 1]
+    return LED_STYLES[entry.style_id if entry else 1]
 
 
 # =========================================================================
@@ -703,73 +710,70 @@ def send_led_colors(
 # detection, so the actual LedProtocol.handshake() still works.
 
 
-def _led_probe_cache_path() -> Path:
-    """Return the path to the LED probe cache file."""
-    config_dir = Path.home() / '.config' / 'trcc'
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir / 'led_probe_cache.json'
+class _LedProbeCache:
+    """Disk-backed cache for LED handshake results.
 
-
-def _probe_cache_key(vid: int, pid: int, usb_path: str = '') -> str:
-    """Build a cache key that disambiguates devices sharing VID:PID.
-
-    LC1 and HR10 both use 0416:8001.  When both are connected, the USB
-    bus path (e.g. "2-1.4") distinguishes them.
+    Keyed by VID:PID:usb_path so multiple identical-PID devices
+    (e.g. LC1 + HR10) are disambiguated by bus position.
     """
-    if usb_path:
-        return f"{vid:04x}_{pid:04x}_{usb_path}"
-    return f"{vid:04x}_{pid:04x}"
 
+    @staticmethod
+    def _path() -> Path:
+        config_dir = Path.home() / '.config' / 'trcc'
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return config_dir / 'led_probe_cache.json'
 
-def _save_probe_cache(vid: int, pid: int, info: LedHandshakeInfo,
-                      usb_path: str = '') -> None:
-    """Cache a successful probe result to disk."""
-    import json
-    try:
-        cache_path = _led_probe_cache_path()
-        cache = {}
-        if cache_path.exists():
+    @staticmethod
+    def _key(vid: int, pid: int, usb_path: str = '') -> str:
+        if usb_path:
+            return f"{vid:04x}_{pid:04x}_{usb_path}"
+        return f"{vid:04x}_{pid:04x}"
+
+    @classmethod
+    def save(cls, vid: int, pid: int, info: LedHandshakeInfo,
+             usb_path: str = '') -> None:
+        """Cache a successful probe result to disk."""
+        import json
+        try:
+            cache_path = cls._path()
+            cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+            cache[cls._key(vid, pid, usb_path)] = {
+                'pm': info.pm,
+                'sub_type': info.sub_type,
+                'model_name': info.model_name,
+                'style_id': info.style.style_id if info.style else 1,
+            }
+            cache_path.write_text(json.dumps(cache))
+        except Exception as e:
+            log.debug("Failed to save probe cache: %s", e)
+
+    @classmethod
+    def load(cls, vid: int, pid: int,
+             usb_path: str = '') -> Optional[LedHandshakeInfo]:
+        """Load a cached probe result from disk."""
+        import json
+        try:
+            cache_path = cls._path()
+            if not cache_path.exists():
+                return None
             cache = json.loads(cache_path.read_text())
-        key = _probe_cache_key(vid, pid, usb_path)
-        cache[key] = {
-            'pm': info.pm,
-            'sub_type': info.sub_type,
-            'model_name': info.model_name,
-            'style_id': info.style.style_id if info.style else 1,
-        }
-        cache_path.write_text(json.dumps(cache))
-    except Exception as e:
-        log.debug("Failed to save probe cache: %s", e)
-
-
-def _load_probe_cache(vid: int, pid: int,
-                      usb_path: str = '') -> Optional[LedHandshakeInfo]:
-    """Load a cached probe result from disk."""
-    import json
-    try:
-        cache_path = _led_probe_cache_path()
-        if not cache_path.exists():
+            # Try bus-path-specific key first, then fall back to VID:PID-only
+            entry = cache.get(cls._key(vid, pid, usb_path))
+            if not entry and usb_path:
+                entry = cache.get(cls._key(vid, pid))
+            if not entry:
+                return None
+            pm = entry['pm']
+            sub_type = entry['sub_type']
+            return LedHandshakeInfo(
+                pm=pm,
+                sub_type=sub_type,
+                style=get_style_for_pm(pm, sub_type),
+                model_name=entry['model_name'],
+            )
+        except Exception as e:
+            log.debug("Failed to load probe cache: %s", e)
             return None
-        cache = json.loads(cache_path.read_text())
-        # Try bus-path-specific key first, then fall back to VID:PID-only
-        key = _probe_cache_key(vid, pid, usb_path)
-        entry = cache.get(key)
-        if not entry and usb_path:
-            entry = cache.get(_probe_cache_key(vid, pid))
-        if not entry:
-            return None
-        pm = entry['pm']
-        sub_type = entry['sub_type']
-        style = get_style_for_pm(pm, sub_type)
-        return LedHandshakeInfo(
-            pm=pm,
-            sub_type=sub_type,
-            style=style,
-            model_name=entry['model_name'],
-        )
-    except Exception as e:
-        log.debug("Failed to load probe cache: %s", e)
-        return None
 
 
 def probe_led_model(vid: int = LED_VID, pid: int = LED_PID,
@@ -790,7 +794,7 @@ def probe_led_model(vid: int = LED_VID, pid: int = LED_PID,
         or None if the probe fails and no cached result exists.
     """
     # Cache-first: avoid consuming the one-shot handshake unnecessarily.
-    cached = _load_probe_cache(vid, pid, usb_path)
+    cached = _LedProbeCache.load(vid, pid, usb_path)
     if cached is not None:
         return cached
 
@@ -810,7 +814,7 @@ def probe_led_model(vid: int = LED_VID, pid: int = LED_PID,
         sender = LedHidSender(transport)
         info = sender.handshake()
         if info:
-            _save_probe_cache(vid, pid, info, usb_path)
+            _LedProbeCache.save(vid, pid, info, usb_path)
         return info
     except Exception as e:
         log.debug("LED probe failed for %04x:%04x: %s", vid, pid, e)
