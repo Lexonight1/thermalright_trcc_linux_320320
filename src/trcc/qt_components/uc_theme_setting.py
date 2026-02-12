@@ -561,27 +561,33 @@ class OverlayGridPanel(QFrame):
                 elem['main_count'] = 0
                 sub_map = {'cpu_temp': 1, 'cpu_percent': 2, 'cpu_freq': 3, 'cpu_power': 4}
                 elem['sub_count'] = sub_map.get(metric, 1)
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             elif metric.startswith('gpu'):
                 elem['mode'] = MODE_HARDWARE
                 elem['main_count'] = 1
                 sub_map = {'gpu_temp': 1, 'gpu_usage': 2, 'gpu_clock': 3, 'gpu_power': 4}
                 elem['sub_count'] = sub_map.get(metric, 1)
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             elif metric.startswith('mem'):
                 elem['mode'] = MODE_HARDWARE
                 elem['main_count'] = 2
                 elem['sub_count'] = 1
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             elif metric.startswith('disk'):
                 elem['mode'] = MODE_HARDWARE
                 elem['main_count'] = 3
                 elem['sub_count'] = 1
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             elif metric.startswith('net'):
                 elem['mode'] = MODE_HARDWARE
                 elem['main_count'] = 4
                 elem['sub_count'] = 1
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             elif metric.startswith('fan'):
                 elem['mode'] = MODE_HARDWARE
                 elem['main_count'] = 5
                 elem['sub_count'] = 1
+                elem['mode_sub'] = cfg.get('temp_unit', 0)
             else:
                 continue
             configs.append(elem)
@@ -1464,6 +1470,14 @@ class UCThemeSetting(BasePanel):
 
     def _on_format_changed(self, mode, mode_sub):
         self._update_selected(require_mode=mode, mode_sub=mode_sub)
+        # Persist format preference so it carries across theme changes
+        from ..conf import save_format_pref
+        if mode == MODE_TIME:
+            save_format_pref('time_format', mode_sub)
+        elif mode == MODE_DATE:
+            save_format_pref('date_format', mode_sub)
+        elif mode == MODE_HARDWARE:
+            save_format_pref('temp_unit', mode_sub)
 
     def _on_text_changed(self, text):
         self._update_selected(require_mode=MODE_CUSTOM, text=text)

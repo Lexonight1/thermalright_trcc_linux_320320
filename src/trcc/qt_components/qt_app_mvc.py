@@ -1959,6 +1959,11 @@ class TRCCMainWindowMVC(QMainWindow):
                 return
 
         if overlay_config:
+            # Apply user's saved format preferences (time/date/temp)
+            from ..conf import apply_format_prefs
+            apply_format_prefs(overlay_config)
+
+            self.uc_theme_setting.set_overlay_enabled(True)
             self.uc_theme_setting.load_from_overlay_config(overlay_config)
             self.controller.overlay.set_config(overlay_config)
             self.controller.overlay.enable(True)

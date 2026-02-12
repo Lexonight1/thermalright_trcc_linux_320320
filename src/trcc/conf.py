@@ -131,6 +131,45 @@ def save_device_setting(key: str, setting: str, value):
 
 
 # =========================================================================
+# Format preferences (persist across theme changes)
+# =========================================================================
+
+def get_format_prefs() -> dict:
+    """Get saved format preferences. Keys: time_format, date_format, temp_unit."""
+    return load_config().get('format_prefs', {})
+
+
+def save_format_pref(key: str, value: int):
+    """Save a single format preference (e.g. time_format=1 for 12h)."""
+    config = load_config()
+    prefs = config.setdefault('format_prefs', {})
+    prefs[key] = value
+    save_config(config)
+
+
+def apply_format_prefs(overlay_config: dict) -> dict:
+    """Apply saved format prefs to an overlay config dict.
+
+    Theme DC defines element layout; user prefs override format fields.
+    Each element cherry-picks the relevant pref for its metric type.
+    """
+    prefs = get_format_prefs()
+    if not prefs:
+        return overlay_config
+    for entry in overlay_config.values():
+        if not isinstance(entry, dict):
+            continue
+        metric = entry.get('metric', '')
+        if metric == 'time' and 'time_format' in prefs:
+            entry['time_format'] = prefs['time_format']
+        elif metric == 'date' and 'date_format' in prefs:
+            entry['date_format'] = prefs['date_format']
+        if 'temp_unit' in prefs and 'metric' in entry:
+            entry['temp_unit'] = prefs['temp_unit']
+    return overlay_config
+
+
+# =========================================================================
 # Resolution installation markers
 # =========================================================================
 

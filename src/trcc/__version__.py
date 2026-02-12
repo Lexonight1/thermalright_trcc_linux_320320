@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.12"
+__version__ = "1.2.13"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -38,3 +38,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #          extracted _load_and_play_video() DRY helper, send_current_image applies overlay
 # 1.2.12 - Fix overlay not rendering on fresh install: render_overlay_and_preview()
 #          now bypasses model.enabled check, auto-enable overlay on element edit
+# 1.2.13 - Fix format buttons not updating preview on fresh install: set overlay_enabled
+#          on theme load, persist format prefs (time/date/temp) across theme changes
