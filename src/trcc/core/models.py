@@ -1114,7 +1114,9 @@ class LEDModel:
         from ..led_device import LOAD_COLOR_HIGH, LOAD_COLOR_THRESHOLDS, color_for_value
 
         source = self.state.load_source
-        load = self._metrics.get(f"{source}_load", 0)
+        # system_info uses "cpu_percent" and "gpu_usage" (not "{source}_load")
+        key = "cpu_percent" if source == "cpu" else "gpu_usage"
+        load = self._metrics.get(key, 0)
         color = color_for_value(load, LOAD_COLOR_THRESHOLDS, LOAD_COLOR_HIGH)
         return [color] * seg_count
 

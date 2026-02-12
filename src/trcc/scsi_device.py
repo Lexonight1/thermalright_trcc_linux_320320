@@ -33,11 +33,20 @@ _BOOT_MAX_RETRIES = 5
 # Brief pause after init before first frame (lets controller settle)
 _POST_INIT_DELAY = 0.1
 
-# NOTE: SCSI devices (0402:3922, 87CD:70DB, 0416:5406) cannot be identified
-# beyond their VID:PID. The firmware reports "USBLCD / USB PRC System" for all
-# variants (SE, PRO, Ultra). Model identification (PM/SUB bytes) only works on
-# HID devices via the DA/DB/DC/DD handshake in hid_device.py.
-# See tools/probe_usb_device.py for the full investigation.
+# SCSI poll byte[0] = resolution code, which USBLCD.exe writes to shared
+# memory as the PM value.  Resolution → PM mapping (from USBLCD.exe):
+#   '$' = 0x24 = 36  → 240×240 (FW SE 2.0")
+#   '2' = 0x32 = 50  → 240×320 (FW standard 2.4")
+#   '3' = 0x33 = 51  → 320×240 (FW standard 2.4", rotated)
+#   'd' = 0x64 = 100 → 320×320 (FW Pro 2.73")
+#   'e' = 0x65 = 101 → 480×480
+_RESOLUTION_TO_PM: dict[tuple[int, int], int] = {
+    (240, 240): 36,
+    (240, 320): 50,
+    (320, 240): 51,
+    (320, 320): 100,
+    (480, 480): 101,
+}
 
 # =========================================================================
 # Low-level SCSI helpers (Mode 3 protocol, from USBLCD.exe 20480-20540)
@@ -227,6 +236,16 @@ def find_lcd_devices() -> List[Dict]:
             except Exception:
                 pass
 
+            # SCSI poll byte[0] = resolution code = PM (matches USBLCD.exe).
+            # Use it to resolve variant-specific button image.
+            button_image = dev.button_image
+            scsi_pm = _RESOLUTION_TO_PM.get(resolution)
+            if scsi_pm is not None:
+                from .hid_device import get_button_image
+                resolved = get_button_image(scsi_pm, 0)
+                if resolved:
+                    button_image = resolved
+
             devices.append({
                 'name': f"{dev.vendor_name} {dev.product_name}",
                 'path': dev.scsi_device,
@@ -234,7 +253,7 @@ def find_lcd_devices() -> List[Dict]:
                 'vendor': dev.vendor_name,
                 'product': dev.product_name,
                 'model': dev.model,
-                'button_image': dev.button_image,
+                'button_image': button_image,
                 'vid': dev.vid,
                 'pid': dev.pid,
                 'protocol': 'scsi',
@@ -253,13 +272,14 @@ def find_lcd_devices() -> List[Dict]:
             # to discover the real model (AX120, PA120, LC1, etc.).
             if dev.implementation == 'hid_led':
                 try:
-                    from .led_device import LED_PM_TO_BUTTON_IMAGE, probe_led_model
+                    from .led_device import get_led_button_image, probe_led_model
                     info = probe_led_model(dev.vid, dev.pid,
                                            usb_path=dev.usb_path)
                     if info and info.model_name:
                         model = info.model_name
-                        if info.pm in LED_PM_TO_BUTTON_IMAGE:
-                            button_image = LED_PM_TO_BUTTON_IMAGE[info.pm]
+                        btn = get_led_button_image(info.pm, info.sub_type)
+                        if btn:
+                            button_image = btn
                 except Exception:
                     pass  # Fall back to registry default
 

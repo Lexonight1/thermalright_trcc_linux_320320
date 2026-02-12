@@ -287,6 +287,8 @@ if PYQT6_AVAILABLE:
         week_start_changed = pyqtSignal(bool)        # True = Sunday
         # Temperature unit signal
         temp_unit_changed = pyqtSignal(str)          # "C" or "F"
+        # Sensor source signal (for temp/load linked modes)
+        sensor_source_changed = pyqtSignal(str)      # "cpu" or "gpu"
 
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -375,6 +377,29 @@ if PYQT6_AVAILABLE:
             # Set initial mode
             if self._mode_buttons:
                 self._mode_buttons[0].setChecked(True)
+
+            # -- Sensor source selector (modes 4-5: Temp Link / Load Link) --
+            self._source_label = QLabel("Source:", self)
+            self._source_label.setGeometry(MODE_X_START, 300, 55, 24)
+            self._source_label.setStyleSheet(_STYLE_MUTED_LABEL)
+            self._source_label.setVisible(False)
+
+            self._btn_cpu = QPushButton("CPU", self)
+            self._btn_cpu.setGeometry(MODE_X_START + 58, 298, 55, 26)
+            self._btn_cpu.setCheckable(True)
+            self._btn_cpu.setChecked(True)
+            self._btn_cpu.setStyleSheet(_STYLE_CHECKABLE_BTN)
+            self._btn_cpu.clicked.connect(lambda: self._set_sensor_source("cpu"))
+            self._btn_cpu.setVisible(False)
+
+            self._btn_gpu = QPushButton("GPU", self)
+            self._btn_gpu.setGeometry(MODE_X_START + 118, 298, 55, 26)
+            self._btn_gpu.setCheckable(True)
+            self._btn_gpu.setStyleSheet(_STYLE_CHECKABLE_BTN)
+            self._btn_gpu.clicked.connect(lambda: self._set_sensor_source("gpu"))
+            self._btn_gpu.setVisible(False)
+
+            self._sensor_source = "cpu"
 
             # -- Color Wheel (shown for HR10, hidden for others) --
             self._color_wheel = UCColorWheel(self)
@@ -888,6 +913,16 @@ if PYQT6_AVAILABLE:
                 if bg_path:
                     set_background_pixmap(self, bg_name)
 
+        def set_sensor_source(self, source: str) -> None:
+            """Set sensor source from saved config (without emitting signal).
+
+            Args:
+                source: "cpu" or "gpu".
+            """
+            self._sensor_source = source
+            self._btn_cpu.setChecked(source == "cpu")
+            self._btn_gpu.setChecked(source == "gpu")
+
         def set_temp_unit(self, unit_int: int) -> None:
             """Set temperature unit from app settings.
 
@@ -1039,6 +1074,8 @@ if PYQT6_AVAILABLE:
                 btn.setChecked(i == index)
             if self._is_hr10:
                 self._update_mode_visibility()
+            # Show sensor source selector for temp/load linked modes
+            self._set_source_visibility(index in (4, 5))
             self.mode_changed.emit(index)
 
         def _update_mode_visibility(self):
@@ -1274,6 +1311,19 @@ if PYQT6_AVAILABLE:
             self._btn_sun.setChecked(is_sunday)
             self._btn_mon.setChecked(not is_sunday)
             self.week_start_changed.emit(is_sunday)
+
+        def _set_sensor_source(self, source: str):
+            """Handle CPU/GPU source toggle."""
+            self._sensor_source = source
+            self._btn_cpu.setChecked(source == "cpu")
+            self._btn_gpu.setChecked(source == "gpu")
+            self.sensor_source_changed.emit(source)
+
+        def _set_source_visibility(self, visible: bool):
+            """Show/hide sensor source selector."""
+            self._source_label.setVisible(visible)
+            self._btn_cpu.setVisible(visible)
+            self._btn_gpu.setVisible(visible)
 
         def _set_temp_unit_btn(self, is_fahrenheit: bool):
             """Handle °C/°F toggle button click."""

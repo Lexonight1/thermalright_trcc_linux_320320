@@ -1335,6 +1335,11 @@ class LEDController:
         """Set brightness for a specific zone."""
         self.model.set_zone_brightness(zone, brightness)
 
+    def set_sensor_source(self, source: str) -> None:
+        """Set sensor source for temp/load linked modes ("cpu" or "gpu")."""
+        self.model.state.temp_source = source
+        self.model.state.load_source = source
+
     def set_clock_format(self, is_24h: bool) -> None:
         """Set LC2 clock format (24h vs 12h)."""
         self.model.state.is_timer_24h = is_24h

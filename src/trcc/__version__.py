@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.16"
+__version__ = "1.2.17"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -45,3 +45,7 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #          sudo trcc setup-udev + reboot when USB storage quirk is missing
 # 1.2.16 - Fix udev permissions on SELinux/immutable distros (Bazzite, Silverblue):
 #          use MODE="0666" instead of TAG+="uaccess" which fails with SELinux enforcing
+# 1.2.17 - SCSI device identification via poll resolution byte (PM mapping from
+#          USBLCD.exe protocol), KVM LED backend, sensor-driven LED fix (cpu_percent/
+#          gpu_usage metric keys), unified DEVICE_BUTTON_IMAGE dict for all protocols,
+#          LED button image resolver, sensor source CPU/GPU toggle in LED control UI

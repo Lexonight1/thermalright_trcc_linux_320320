@@ -664,8 +664,8 @@ def _hid_debug_lcd(dev) -> None:
     from trcc.device_factory import HidProtocol
     from trcc.hid_device import (
         FBL_TO_RESOLUTION,
-        PM_TO_BUTTON_IMAGE,
         fbl_to_resolution,
+        get_button_image,
         pm_to_fbl,
     )
 
@@ -696,12 +696,12 @@ def _hid_debug_lcd(dev) -> None:
     print(f"  Serial   = {info.serial}")
     print(f"  Resolution = {resolution[0]}x{resolution[1]}")
 
-    # Button image from PM
-    button = PM_TO_BUTTON_IMAGE.get(pm)
+    # Button image from PM + SUB
+    button = get_button_image(pm, sub)
     if button:
         print(f"  Button image = {button}")
     else:
-        print(f"  Button image = unknown PM={pm} (defaulting to CZTV)")
+        print(f"  Button image = unknown PM={pm} SUB={sub} (defaulting to CZTV)")
 
     # Known FBL?
     if fbl in FBL_TO_RESOLUTION:

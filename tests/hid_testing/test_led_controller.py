@@ -666,7 +666,7 @@ class TestTickLoadLinked:
     def test_uses_cpu_load_by_default(self, mock_cfv, led_model):
         mock_cfv.return_value = (255, 255, 0)
         led_model.state.load_source = "cpu"
-        led_model._metrics = {"cpu_load": 60}
+        led_model._metrics = {"cpu_percent": 60}
         led_model._tick_load_linked_for(led_model.state.segment_count)
         assert mock_cfv.call_args[0][0] == 60
 
@@ -674,7 +674,7 @@ class TestTickLoadLinked:
     def test_uses_gpu_load(self, mock_cfv, led_model):
         mock_cfv.return_value = (255, 110, 0)
         led_model.state.load_source = "gpu"
-        led_model._metrics = {"gpu_load": 85}
+        led_model._metrics = {"gpu_usage": 85}
         led_model._tick_load_linked_for(led_model.state.segment_count)
         assert mock_cfv.call_args[0][0] == 85
 

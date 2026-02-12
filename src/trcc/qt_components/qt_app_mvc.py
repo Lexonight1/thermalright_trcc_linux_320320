@@ -1683,6 +1683,10 @@ class TRCCMainWindowMVC(QMainWindow):
             self.uc_led_control.initialize(
                 led_style, style.segment_count, style.zone_count, self._lang
             )
+        # Sync saved sensor source to UI
+        source = self._led_controller.led.model.state.temp_source
+        self.uc_led_control.set_sensor_source(source)
+
         self._show_view('led')
         self._led_active = True
 
@@ -1723,6 +1727,10 @@ class TRCCMainWindowMVC(QMainWindow):
             lambda is_24h: ctrl.led.set_clock_format(is_24h))
         panel.week_start_changed.connect(
             lambda is_sun: ctrl.led.set_week_start(is_sun))
+
+        # Sensor source (CPU/GPU) for temp/load linked modes
+        panel.sensor_source_changed.connect(
+            lambda src: ctrl.led.set_sensor_source(src))
 
         # HR10 display metric selection → controller display value
         panel.display_metric_changed.connect(self._on_hr10_metric_changed)
