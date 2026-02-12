@@ -335,7 +335,7 @@ def _format_device(dev, probe=False):
 def detect(show_all=False):
     """Detect LCD device."""
     try:
-        from trcc.device_detector import detect_devices
+        from trcc.device_detector import check_udev_quirks, detect_devices
 
         devices = detect_devices()
         if not devices:
@@ -357,6 +357,16 @@ def detect(show_all=False):
             if not dev:
                 dev = devices[0]
             print(f"Active: {_format_device(dev, probe=True)}")
+
+        # Check for stale/missing udev quirks on SCSI devices without a path
+        for dev in devices:
+            if dev.protocol == "scsi" and not dev.scsi_device and not check_udev_quirks(dev):
+                print(
+                    f"\nDevice {dev.vid:04x}:{dev.pid:04x} needs updated udev rules.\n"
+                    "Run:  sudo trcc setup-udev\n"
+                    "Then reboot for the USB storage quirk to take effect."
+                )
+                break
 
         return 0
     except Exception as e:

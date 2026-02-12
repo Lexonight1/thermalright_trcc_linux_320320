@@ -367,6 +367,22 @@ def detect_devices() -> List[DetectedDevice]:
     return devices
 
 
+def check_udev_quirks(device: DetectedDevice) -> bool:
+    """Check if /etc/modprobe.d/trcc-lcd.conf has the UAS bypass quirk for *device*.
+
+    Returns True if the quirk entry exists, False if missing or file absent.
+    Only meaningful for SCSI devices (HID devices don't need quirks).
+    """
+    if device.protocol != "scsi":
+        return True
+    quirk_entry = f"{device.vid:04x}:{device.pid:04x}:u"
+    try:
+        with open("/etc/modprobe.d/trcc-lcd.conf") as f:
+            return quirk_entry in f.read()
+    except (IOError, OSError):
+        return False
+
+
 def get_default_device() -> Optional[DetectedDevice]:
     """Get the first available LCD device"""
     devices = detect_devices()
