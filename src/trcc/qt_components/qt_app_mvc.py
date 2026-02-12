@@ -1061,11 +1061,13 @@ class TRCCMainWindowMVC(QMainWindow):
             self.uc_preview.set_status(f"Mask: {mask_info.name}")
 
     def _on_overlay_changed(self, element_data: dict):
-        """Forward overlay change to controller for live preview."""
+        """Forward overlay change to controller for live preview + LCD."""
         if not element_data:
             return
         self.controller.overlay.set_config(element_data)
-        self.controller.render_overlay_and_preview()
+        img = self.controller.render_overlay_and_preview()
+        if img and self.controller.auto_send and not self.controller.video.is_playing():
+            self.controller._send_frame_to_lcd(img)
 
         # Save overlay config per-device
         if self._active_device_key:
@@ -1082,7 +1084,9 @@ class TRCCMainWindowMVC(QMainWindow):
             self.controller.video.stop()
             self._screencast_timer.stop()
             self._screencast_active = False
-            self.controller.render_overlay_and_preview()
+            img = self.controller.render_overlay_and_preview()
+            if img and self.controller.auto_send:
+                self.controller._send_frame_to_lcd(img)
         self.uc_preview.set_status(f"Background: {'On' if enabled else 'Off'}")
 
     def _on_screencast_toggle(self, enabled: bool):
@@ -1143,7 +1147,9 @@ class TRCCMainWindowMVC(QMainWindow):
     def _on_mask_display_toggle(self, enabled):
         """Toggle mask visibility on preview/LCD (Windows SetDrawMengBan)."""
         self.controller.overlay.set_mask_visible(enabled)
-        self.controller.render_overlay_and_preview()
+        img = self.controller.render_overlay_and_preview()
+        if img and self.controller.auto_send:
+            self.controller._send_frame_to_lcd(img)
         self.uc_preview.set_status(f"Mask: {'On' if enabled else 'Off'}")
 
     def _switch_to_mask_tab(self):
@@ -1153,7 +1159,9 @@ class TRCCMainWindowMVC(QMainWindow):
     def _on_mask_reset(self):
         """Clear mask from preview (Windows buttonYDMB_Click / cmd 99)."""
         self.controller.overlay.set_theme_mask(None)
-        self.controller.render_overlay_and_preview()
+        img = self.controller.render_overlay_and_preview()
+        if img and self.controller.auto_send:
+            self.controller._send_frame_to_lcd(img)
         self.uc_preview.set_status("Mask cleared")
 
     def _on_video_display_toggle(self, enabled):
@@ -1309,10 +1317,10 @@ class TRCCMainWindowMVC(QMainWindow):
             result.save(str(bg_path))
             # Set as overlay background so mask/overlays render on top
             self.controller.overlay.set_background(result)
-            # Re-render with overlays
+            # Re-render with overlays and send to LCD
             preview = self.controller.render_overlay_and_preview()
-            if preview:
-                self.controller._update_preview(preview)
+            if preview and self.controller.auto_send:
+                self.controller._send_frame_to_lcd(preview)
             self.uc_preview.set_status("Image cropped and saved")
         else:
             self.uc_preview.set_status("Image crop cancelled")

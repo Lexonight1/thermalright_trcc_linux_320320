@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "1.2.10"
+__version__ = "1.2.11"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -34,3 +34,5 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 # 1.2.9 - Fix HID handshake protocol (retry, timeout, endpoint auto-detect,
 #         relaxed validation), OOP refactor (DcConfig, conf.py, dataclasses)
 # 1.2.10 - Fix first-launch preview bug (paths not re-resolved after download)
+# 1.2.11 - Fix LCD send pipeline: overlay/mask/crop/video changes now update LCD,
+#          extracted _load_and_play_video() DRY helper, send_current_image applies overlay

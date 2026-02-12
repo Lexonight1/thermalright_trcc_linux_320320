@@ -730,16 +730,8 @@ class LCDDeviceController:
             if bg_ref:
                 bg_ref_path = Path(bg_ref)
                 if bg_ref_path.exists():
-                    if bg_ref_path.suffix in ('.mp4', '.avi', '.mkv', '.webm'):
-                        self.video.load(bg_ref_path)
-                        first_frame = self.video.model.get_frame(0)
-                        if first_frame:
-                            self.current_image = first_frame
-                            self._update_preview(first_frame)
-                        self.video.play()
-                    elif bg_ref_path.suffix == '.zt':
-                        self.video.load(bg_ref_path)
-                        self.video.play()
+                    if bg_ref_path.suffix in ('.mp4', '.avi', '.mkv', '.webm', '.zt'):
+                        self._load_and_play_video(bg_ref_path)
                     else:
                         self._load_static_image(bg_ref_path)
 
@@ -758,24 +750,19 @@ class LCDDeviceController:
         if anim_file:
             anim_path = self.working_dir / anim_file
             if anim_path.exists():
-                self.video.load(anim_path)
-                self.video.play()
+                self._load_and_play_video(anim_path)
             elif theme.is_animated and theme.animation_path:
-                self.video.load(theme.animation_path)
-                self.video.play()
+                self._load_and_play_video(theme.animation_path)
         elif theme.is_animated and theme.animation_path:
             wd_copy = self.working_dir / Path(theme.animation_path).name
             load_path = wd_copy if wd_copy.exists() else theme.animation_path
-            self.video.load(load_path)
-            self.video.play()
+            self._load_and_play_video(load_path)
         elif wd.zt.exists():
-            self.video.load(wd.zt)
-            self.video.play()
+            self._load_and_play_video(wd.zt)
         elif wd.bg.exists():
             mp4_files = list(self.working_dir.glob('*.mp4'))
             if mp4_files:
-                self.video.load(mp4_files[0])
-                self.video.play()
+                self._load_and_play_video(mp4_files[0])
             else:
                 self._load_static_image(wd.bg)
         elif theme.is_mask_only:
@@ -807,13 +794,7 @@ class LCDDeviceController:
                 if not dest.exists():
                     shutil.copy2(str(video_path), str(dest))
 
-            self.video.load(theme.animation_path)
-            # Show first frame immediately so preview updates before timer fires
-            first_frame = self.video.model.get_frame(0)
-            if first_frame:
-                self.current_image = first_frame
-                self._update_preview(first_frame)
-            self.video.play()
+            self._load_and_play_video(theme.animation_path)
             self._update_status(f"Cloud Theme: {theme.name}")
 
     def apply_mask(self, mask_dir: Path):
@@ -849,9 +830,20 @@ class LCDDeviceController:
         if not self.current_image:
             self._create_mask_background(None)
 
-        # Render and update preview (don't stop video — it renders on next tick)
-        self.render_overlay_and_preview()
+        # Render and update preview + LCD (don't stop video — it renders on next tick)
+        img = self.render_overlay_and_preview()
+        if img and self.auto_send and not self.video.is_playing():
+            self._send_frame_to_lcd(img)
         self._update_status(f"Mask: {mask_dir.name}")
+
+    def _load_and_play_video(self, path: Path | str):
+        """Load video, show first frame on preview+LCD, and start playback."""
+        self.video.load(path)
+        first_frame = self.video.model.get_frame(0)
+        if first_frame:
+            self.current_image = first_frame
+            self._render_and_send()
+        self.video.play()
 
     def _load_static_image(self, path: Path):
         """Load a static image file."""
@@ -1102,9 +1094,12 @@ class LCDDeviceController:
     # =========================================================================
 
     def send_current_image(self):
-        """Send current image to LCD."""
+        """Send current image (with overlay if enabled) to LCD."""
         if self.current_image:
-            self._send_frame_to_lcd(self.current_image)
+            image = self.current_image
+            if self.overlay.is_enabled():
+                image = self.overlay.render(image)
+            self._send_frame_to_lcd(image)
             self._update_status("Sent to LCD")
 
     def _apply_rotation(self, image: Any) -> Any:
@@ -1235,7 +1230,7 @@ class LCDDeviceController:
             image = self.overlay.render(image)
         self._update_preview(image)
         if self.auto_send:
-            self._send_frame_to_lcd(self.current_image)
+            self._send_frame_to_lcd(image)
 
     def render_overlay_and_preview(self):
         """Re-render overlay on current_image and update preview.

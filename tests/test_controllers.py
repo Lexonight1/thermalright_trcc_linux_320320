@@ -1182,10 +1182,22 @@ class TestFormCZTVVideoAndSend(unittest.TestCase):
         statuses = []
         self.ctrl.on_status_update = lambda s: statuses.append(s)
 
-        with patch.object(self.ctrl, '_send_frame_to_lcd'):
+        with patch.object(self.ctrl, '_send_frame_to_lcd') as mock_send:
             self.ctrl.send_current_image()
+            mock_send.assert_called_once_with(self.ctrl.current_image)
 
         self.assertIn('Sent to LCD', statuses)
+
+    def test_send_current_image_with_overlay(self):
+        """send_current_image applies overlay before sending."""
+        self.ctrl.current_image = _make_test_image()
+        self.ctrl.overlay.enable(True)
+        rendered = _make_test_image(color=(0, 255, 0))
+
+        with patch.object(self.ctrl.overlay, 'render', return_value=rendered), \
+             patch.object(self.ctrl, '_send_frame_to_lcd') as mock_send:
+            self.ctrl.send_current_image()
+            mock_send.assert_called_once_with(rendered)
 
     def test_send_frame_to_lcd_no_device(self):
         """_send_frame_to_lcd is a no-op without selected device."""
@@ -1387,26 +1399,29 @@ class TestFormCZTVCallbacksAndHelpers(unittest.TestCase):
         self.ctrl._render_and_send()  # Should not raise
 
     def test_render_and_send_with_overlay(self):
-        """_render_and_send applies overlay when enabled."""
+        """_render_and_send sends overlay-rendered image to both preview and LCD."""
         self.ctrl.current_image = _make_test_image()
         self.ctrl.overlay.enable(True)
+        self.ctrl.auto_send = True
         rendered = _make_test_image(color=(0, 255, 0))
 
         with patch.object(self.ctrl.overlay, 'render', return_value=rendered), \
              patch.object(self.ctrl, '_update_preview') as mock_preview, \
-             patch.object(self.ctrl, '_send_frame_to_lcd'):
+             patch.object(self.ctrl, '_send_frame_to_lcd') as mock_send:
             self.ctrl._render_and_send()
             mock_preview.assert_called_once_with(rendered)
+            mock_send.assert_called_once_with(rendered)
 
     def test_render_and_send_auto_send(self):
-        """_render_and_send sends to LCD when auto_send is True."""
-        self.ctrl.current_image = _make_test_image()
+        """_render_and_send sends current image to LCD when auto_send is True."""
+        img = _make_test_image()
+        self.ctrl.current_image = img
         self.ctrl.auto_send = True
 
         with patch.object(self.ctrl, '_update_preview'), \
              patch.object(self.ctrl, '_send_frame_to_lcd') as mock_send:
             self.ctrl._render_and_send()
-            mock_send.assert_called_once()
+            mock_send.assert_called_once_with(img)
 
     def test_render_and_send_no_auto_send(self):
         """_render_and_send skips LCD send when auto_send is False."""

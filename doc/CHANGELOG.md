@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.11
+
+### LCD Send Pipeline Fix
+- **Overlay changes**: Editing overlay elements (color, position, font, format, text) now sends the rendered frame to the LCD immediately
+- **Mask toggle/reset**: Toggling or clearing mask now sends to LCD
+- **Background toggle**: Switching to static background now sends to LCD
+- **Image crop**: Cropped image now sends to LCD after crop completes
+- **Video first frame**: Loading a video theme now shows the first frame on LCD immediately (was blank until timer fired)
+- **send_current_image**: Now applies overlay before sending (was sending raw background)
+- **_render_and_send**: Fixed to send overlay-rendered image, not raw `current_image`
+- **DRY**: Extracted `_load_and_play_video()` — eliminates 5 scattered video load+play patterns
+
 ## v1.2.10
 
 ### First-Launch Preview Fix
