@@ -33,6 +33,18 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class DeviceEntry:
+    """Registry entry describing a known USB device's capabilities."""
+    vendor: str
+    product: str
+    implementation: str
+    model: str = "CZTV"
+    button_image: str = "A1CZTV"
+    protocol: str = "scsi"
+    device_type: int = 1  # 1=SCSI, 2=HID Type 2, 3=HID Type 3, 4=Raw USB Bulk
+
+
+@dataclass
 class DetectedDevice:
     """Detected USB/SCSI device"""
     vid: int  # Vendor ID
@@ -53,65 +65,42 @@ class DetectedDevice:
 # NOTE: On Linux we can't access HID pm/sub bytes to identify exact model,
 # so we map VID:PID directly to the most common device for that hardware.
 # Users can override model via config if needed.
-KNOWN_DEVICES = {
-    (0x87CD, 0x70DB): {
-        "vendor": "Thermalright",
-        "product": "LCD Display (USBLCD)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "thermalright_lcd_v1"
-    },
+KNOWN_DEVICES: dict[tuple[int, int], DeviceEntry] = {
+    (0x87CD, 0x70DB): DeviceEntry(
+        vendor="Thermalright", product="LCD Display (USBLCD)",
+        implementation="thermalright_lcd_v1",
+    ),
     # NOTE: 87AD:70DB (GrandVision) moved to _BULK_DEVICES — it's raw USB bulk, not SCSI.
-    (0x0416, 0x5406): {
-        "vendor": "Winbond",
-        "product": "LCD Display (USBLCD)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "ali_corp_lcd_v1"
-    },
+    (0x0416, 0x5406): DeviceEntry(
+        vendor="Winbond", product="LCD Display (USBLCD)",
+        implementation="ali_corp_lcd_v1",
+    ),
     # USB 0402:3922 - FROZEN WARFRAME series (SE/PRO/Ultra, confirmed on PRO 360 Black)
-    (0x0402, 0x3922): {
-        "vendor": "ALi Corp",
-        "product": "FROZEN WARFRAME",
-        "model": "FROZEN_WARFRAME",
-        "button_image": "A1FROZEN_WARFRAME",
-        "implementation": "ali_corp_lcd_v1"
-    },
+    (0x0402, 0x3922): DeviceEntry(
+        vendor="ALi Corp", product="FROZEN WARFRAME",
+        model="FROZEN_WARFRAME", button_image="A1FROZEN_WARFRAME",
+        implementation="ali_corp_lcd_v1",
+    ),
 }
 
 # HID LCD devices — auto-detected when plugged in.
 # From UCDevice.cs (TRCC 2.0.3 decompiled — decimal PIDs confirmed).
-_HID_LCD_DEVICES = {
+_HID_LCD_DEVICES: dict[tuple[int, int], DeviceEntry] = {
     # device2: UsbHidDevice(1046, 21250) = 0x0416:0x5302, DA/DB/DC/DD handshake, 512-byte chunks
-    (0x0416, 0x5302): {
-        "vendor": "Winbond",
-        "product": "USBDISPLAY (HID)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "hid_type2",
-        "protocol": "hid",
-        "device_type": 2,
-    },
+    (0x0416, 0x5302): DeviceEntry(
+        vendor="Winbond", product="USBDISPLAY (HID)",
+        implementation="hid_type2", protocol="hid", device_type=2,
+    ),
     # device3: UsbHidDevice(1048, 21251) = 0x0418:0x5303, 64-byte packets
-    (0x0418, 0x5303): {
-        "vendor": "ALi Corp",
-        "product": "LCD Display (HID)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "hid_type3",
-        "protocol": "hid",
-        "device_type": 3,
-    },
+    (0x0418, 0x5303): DeviceEntry(
+        vendor="ALi Corp", product="LCD Display (HID)",
+        implementation="hid_type3", protocol="hid", device_type=3,
+    ),
     # device4: UsbHidDevice(1048, 21252) = 0x0418:0x5304
-    (0x0418, 0x5304): {
-        "vendor": "ALi Corp",
-        "product": "LCD Display (HID)",
-        "model": "CZTV",
-        "button_image": "A1CZTV",
-        "implementation": "hid_type3",
-        "protocol": "hid",
-        "device_type": 3,
-    },
+    (0x0418, 0x5304): DeviceEntry(
+        vendor="ALi Corp", product="LCD Display (HID)",
+        implementation="hid_type3", protocol="hid", device_type=3,
+    ),
 }
 
 # LED HID devices (RGB controllers + case 257 LCD+LED combos)
@@ -119,35 +108,27 @@ _HID_LCD_DEVICES = {
 # Case 257 devices (87AD:70DB) are LCD+LED combos that also use FormCZTV.
 # The actual model is resolved at runtime via the PM byte from the HID
 # handshake (see led_device.PM_TO_MODEL).
-_LED_DEVICES = {
+_LED_DEVICES: dict[tuple[int, int], DeviceEntry] = {
     # device1: UsbHidDevice(1046, 32769) = 0x0416:0x8001, 64-byte packets
     # Case 1 — LED-only (AX120 Digital, PA120 Digital, etc.)
-    (0x0416, 0x8001): {
-        "vendor": "Winbond",
-        "product": "LED Controller (HID)",
-        "model": "LED_DIGITAL",
-        "button_image": "A1CZTV",
-        "implementation": "hid_led",
-        "protocol": "hid",
-        "device_type": 1,
-    },
+    (0x0416, 0x8001): DeviceEntry(
+        vendor="Winbond", product="LED Controller (HID)",
+        model="LED_DIGITAL", implementation="hid_led",
+        protocol="hid", device_type=1,
+    ),
 }
 
 # Raw USB bulk devices (bInterfaceClass=255, Vendor Specific).
 # These use the USBLCDNew protocol (ThreadSendDeviceData) — not SCSI, not HID.
 # Requires pyusb for raw bulk endpoint I/O.
-_BULK_DEVICES = {
+_BULK_DEVICES: dict[tuple[int, int], DeviceEntry] = {
     # 87AD:70DB — GrandVision 360 AIO / Mjolnir Vision 360
     # USBLCDNew ThreadSendDeviceData: 64-byte handshake → 1024-byte response → RGB565 frames
-    (0x87AD, 0x70DB): {
-        "vendor": "ChiZhu Tech",
-        "product": "GrandVision 360 AIO (Bulk USB)",
-        "model": "GRAND_VISION",
-        "button_image": "A1CZTV",
-        "implementation": "bulk_usblcdnew",
-        "protocol": "bulk",
-        "device_type": 4,  # 4 = raw USB bulk
-    },
+    (0x87AD, 0x70DB): DeviceEntry(
+        vendor="ChiZhu Tech", product="GrandVision 360 AIO (Bulk USB)",
+        model="GRAND_VISION", implementation="bulk_usblcdnew",
+        protocol="bulk", device_type=4,
+    ),
 }
 
 # Backward-compat alias (tests and setup-udev reference this)
@@ -224,18 +205,18 @@ def find_usb_devices() -> List[DetectedDevice]:
         usb_path = f"{int(bus)}-{device}"
 
         log.debug("Found known device: %04X:%04X %s (%s)",
-                  vid, pid, device_info["vendor"], device_info.get("protocol", "scsi"))
+                  vid, pid, device_info.vendor, device_info.protocol)
         devices.append(DetectedDevice(
             vid=vid,
             pid=pid,
-            vendor_name=device_info["vendor"],
-            product_name=device_info["product"],
+            vendor_name=device_info.vendor,
+            product_name=device_info.product,
             usb_path=usb_path,
-            implementation=device_info["implementation"],
-            model=device_info.get("model", "CZTV"),
-            button_image=device_info.get("button_image", "A1CZTV"),
-            protocol=device_info.get("protocol", "scsi"),
-            device_type=int(device_info.get("device_type", 1)),
+            implementation=device_info.implementation,
+            model=device_info.model,
+            button_image=device_info.button_image,
+            protocol=device_info.protocol,
+            device_type=device_info.device_type,
         ))
 
     log.debug("USB scan found %d known device(s)", len(devices))
@@ -333,8 +314,8 @@ def find_scsi_usblcd_devices() -> List[DetectedDevice]:
                             # Look up in KNOWN_DEVICES
                             if (dev_vid, dev_pid) in KNOWN_DEVICES:
                                 dev_info = KNOWN_DEVICES[(dev_vid, dev_pid)]
-                                dev_model = dev_info.get("model", "CZTV")
-                                dev_button = dev_info.get("button_image", "A1CZTV")
+                                dev_model = dev_info.model
+                                dev_button = dev_info.button_image
                             break
                 except (IOError, OSError, ValueError):
                     pass

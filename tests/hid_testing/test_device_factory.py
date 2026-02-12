@@ -565,22 +565,21 @@ class TestDeviceDetectorProtocol:
         scsi_pids = [(0x87CD, 0x70DB), (0x0416, 0x5406), (0x0402, 0x3922)]
         for vid_pid in scsi_pids:
             info = KNOWN_DEVICES[vid_pid]
-            # SCSI devices default to "scsi" protocol (may not have explicit key)
-            assert info.get("protocol", "scsi") == "scsi"
+            assert info.protocol == "scsi"
 
     def test_hid_type2_in_known_devices(self):
         from trcc.device_detector import _HID_LCD_DEVICES
         info = _HID_LCD_DEVICES[(0x0416, 0x5302)]
-        assert info["protocol"] == "hid"
-        assert info["device_type"] == 2
-        assert "vendor" in info
+        assert info.protocol == "hid"
+        assert info.device_type == 2
+        assert info.vendor
 
     def test_hid_type3_in_known_devices(self):
         from trcc.device_detector import _HID_LCD_DEVICES
         info = _HID_LCD_DEVICES[(0x0418, 0x5303)]
-        assert info["protocol"] == "hid"
-        assert info["device_type"] == 3
-        assert "vendor" in info
+        assert info.protocol == "hid"
+        assert info.device_type == 3
+        assert info.vendor
 
     def test_detected_device_has_protocol_field(self):
         from trcc.device_detector import DetectedDevice

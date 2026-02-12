@@ -428,10 +428,15 @@ class TestSetupUdev(unittest.TestCase):
 
     def test_dry_run(self):
         """dry_run=True prints rules and returns 0 without writing."""
+        from trcc.device_detector import DeviceEntry
         mock_mod = MagicMock()
         mock_mod.KNOWN_DEVICES = {
-            (0x87CD, 0x70DB): {'vendor': 'Thermalright', 'product': 'LCD'},
+            (0x87CD, 0x70DB): DeviceEntry(
+                vendor='Thermalright', product='LCD',
+                implementation='thermalright_lcd_v1',
+            ),
         }
+        mock_mod.DeviceEntry = DeviceEntry
         with patch.dict('sys.modules', {'trcc.device_detector': mock_mod}):
             result = setup_udev(dry_run=True)
         self.assertEqual(result, 0)

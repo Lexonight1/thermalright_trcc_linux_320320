@@ -92,29 +92,31 @@ class TestKnownDevices(unittest.TestCase):
         """Test Thermalright device is in KNOWN_DEVICES."""
         self.assertIn((0x87CD, 0x70DB), KNOWN_DEVICES)
         device_info = KNOWN_DEVICES[(0x87CD, 0x70DB)]
-        self.assertEqual(device_info["vendor"], "Thermalright")
-        self.assertEqual(device_info["implementation"], "thermalright_lcd_v1")
+        self.assertEqual(device_info.vendor, "Thermalright")
+        self.assertEqual(device_info.implementation, "thermalright_lcd_v1")
 
     def test_winbond_device_in_known(self):
         """Test Winbond device (0x0416:0x5406) is in KNOWN_DEVICES."""
         self.assertIn((0x0416, 0x5406), KNOWN_DEVICES)
         device_info = KNOWN_DEVICES[(0x0416, 0x5406)]
-        self.assertEqual(device_info["vendor"], "Winbond")
+        self.assertEqual(device_info.vendor, "Winbond")
 
     def test_frozen_warframe_device_in_known(self):
         """Test FROZEN WARFRAME device is in KNOWN_DEVICES."""
         self.assertIn((0x0402, 0x3922), KNOWN_DEVICES)
         device_info = KNOWN_DEVICES[(0x0402, 0x3922)]
-        self.assertEqual(device_info["model"], "FROZEN_WARFRAME")
-        self.assertEqual(device_info["button_image"], "A1FROZEN_WARFRAME")
+        self.assertEqual(device_info.model, "FROZEN_WARFRAME")
+        self.assertEqual(device_info.button_image, "A1FROZEN_WARFRAME")
 
-    def test_known_devices_have_required_keys(self):
-        """Test all KNOWN_DEVICES have required keys."""
-        required_keys = {"vendor", "product", "implementation"}
+    def test_known_devices_have_required_attrs(self):
+        """Test all KNOWN_DEVICES have required attributes."""
         for (vid, pid), device_info in KNOWN_DEVICES.items():
-            for key in required_keys:
-                self.assertIn(key, device_info,
-                    f"Device {vid:04X}:{pid:04X} missing key '{key}'")
+            self.assertTrue(device_info.vendor,
+                f"Device {vid:04X}:{pid:04X} missing vendor")
+            self.assertTrue(device_info.product,
+                f"Device {vid:04X}:{pid:04X} missing product")
+            self.assertTrue(device_info.implementation,
+                f"Device {vid:04X}:{pid:04X} missing implementation")
 
 
 class TestRunCommand(unittest.TestCase):
@@ -553,13 +555,13 @@ class TestDeviceModelMapping(unittest.TestCase):
     def test_thermalright_button_image(self):
         """Test Thermalright device has correct button image prefix."""
         device_info = KNOWN_DEVICES[(0x87CD, 0x70DB)]
-        self.assertEqual(device_info.get("button_image", "A1CZTV"), "A1CZTV")
+        self.assertEqual(device_info.button_image, "A1CZTV")
 
     def test_frozen_warframe_button_image(self):
         """Test FROZEN WARFRAME has unique button image prefix."""
         device_info = KNOWN_DEVICES[(0x0402, 0x3922)]
-        self.assertEqual(device_info["button_image"], "A1FROZEN_WARFRAME")
-        self.assertEqual(device_info["model"], "FROZEN_WARFRAME")
+        self.assertEqual(device_info.button_image, "A1FROZEN_WARFRAME")
+        self.assertEqual(device_info.model, "FROZEN_WARFRAME")
 
 
 # ── find_scsi_device_by_usb_path additional methods ─────────────────────────

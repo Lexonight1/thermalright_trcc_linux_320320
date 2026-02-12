@@ -426,9 +426,9 @@ class TestBulkDeviceDetection(unittest.TestCase):
 
         self.assertIn((0x87AD, 0x70DB), _BULK_DEVICES)
         info = _BULK_DEVICES[(0x87AD, 0x70DB)]
-        self.assertEqual(info["protocol"], "bulk")
-        self.assertEqual(info["implementation"], "bulk_usblcdnew")
-        self.assertEqual(info["device_type"], 4)
+        self.assertEqual(info.protocol, "bulk")
+        self.assertEqual(info.implementation, "bulk_usblcdnew")
+        self.assertEqual(info.device_type, 4)
 
     def test_not_in_scsi_devices(self):
         from trcc.device_detector import KNOWN_DEVICES

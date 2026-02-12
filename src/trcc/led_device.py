@@ -152,12 +152,24 @@ for _pm in range(17, 32):
 PM_TO_STYLE: dict[int, int] = {pm: e.style_id for pm, e in _PM_REGISTRY.items()}
 
 
+# (pm, sub_type) → PmEntry override for devices that share a PM byte.
+# HR10 2280 Pro Digital shares PM=128 with LC1 but has sub_type=129.
+SUB_TYPE_OVERRIDES: dict[tuple[int, int], PmEntry] = {
+    (128, 129): PmEntry(13, "HR10_2280_PRO_DIGITAL", "A1HR10 2280 PRO DIGITAL"),
+}
+
+
+def _resolve_pm(pm: int, sub_type: int = 0) -> Optional[PmEntry]:
+    """Resolve PM + SUB to a PmEntry, checking overrides first."""
+    return SUB_TYPE_OVERRIDES.get((pm, sub_type)) or _PM_REGISTRY.get(pm)
+
+
 def get_led_button_image(pm: int, sub: int = 0) -> Optional[str]:
     """Resolve LED device button image from PM byte.
 
     Returns None if PM is unknown.
     """
-    entry = _PM_REGISTRY.get(pm)
+    entry = _resolve_pm(pm, sub)
     return entry.button_image if entry else None
 
 
@@ -167,17 +179,8 @@ def get_model_for_pm(pm: int, sub_type: int = 0) -> str:
     Checks SUB_TYPE_OVERRIDES first (e.g. HR10 vs LC1), then _PM_REGISTRY.
     Falls back to "Unknown (pm=N)" for unrecognized PMs.
     """
-    override = SUB_TYPE_OVERRIDES.get((pm, sub_type))
-    if override:
-        return override[1]
-    entry = _PM_REGISTRY.get(pm)
+    entry = _resolve_pm(pm, sub_type)
     return entry.model_name if entry else f"Unknown (pm={pm})"
-
-# (pm, sub_type) → style override for devices that share a PM byte.
-# HR10 2280 Pro Digital shares PM=128 with LC1 but has sub_type=129.
-SUB_TYPE_OVERRIDES = {
-    (128, 129): (13, "HR10_2280_PRO_DIGITAL"),  # → style 13
-}
 
 # Preset colors from FormLED.cs ucColor1_ChangeColor handlers
 # Note: Windows ucColor1Delegate has swapped B,G params (R,B,G order)
@@ -313,10 +316,7 @@ def get_style_for_pm(pm: int, sub_type: int = 0) -> LedDeviceStyle:
 
     Falls back to style 1 (30 LEDs) for unknown pm values.
     """
-    override = SUB_TYPE_OVERRIDES.get((pm, sub_type))
-    if override:
-        return LED_STYLES[override[0]]
-    entry = _PM_REGISTRY.get(pm)
+    entry = _resolve_pm(pm, sub_type)
     return LED_STYLES[entry.style_id if entry else 1]
 
 
