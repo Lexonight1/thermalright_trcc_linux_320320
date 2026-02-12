@@ -842,9 +842,9 @@ class LCDDeviceController:
             self._send_frame_to_lcd(img)
         self._update_status(f"Mask: {mask_dir.name}")
 
-    def _load_and_play_video(self, path: Path | str):
+    def _load_and_play_video(self, path: Path):
         """Load video, show first frame on preview+LCD, and start playback."""
-        self.video.load(Path(path))
+        self.video.load(path)
         first_frame = self.video.model.get_frame(0)
         if first_frame:
             self.current_image = first_frame
