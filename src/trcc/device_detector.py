@@ -371,18 +371,16 @@ def detect_devices() -> List[DetectedDevice]:
     return devices
 
 
-def check_udev_quirks(device: DetectedDevice) -> bool:
-    """Check if /etc/modprobe.d/trcc-lcd.conf has the UAS bypass quirk for *device*.
+def check_udev_rules(device: DetectedDevice) -> bool:
+    """Check if udev rules file contains the VID:PID for *device*.
 
-    Returns True if the quirk entry exists, False if missing or file absent.
-    Only meaningful for SCSI devices (HID devices don't need quirks).
+    Returns True if a matching rule exists, False if missing or file absent.
+    Works for both SCSI and HID devices.
     """
-    if device.protocol != "scsi":
-        return True
-    quirk_entry = f"{device.vid:04x}:{device.pid:04x}:u"
+    vid_hex = f"{device.vid:04x}"
     try:
-        with open("/etc/modprobe.d/trcc-lcd.conf") as f:
-            return quirk_entry in f.read()
+        with open("/etc/udev/rules.d/99-trcc-lcd.rules") as f:
+            return vid_hex in f.read()
     except (IOError, OSError):
         return False
 
