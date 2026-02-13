@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -62,3 +62,7 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 # 2.0.0  - Major refactor: rename modules to consistent device_* / driver_*
 #          naming, extract constants.py, add debug_report.py diagnostic tool,
 #          HR10 LED backend (device_led_hr10.py), gif_animator→media_player rename
+# 2.0.1  - Fix PM=36 (240x240) wrong resolution: unify FBL/PM tables into
+#          constants.py (single source of truth), PM=FBL default instead of
+#          hardcoded 320x320. Fix PyQt6 version in trcc report. CI: add ffmpeg,
+#          auto-publish to PyPI on tag push. Delete dead shim files.
