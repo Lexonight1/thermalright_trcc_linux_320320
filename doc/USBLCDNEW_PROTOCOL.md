@@ -159,7 +159,7 @@ response[12] == 0x01    (success)
 response[16] == 0x10    (16 = data present flag)
 ```
 
-**This is the same DA/DB/DC/DD handshake used in our `hid_device.py`.**
+**This is the same DA/DB/DC/DD handshake used in our `device_hid.py`.**
 
 ### Device Info (Written Back to Shared Memory)
 
@@ -314,9 +314,9 @@ Note: `0416:5406` is handled by BOTH binaries — USBLCDNEW.exe via raw USB, USB
 
 | Feature | USBLCDNEW.exe | trcc-linux | Status |
 |---|---|---|---|
-| 87CD:70DB via SCSI | N/A (uses USB) | ✓ `scsi_device.py` | Working (SCSI transport) |
-| 0416:5302 DA/DB/DC/DD | ✓ | ✓ `hid_device.py` | Matches exactly |
-| 0416:5406 via SCSI | N/A (uses USB) | ✓ `scsi_device.py` | Working (SCSI transport) |
+| 87CD:70DB via SCSI | N/A (uses USB) | ✓ `device_scsi.py` | Working (SCSI transport) |
+| 0416:5302 DA/DB/DC/DD | ✓ | ✓ `device_hid.py` | Matches exactly |
+| 0416:5406 via SCSI | N/A (uses USB) | ✓ `device_scsi.py` | Working (SCSI transport) |
 | 0416:5406 frame (USB) | ✓ (single bulk) | ✓ (chunked SCSI) | Same data, different transport |
 | Device info writeback | ✓ (shared memory) | ✓ (device_detector) | Equivalent |
 
@@ -333,4 +333,4 @@ On Linux, there is only one:
 
 The device firmware accepts the same protocol commands regardless of whether they arrive via SCSI CBW (Command Block Wrapper) or raw USB bulk. The Linux usb-storage driver handles the SCSI-to-USB translation transparently.
 
-For HID devices (`0416:5302`, `0416:8001`, etc.), Linux uses PyUSB/HIDAPI directly via `hid_device.py` — matching the USBLCDNEW.exe approach.
+For HID devices (`0416:5302`, `0416:8001`, etc.), Linux uses PyUSB/HIDAPI directly via `device_hid.py` — matching the USBLCDNEW.exe approach.

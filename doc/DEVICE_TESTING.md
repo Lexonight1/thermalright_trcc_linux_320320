@@ -204,7 +204,7 @@ HID devices use a different protocol than SCSI devices:
 
 The handshake response contains a **PM (Product Mode)** byte that identifies the device model. This maps through two tables:
 
-1. **PM → FBL**: `pm_to_fbl()` in `hid_device.py` converts the product mode to an FBL (Feature Byte Length) code
+1. **PM → FBL**: `pm_to_fbl()` in `device_hid.py` converts the product mode to an FBL (Feature Byte Length) code
 2. **FBL → Resolution**: `fbl_to_resolution()` maps FBL to pixel dimensions
 
 | PM | FBL | Resolution | Products |

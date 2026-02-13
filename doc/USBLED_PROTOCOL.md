@@ -467,7 +467,7 @@ Cache keys include the USB bus path (e.g. `2-1.4`) to disambiguate multiple devi
 
 | File | Purpose |
 |---|---|
-| `led_device.py` | Constants, styles, PM mapping, packet builder, HID sender, probe cache |
+| `device_led.py` | Constants, styles, PM mapping, packet builder, HID sender, probe cache |
 | `device_factory.py` | `LedProtocol` class (observer pattern, transport management) |
 | `controllers.py` | `LEDController` (effect engine), `LEDDeviceController` (orchestrator) |
 | `models.py` | `LEDMode`, `LEDState`, `LEDModel` (MVC state + tick computation) |

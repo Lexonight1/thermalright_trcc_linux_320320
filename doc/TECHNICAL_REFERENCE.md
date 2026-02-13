@@ -67,7 +67,7 @@ Type 2 HID devices don't report FBL directly. Instead, the PM (product mode) byt
 | 1+sub=48 | 114 | 1600x720 | PM=1 with SUB byte variant |
 | 1+sub=49 | 192 | 1920x462 | PM=1 with SUB byte variant |
 
-Functions: `pm_to_fbl()` and `fbl_to_resolution()` in `hid_device.py`.
+Functions: `pm_to_fbl()` and `fbl_to_resolution()` in `device_hid.py`.
 
 ### Theme Directories & Archives
 
@@ -347,14 +347,14 @@ PyQt6 MVC architecture. Controllers are GUI-independent; views subscribe via cal
 ```
 src/trcc/
 ├── cli.py                       # CLI entry point
-├── lcd_driver.py                # SCSI RGB565 frame send
+├── driver_lcd.py                # SCSI RGB565 frame send
 ├── device_detector.py           # USB device scan + KNOWN_DEVICES registry
 ├── device_implementations.py    # Per-device protocol variants
-├── scsi_device.py               # Low-level SCSI commands
+├── device_scsi.py               # Low-level SCSI commands
 ├── dc_parser.py                 # Parse config1.dc overlay configs
 ├── dc_writer.py                 # Write config1.dc files
 ├── overlay_renderer.py          # PIL-based text/sensor overlay rendering
-├── gif_animator.py              # FFmpeg video frame extraction
+├── media_player.py              # FFmpeg video frame extraction
 ├── sensor_enumerator.py         # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
 ├── sysinfo_config.py            # Dashboard panel config persistence
 ├── system_info.py               # CPU/GPU/RAM/disk sensor collection
@@ -363,9 +363,12 @@ src/trcc/
 ├── theme_io.py                  # Theme export/import (.tr format)
 ├── binary_reader.py             # Binary data reader (DC parsing helper)
 ├── paths.py                     # XDG data/config, .7z extraction, on-demand download
-├── hid_device.py                # HID USB transport (PyUSB/HIDAPI)
-├── led_device.py                # LED RGB protocol (effects, packets, HID sender)
-├── device_factory.py            # Protocol factory (SCSI/HID/LED routing)
+├── device_hid.py                # HID USB transport (PyUSB/HIDAPI)
+├── device_led.py                # LED RGB protocol (effects, packets, HID sender)
+├── device_bulk.py               # Raw USB bulk protocol (GrandVision/Mjolnir Vision)
+├── device_factory.py            # Protocol factory (SCSI/HID/LED/Bulk routing)
+├── constants.py                 # Shared constants
+├── debug_report.py              # Diagnostic report tool
 ├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
 ├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info

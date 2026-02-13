@@ -294,7 +294,7 @@ Not relevant to Linux — trcc sends frames directly to `/dev/sgX`.
 
 ## Comparison: Our Implementation vs Windows
 
-| Feature | USBLCD.exe | trcc-linux (`scsi_device.py`) | Match? |
+| Feature | USBLCD.exe | trcc-linux (`device_scsi.py`) | Match? |
 |---|---|---|---|
 | Poll (0xF5, READ 0xE100) | ✓ | ✓ | Exact |
 | Init (0x1F5, WRITE 0xE100 zeros) | ✓ | ✓ | Exact |

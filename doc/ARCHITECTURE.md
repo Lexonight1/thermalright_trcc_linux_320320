@@ -5,14 +5,14 @@
 ```
 src/trcc/
 ├── cli.py                       # CLI entry point
-├── lcd_driver.py                # SCSI RGB565 frame send
+├── driver_lcd.py                # SCSI RGB565 frame send
 ├── device_detector.py           # USB device scan + KNOWN_DEVICES registry
 ├── device_implementations.py    # Per-device protocol variants
-├── scsi_device.py               # Low-level SCSI commands
+├── device_scsi.py               # Low-level SCSI commands
 ├── dc_parser.py                 # Parse config1.dc overlay configs
 ├── dc_writer.py                 # Write config1.dc files
 ├── overlay_renderer.py          # PIL-based text/sensor overlay rendering
-├── gif_animator.py              # FFmpeg video frame extraction
+├── media_player.py              # FFmpeg video frame extraction
 ├── sensor_enumerator.py         # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
 ├── sysinfo_config.py            # Dashboard panel config persistence
 ├── system_info.py               # CPU/GPU/RAM/disk sensor collection
@@ -20,9 +20,12 @@ src/trcc/
 ├── theme_downloader.py          # Theme pack download manager
 ├── theme_io.py                  # Theme export/import (.tr format)
 ├── paths.py                     # XDG paths, per-device config, .7z extraction, cross-distro helpers
-├── hid_device.py                # HID USB transport (PyUSB/HIDAPI) for LCD and LED devices
-├── led_device.py                # LED RGB protocol (effects, packet builder, HID sender)
-├── device_factory.py            # Protocol factory (SCSI/HID/LED routing by PID)
+├── device_hid.py                # HID USB transport (PyUSB/HIDAPI) for LCD and LED devices
+├── device_led.py                # LED RGB protocol (effects, packet builder, HID sender)
+├── device_factory.py            # Protocol factory (SCSI/HID/LED/Bulk routing by PID)
+├── device_bulk.py               # Raw USB bulk protocol (GrandVision/Mjolnir Vision)
+├── constants.py                 # Shared constants
+├── debug_report.py              # Diagnostic report tool
 ├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
 ├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info
@@ -81,7 +84,7 @@ Each connected LCD is identified by `"{index}:{vid:04x}_{pid:04x}"` (e.g. `"0:87
 All platform-specific helpers are centralized in `paths.py`:
 
 - **`require_sg_raw()`** — verifies sg_raw availability, provides distro-specific install instructions
-- **`find_scsi_devices()`** — dynamic sysfs scan of `/sys/class/scsi_generic/`
+- **`find_scsi_devices()`** — dynamic sysfs scan of `/sys/class/scsi_generic/` (in `device_scsi.py`)
 - **`FONT_SEARCH_DIRS`** — 20+ font directories covering Fedora, Debian/Ubuntu, Arch, Void, Alpine, openSUSE, NixOS, Guix, and more
 - **`FONTS_DIR`** — bundled fonts fallback in `src/assets/fonts/`
 

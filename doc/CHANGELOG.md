@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.0
+
+### Major Refactor
+- **Module renaming**: Consistent `device_*` / `driver_*` naming convention across all backend modules:
+  - `bulk_device` → `device_bulk`, `hid_device` → `device_hid`, `led_device` → `device_led`
+  - `scsi_device` → `device_scsi`, `lcd_driver` → `driver_lcd`, `kvm_led_device` → `device_kvm_led`
+  - `gif_animator` → `media_player`
+- **New modules**: `constants.py` (shared constants), `debug_report.py` (diagnostic tool), `device_led_hr10.py` (HR10 LED backend)
+- All imports updated across 49 source files and 29 test files
+- 2105 tests passing, ruff + pyright clean
+
 ## v1.2.16
 
 ### SELinux/Immutable Distro Fix
