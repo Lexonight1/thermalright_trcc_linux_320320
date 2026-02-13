@@ -149,6 +149,8 @@ class DebugReport:
             try:
                 mod = __import__(mod_name)
                 ver = getattr(mod, "__version__", getattr(mod, "version", "?"))
+                if isinstance(ver, tuple):
+                    ver = ".".join(str(x) for x in ver)
                 sec.lines.append(f"  {pkg_name}: {ver}")
             except ImportError:
                 sec.lines.append(f"  {pkg_name}: not installed")
