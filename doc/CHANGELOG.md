@@ -1,5 +1,45 @@
 # Changelog
 
+## v3.0.1
+
+### Full CLI Parity
+- **36 Typer commands** expose all service methods — CLI, GUI, and REST API now have full feature parity
+- New theme commands: `theme-save`, `theme-export`, `theme-import`
+- New LED commands: `led-color`, `led-mode`, `led-brightness`, `led-off`, `led-sensor`
+- New display commands: `brightness`, `rotation`, `screencast`, `mask` (with `--clear`), `overlay`
+- New media command: `video` (plays video/GIF/ZT on LCD)
+- Theme commands: `theme-list` (local + cloud), `theme-load` (find by name + send)
+- All commands follow detect → service → print → return 0/1 pattern
+- Backward-compatible module-level aliases for all new commands
+- 2148 tests across 31 files
+
+## v3.0.0
+
+### Hexagonal Architecture
+- **Services layer** (`src/trcc/services/`) — 8 service classes shared by GUI, CLI, and REST API:
+  - `DeviceService` — detect, select, send_pil, send_rgb565
+  - `DisplayService` — high-level display orchestration
+  - `ImageService` — solid_color, resize, brightness, rotation, byte_order
+  - `LEDService` — LED RGB control via LedProtocol
+  - `MediaService` — GIF/video frame extraction
+  - `OverlayService` — overlay rendering
+  - `SystemService` — system sensor access
+  - `ThemeService` — theme loading/saving/export/import
+- **CLI refactored to Typer** — OOP command classes (DeviceCommands, DisplayCommands, ThemeCommands, LEDCommands, DiagCommands, SystemCommands)
+- **REST API adapter** (`api.py`) — FastAPI endpoints for headless/remote control (optional `[api]` extra)
+- **Module renames**: `paths`→`data_repository`, `sensor_enumerator`→`system_sensors`, `sysinfo_config`→`system_config`, `cloud_downloader`→`theme_cloud`, `driver_lcd`→`device_lcd`
+- Dead code removed: `theme_io.py`, `constants.py`, `device_base.py`
+- 2081 tests across 31 files
+
+## v2.0.1
+
+### FBL/PM Resolution Fix
+- Fixed PM=36 (240x240) wrong resolution: unified FBL/PM tables into `constants.py` (single source of truth)
+- PM=FBL default instead of hardcoded 320x320
+- Fixed PyQt6 version in `trcc report`
+- CI: add ffmpeg, auto-publish to PyPI on tag push
+- Deleted dead shim files
+
 ## v2.0.0
 
 ### Major Refactor

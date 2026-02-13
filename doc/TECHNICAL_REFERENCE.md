@@ -342,38 +342,38 @@ Prefixes: `A0` (startup), `A1` (device images), `A2` (dropdowns), `D0` (device p
 
 ### Linux Port Files
 
-PyQt6 MVC architecture. Controllers are GUI-independent; views subscribe via callbacks.
+Hexagonal architecture (Ports & Adapters). Services are the core hexagon; CLI, GUI, and API are driving adapters.
 
 ```
 src/trcc/
-├── cli.py                       # CLI entry point
+├── cli.py                       # Typer CLI adapter (36 commands, 6 command classes)
+├── api.py                       # FastAPI REST adapter (optional [api] extra)
+├── conf.py                      # Settings singleton + persistence helpers
 ├── device_lcd.py                # SCSI RGB565 frame send
 ├── device_detector.py           # USB device scan + KNOWN_DEVICES registry
 ├── device_implementations.py    # Per-device protocol variants
 ├── device_scsi.py               # Low-level SCSI commands
+├── dc_config.py                 # DcConfig class (parse + write config1.dc)
 ├── dc_parser.py                 # Parse config1.dc overlay configs
 ├── dc_writer.py                 # Write config1.dc files
 ├── overlay_renderer.py          # PIL-based text/sensor overlay rendering
 ├── media_player.py              # FFmpeg video frame extraction
-├── system_sensors.py            # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
+├── system_sensors.py            # Hardware sensor discovery
 ├── system_config.py             # Dashboard panel config persistence
 ├── system_info.py               # CPU/GPU/RAM/disk sensor collection
 ├── theme_cloud.py               # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
-├── theme_io.py                  # Theme export/import (.tr format)
 ├── binary_reader.py             # Binary data reader (DC parsing helper)
-├── paths.py                     # XDG data/config, .7z extraction, on-demand download
+├── data_repository.py           # XDG paths, ThemeDir, DataManager, on-demand download
 ├── device_hid.py                # HID USB transport (PyUSB/HIDAPI)
 ├── device_led.py                # LED RGB protocol (effects, packets, HID sender)
+├── device_led_hr10.py           # HR10 LED backend
 ├── device_bulk.py               # Raw USB bulk protocol (GrandVision/Mjolnir Vision)
 ├── device_factory.py            # Protocol factory (SCSI/HID/LED/Bulk routing)
-├── constants.py                 # Shared constants
 ├── debug_report.py              # Diagnostic report tool
-├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
-├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info
-├── services/
-│   ├── __init__.py              # Re-exports all service classes
+├── services/                    # Core hexagon — pure Python, no framework deps
+│   ├── __init__.py              # Re-exports all 8 service classes
 │   ├── device.py                # DeviceService — detect, select, send_pil, send_rgb565
 │   ├── image.py                 # ImageService — solid_color, resize, brightness, rotation
 │   ├── display.py               # DisplayService — high-level display orchestration
@@ -381,11 +381,11 @@ src/trcc/
 │   ├── media.py                 # MediaService — GIF/video frame extraction
 │   ├── overlay.py               # OverlayService — overlay rendering
 │   ├── system.py                # SystemService — system sensor access and monitoring
-│   └── theme.py                 # ThemeService — theme loading/saving
+│   └── theme.py                 # ThemeService — theme loading/saving/export/import
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement
 │   └── controllers.py           # LCDDeviceController, LEDDeviceController, MVC controllers
-└── qt_components/
+└── qt_components/               # PySide6 GUI adapter
     ├── qt_app_mvc.py            # Main window (1454x800)
     ├── base.py                  # BasePanel, ImageLabel, pil_to_pixmap
     ├── constants.py             # Layout coords, sizes, colors, styles
@@ -493,34 +493,44 @@ Ordinal is 0-based index assigned by sorting detected devices by `/dev/sgX` path
 ## Quick Commands
 
 ```bash
-# Install udev rules + USB storage quirks (required once, auto-prompts for sudo)
-trcc setup-udev
+# Setup
+trcc setup-udev                   # install udev rules (auto-prompts sudo)
+trcc detect --all                 # list all devices
 
-# Detect device
-trcc detect
-trcc detect --all
+# Display
+trcc send image.png               # send image to LCD
+trcc color ff0000                 # solid color
+trcc test --loop                  # color cycle
+trcc video clip.mp4               # play video
+trcc screencast                   # stream screen to LCD
+trcc brightness 2                 # 50% brightness
+trcc rotation 90                  # rotate display
 
-# Test display (red screen)
-trcc test
+# Themes
+trcc theme-list                   # list local themes
+trcc theme-load 003a              # load and send theme
+trcc theme-save MyTheme           # save current as custom
+trcc theme-export 003a out.tr     # export to .tr file
+trcc theme-import out.tr          # import from .tr file
+trcc mask /path/mask.png          # apply mask
+trcc mask --clear                 # remove mask
 
-# Send image to LCD
-trcc send image.png
+# LED
+trcc led-color ff0000             # set LED color
+trcc led-mode breathing           # set LED effect
+trcc led-brightness 50            # set LED brightness
+trcc led-sensor cpu               # sensor source for linked modes
+trcc led-off                      # turn LEDs off
 
-# Display solid color
-trcc color ff0000
+# Diagnostics
+trcc report                       # full diagnostic report
+trcc doctor                       # check deps and permissions
+trcc hid-debug                    # HID handshake dump
+trcc led-debug --test             # LED diagnostic
 
-# LED diagnostics
-trcc led-debug
-trcc led-debug --test
-
-# HR10 NVMe temperature daemon
-trcc hr10-tempd
-trcc hr10-tempd --brightness 50 --drive "Samsung 990" --unit F
-
-# Run GUI
-PYTHONPATH=src python3 -m trcc.cli gui
-# or if installed:
-trcc gui
+# GUI / API
+trcc gui                          # launch GUI
+trcc serve                        # start REST API server
 ```
 
 ## Troubleshooting

@@ -344,6 +344,253 @@ trcc serve --token mysecret             # require auth token
 
 ---
 
+### `trcc brightness`
+
+Set display brightness level.
+
+```bash
+trcc brightness 1       # 25%
+trcc brightness 2       # 50%
+trcc brightness 3       # 100%
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+
+Persists to per-device config.
+
+---
+
+### `trcc rotation`
+
+Set display rotation.
+
+```bash
+trcc rotation 0         # no rotation
+trcc rotation 90        # 90° clockwise
+trcc rotation 180       # 180°
+trcc rotation 270       # 270° clockwise
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+
+Persists to per-device config.
+
+---
+
+### `trcc video`
+
+Play a video, GIF, or ZT file on the LCD.
+
+```bash
+trcc video clip.mp4
+trcc video animation.gif --no-loop
+trcc video clip.mp4 --duration 30
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+| `--no-loop` | Play once instead of looping |
+| `--duration` | Stop after N seconds (default: 0 = forever) |
+
+---
+
+### `trcc screencast`
+
+Stream a screen region to the LCD.
+
+```bash
+trcc screencast                           # full screen
+trcc screencast --x 100 --y 100 --w 320 --h 320
+trcc screencast --fps 15
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+| `--x`, `--y` | Top-left corner of capture region |
+| `--w`, `--h` | Width/height of capture region (0 = full screen) |
+| `--fps` | Frames per second (default: 10) |
+
+---
+
+### `trcc mask`
+
+Load a mask overlay and send to LCD.
+
+```bash
+trcc mask /path/to/mask.png
+trcc mask /path/to/theme/dir
+trcc mask --clear                 # remove mask (send solid black)
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+| `--clear` | Clear mask (send solid black) |
+
+---
+
+### `trcc overlay`
+
+Render overlay from a DC config file.
+
+```bash
+trcc overlay /path/to/config1.dc
+trcc overlay /path/to/theme/dir --send
+trcc overlay /path/to/theme/dir --output rendered.png
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+| `--send`, `-s` | Send rendered result to LCD |
+| `--output`, `-o` | Save rendered image to file |
+
+---
+
+### `trcc theme-list`
+
+List available themes for the current device resolution.
+
+```bash
+trcc theme-list                   # local themes
+trcc theme-list --cloud           # cloud themes
+trcc theme-list --cloud --category a   # gallery category only
+```
+
+| Option | Description |
+|--------|-------------|
+| `--cloud`, `-c` | List cloud themes instead of local |
+| `--category` | Filter by category (a=Gallery, b=Tech, c=HUD, d=Light, e=Nature, y=Aesthetic) |
+
+---
+
+### `trcc theme-load`
+
+Load a theme by name and send to LCD.
+
+```bash
+trcc theme-load 003a              # exact name
+trcc theme-load "Custom_MyTheme"  # custom theme
+trcc theme-load warframe          # partial match
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+
+Applies saved brightness/rotation, saves as last-used theme.
+
+---
+
+### `trcc theme-save`
+
+Save current display state as a custom theme.
+
+```bash
+trcc theme-save MyTheme
+trcc theme-save AnimTheme --video /path/to/clip.mp4
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (default: auto-detect) |
+| `--video`, `-v` | Video path for animated theme |
+
+Saves to `~/.trcc/data/theme{W}{H}/Custom_{name}/`.
+
+---
+
+### `trcc theme-export`
+
+Export a theme as a `.tr` file.
+
+```bash
+trcc theme-export 003a /tmp/mytheme.tr
+trcc theme-export Custom_MyTheme ~/backup.tr
+```
+
+---
+
+### `trcc theme-import`
+
+Import a theme from a `.tr` file.
+
+```bash
+trcc theme-import /tmp/mytheme.tr
+```
+
+| Option | Description |
+|--------|-------------|
+| `--device`, `-d` | Device path (determines resolution for import target) |
+
+---
+
+### `trcc led-color`
+
+Set LED static color.
+
+```bash
+trcc led-color ff0000      # red
+trcc led-color 00ff00      # green
+```
+
+---
+
+### `trcc led-mode`
+
+Set LED effect mode.
+
+```bash
+trcc led-mode static       # solid color
+trcc led-mode breathing    # fade in/out (Ctrl+C to stop)
+trcc led-mode colorful     # cycle colors (Ctrl+C to stop)
+trcc led-mode rainbow      # rotating hue (Ctrl+C to stop)
+```
+
+Animated modes run until Ctrl+C.
+
+---
+
+### `trcc led-brightness`
+
+Set LED brightness.
+
+```bash
+trcc led-brightness 50     # 50%
+trcc led-brightness 100    # full
+```
+
+Range: 0-100.
+
+---
+
+### `trcc led-off`
+
+Turn LEDs off.
+
+```bash
+trcc led-off
+```
+
+---
+
+### `trcc led-sensor`
+
+Set sensor source for temperature/load linked LED modes.
+
+```bash
+trcc led-sensor cpu        # CPU temp/load drives LED color
+trcc led-sensor gpu        # GPU temp/load drives LED color
+```
+
+---
+
 ### `trcc download`
 
 Download theme packs for all supported LCD resolutions.

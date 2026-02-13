@@ -1,40 +1,59 @@
 # Architecture
 
+## Hexagonal (Ports & Adapters)
+
+The project follows hexagonal architecture. The **services layer** is the core hexagon containing all business logic (pure Python, no framework deps). Three driving adapters consume the services:
+
+- **CLI** (`cli.py`) — Typer, 36 commands across 6 command classes
+- **GUI** (`qt_components/`) — PySide6, controllers in `core/` call services
+- **API** (`api.py`) — FastAPI REST adapter (optional `[api]` extra)
+
 ## Project Layout
 
 ```
 src/trcc/
-├── cli.py                       # CLI entry point
+├── cli.py                       # Typer CLI adapter (36 commands, 6 command classes)
+├── api.py                       # FastAPI REST adapter (optional [api] extra)
+├── conf.py                      # Settings singleton + persistence helpers
 ├── device_lcd.py                # SCSI RGB565 frame send
 ├── device_detector.py           # USB device scan + KNOWN_DEVICES registry
 ├── device_implementations.py    # Per-device protocol variants
 ├── device_scsi.py               # Low-level SCSI commands
+├── dc_config.py                 # DcConfig class (parse + write config1.dc)
 ├── dc_parser.py                 # Parse config1.dc overlay configs
 ├── dc_writer.py                 # Write config1.dc files
 ├── overlay_renderer.py          # PIL-based text/sensor overlay rendering
 ├── media_player.py              # FFmpeg video frame extraction
-├── system_sensors.py            # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
+├── system_sensors.py            # Hardware sensor discovery
 ├── system_config.py             # Dashboard panel config persistence
 ├── system_info.py               # CPU/GPU/RAM/disk sensor collection
 ├── theme_cloud.py               # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
-├── theme_io.py                  # Theme export/import (.tr format)
-├── paths.py                     # XDG paths, per-device config, .7z extraction, cross-distro helpers
-├── device_hid.py                # HID USB transport (PyUSB/HIDAPI) for LCD and LED devices
+├── binary_reader.py             # Binary data reader (DC parsing helper)
+├── data_repository.py           # XDG paths, ThemeDir, DataManager, on-demand download
+├── device_hid.py                # HID USB transport (PyUSB/HIDAPI)
 ├── device_led.py                # LED RGB protocol (effects, packet builder, HID sender)
+├── device_led_hr10.py           # HR10 LED backend
 ├── device_factory.py            # Protocol factory (SCSI/HID/LED/Bulk routing by PID)
 ├── device_bulk.py               # Raw USB bulk protocol (GrandVision/Mjolnir Vision)
-├── constants.py                 # Shared constants
 ├── debug_report.py              # Diagnostic report tool
-├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
-├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info
+├── services/                    # Core hexagon — pure Python, no framework deps
+│   ├── __init__.py              # Re-exports all 8 service classes
+│   ├── device.py                # DeviceService — detect, select, send_pil, send_rgb565
+│   ├── image.py                 # ImageService — solid_color, resize, brightness, rotation
+│   ├── display.py               # DisplayService — high-level display orchestration
+│   ├── led.py                   # LEDService — LED RGB control via LedProtocol
+│   ├── media.py                 # MediaService — GIF/video frame extraction
+│   ├── overlay.py               # OverlayService — overlay rendering
+│   ├── system.py                # SystemService — system sensor access and monitoring
+│   └── theme.py                 # ThemeService — theme loading/saving/export/import
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement
 │   └── controllers.py           # LCDDeviceController, LEDDeviceController, MVC controllers
-└── qt_components/
+└── qt_components/               # PySide6 GUI adapter
     ├── qt_app_mvc.py            # Main window (1454x800)
-    ├── base.py                  # BasePanel, BaseThemeBrowser, pil_to_pixmap, make_icon_button
+    ├── base.py                  # BasePanel, BaseThemeBrowser, pil_to_pixmap
     ├── constants.py             # Layout coords, sizes, colors, styles
     ├── assets.py                # Asset loader with lru_cache
     ├── eyedropper.py            # Fullscreen color picker
@@ -61,9 +80,9 @@ src/trcc/
 
 ## Design Patterns
 
-### MVC
+### Hexagonal / MVC
 
-Controllers in `core/` are GUI-independent. Views subscribe via callbacks, making it possible to swap frontends.
+Controllers in `core/` are GUI-independent. Views subscribe via callbacks. All business logic lives in `services/`, making it possible to swap frontends (CLI, GUI, API all use the same services).
 
 ### Per-Device Configuration
 

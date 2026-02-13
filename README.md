@@ -35,7 +35,7 @@ Run `lsusb` to find your USB ID (`xxxx:xxxx` after `ID`), then match it below.
 | USB ID | Devices |
 |--------|---------|
 | `87CD:70DB` | FROZEN HORIZON PRO, FROZEN MAGIC PRO, FROZEN VISION V2, CORE VISION, ELITE VISION, AK120, AX120, PA120 DIGITAL, Wonder Vision |
-| `87AD:70DB` | GrandVision 360 AIO |
+| `87AD:70DB` | GrandVision 360 AIO, Mjolnir Vision 360 |
 | `0416:5406` | LC1, LC2, LC3, LC5 (AIO pump heads) |
 | `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME SE |
 
@@ -178,12 +178,24 @@ pip install --break-system-packages trcc-linux && trcc install-desktop
 trcc gui                  # Launch GUI
 trcc detect               # Show connected devices
 trcc send image.png       # Send image to LCD
-trcc report               # Generate diagnostic report for bug reports
+trcc color "#ff0000"      # Fill LCD with solid color
+trcc brightness 2         # Set brightness (1=25%, 2=50%, 3=100%)
+trcc rotation 90          # Rotate display (0/90/180/270)
+trcc theme-list           # List available themes
+trcc theme-load NAME      # Load a theme by name
+trcc overlay              # Render and send overlay
+trcc screencast           # Live screen capture to LCD
+trcc video clip.mp4       # Play video on LCD
+trcc led-color "#00ff00"  # Set LED color
+trcc led-mode breathing   # Set LED effect mode
+trcc serve                # Start REST API server
+trcc doctor               # Check system dependencies
+trcc report               # Generate diagnostic report
 trcc setup-udev           # Install udev rules
 trcc install-desktop      # Install app menu entry and icon
 ```
 
-See the **[CLI Reference](doc/CLI_REFERENCE.md)** for all 17 commands, options, and troubleshooting.
+See the **[CLI Reference](doc/CLI_REFERENCE.md)** for all 36 commands, options, and troubleshooting.
 
 ## Documentation
 
