@@ -120,6 +120,28 @@ sudo pacman -S python-pyqt6
 pip install PyQt6
 ```
 
+### Segmentation fault (core dumped)
+
+**Cause:** Most commonly, a missing Qt6 xcb dependency. On Ubuntu/Mint, `libxcb-cursor0` is not installed by default but Qt6 requires it — without it, Qt segfaults silently on startup.
+
+**Fix 1 — Install missing library** (try this first):
+```bash
+sudo apt install libxcb-cursor0
+```
+
+**Fix 2 — Use a virtual environment** (if Fix 1 doesn't help):
+```bash
+python3 -m venv ~/.local/share/trcc-venv
+~/.local/share/trcc-venv/bin/pip install trcc-linux PyQt6 pyusb
+~/.local/share/trcc-venv/bin/trcc gui
+```
+
+**Diagnostic:** If neither fix works:
+```bash
+# Show Qt plugin loading errors
+QT_DEBUG_PLUGINS=1 trcc gui 2>&1 | head -30
+```
+
 ### "Qt_6_PRIVATE_API not found"
 
 **Cause:** pip-installed PyQt6 bundles its own Qt6 libraries, but your system's Qt6 is loaded first. Version mismatch causes symbol errors.

@@ -96,6 +96,8 @@ sudo dnf install sg3_utils python3-pyqt6 ffmpeg && pip install --break-system-pa
 sudo apt install sg3-utils python3-pyqt6 ffmpeg python3-pip && pip install --break-system-packages trcc-linux && sudo trcc setup-udev && trcc install-desktop
 ```
 
+> **Segfault on `trcc gui`?** Install the missing Qt6 dependency: `sudo apt install libxcb-cursor0`. If that doesn't help, see [Troubleshooting](doc/TROUBLESHOOTING.md#segmentation-fault-core-dumped).
+
 ### Arch / Manjaro / EndeavourOS / CachyOS / Garuda
 
 ```bash
@@ -181,7 +183,7 @@ trcc setup-udev           # Install udev rules
 trcc install-desktop      # Install app menu entry and icon
 ```
 
-See the **[CLI Reference](doc/CLI_REFERENCE.md)** for all 15 commands, options, and troubleshooting.
+See the **[CLI Reference](doc/CLI_REFERENCE.md)** for all 17 commands, options, and troubleshooting.
 
 ## Documentation
 

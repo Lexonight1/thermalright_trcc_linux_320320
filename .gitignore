@@ -92,8 +92,6 @@ trcc_setup.h
 /probe_*.py
 /core.py
 /src/core.py
-/src/gif_animator.py
-/gif_animator.py
 /*.sh
 !install.sh
 

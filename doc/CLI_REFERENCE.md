@@ -14,6 +14,7 @@ trcc [--version] [-v] <command> [options]
 |--------|-------------|
 | `--version` | Show version and exit |
 | `-v` | Increase verbosity (`-v` info, `-vv` debug) |
+| `--last-one` | Start minimized to system tray, send last-used theme (for autostart) |
 
 ---
 
@@ -227,11 +228,20 @@ This is what `~/.config/autostart/trcc.desktop` calls on login with `trcc --last
 
 ### `trcc report`
 
-Generate a full diagnostic report for bug reports. Runs `lsusb`, `detect --all`, and `hid-debug` in one command — users can copy-paste the entire output into a GitHub issue.
+Generate a full diagnostic report for bug reports. Collects everything needed to diagnose device issues in one command — users can copy-paste the entire output into a GitHub issue.
 
 ```bash
 trcc report
 ```
+
+**What it collects:**
+
+- TRCC version, Python version, OS/kernel info
+- `lsusb` output (all USB devices)
+- `trcc detect --all` (detected TRCC devices with protocol info)
+- HID handshake results (PM byte, resolution, serial)
+- Udev rules status
+- USB descriptor details for relevant devices
 
 ---
 

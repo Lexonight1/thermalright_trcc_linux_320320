@@ -237,6 +237,7 @@ class TestExtractFrames(unittest.TestCase):
         self.assertEqual(result, 0)
 
     @patch('subprocess.run')
+    @patch('trcc.media_player.FFMPEG_AVAILABLE', True)
     def test_success_counts_frames(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
 
@@ -250,6 +251,7 @@ class TestExtractFrames(unittest.TestCase):
             self.assertEqual(result, 5)
 
     @patch('subprocess.run')
+    @patch('trcc.media_player.FFMPEG_AVAILABLE', True)
     def test_with_max_frames(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
 
@@ -261,6 +263,7 @@ class TestExtractFrames(unittest.TestCase):
             self.assertIn('10', cmd)
 
     @patch('subprocess.run')
+    @patch('trcc.media_player.FFMPEG_AVAILABLE', True)
     def test_ffmpeg_error_returns_zero(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stderr=b'error')
 
@@ -270,6 +273,7 @@ class TestExtractFrames(unittest.TestCase):
             self.assertEqual(result, 0)
 
     @patch('subprocess.run', side_effect=Exception("ffmpeg crashed"))
+    @patch('trcc.media_player.FFMPEG_AVAILABLE', True)
     def test_ffmpeg_exception_returns_zero(self, _):
         with tempfile.TemporaryDirectory() as outdir:
             result = VideoPlayer.extract_frames(
@@ -277,6 +281,7 @@ class TestExtractFrames(unittest.TestCase):
             self.assertEqual(result, 0)
 
     @patch('subprocess.run')
+    @patch('trcc.media_player.FFMPEG_AVAILABLE', True)
     def test_ffmpeg_timeout_returns_zero(self, mock_run):
         import subprocess as sp
         mock_run.side_effect = sp.TimeoutExpired('ffmpeg', 600)
