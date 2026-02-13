@@ -14,7 +14,6 @@ jobs:
   build-and-publish:
     name: Build and publish release artifacts
     runs-on: ubuntu-latest
-    environment: pypi
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
