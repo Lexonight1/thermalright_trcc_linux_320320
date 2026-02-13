@@ -151,7 +151,7 @@ class UCThemeWeb(DownloadableThemeBrowser):
         archive = self.web_directory.parent / f"{self.web_directory.name}.7z"
         if not archive.exists():
             return
-        from ..paths import DataManager
+        from ..data_repository import DataManager
         DataManager.extract_7z(str(archive), str(self.web_directory))
 
     def load_themes(self):
@@ -223,7 +223,7 @@ class UCThemeWeb(DownloadableThemeBrowser):
             return
 
         def download_fn():
-            from ..cloud_downloader import CloudThemeDownloader
+            from ..theme_cloud import CloudThemeDownloader
             downloader = CloudThemeDownloader(
                 resolution=self._resolution,
                 cache_dir=str(self.web_directory))

@@ -1,8 +1,17 @@
 """
-Central path constants and directory utilities for TRCC.
+Data Repository — central data access for TRCC.
 
-All path calculations happen once here. Components import what they need.
-Config persistence lives in conf.py; device utilities live in their respective modules.
+Abstracts where data lives (package, user cache, GitHub) so callers
+just ask for what they need. Path constants, archive management,
+and system utilities all go through this module.
+
+Classes:
+    SysUtils      — cross-distro system utilities (sysfs, sg_raw, 7z)
+    ThemeDir      — standard theme directory layout + resolution lookup
+    DataManager   — archive extraction, on-demand downloading, resolution tracking
+    Resources     — GUI resource file finding
+
+Config persistence lives in conf.py; device protocols in their respective modules.
 """
 from __future__ import annotations
 
@@ -580,42 +589,3 @@ FONT_SEARCH_DIRS: List[str] = [
 ]
 
 
-# =========================================================================
-# Backward-compat aliases (module-level names for existing importers)
-# =========================================================================
-
-# SysUtils
-read_sysfs = SysUtils.read_sysfs
-find_scsi_devices = SysUtils.find_scsi_devices
-require_sg_raw = SysUtils.require_sg_raw
-has_7z_support = SysUtils.has_7z_support
-
-# ThemeDir
-_has_actual_themes = ThemeDir.has_themes
-
-# DataManager
-is_safe_archive_member = DataManager.is_safe_archive_member
-_extract_7z = DataManager.extract_7z
-_download_archive = DataManager.download_archive
-_fetch_and_extract = DataManager._fetch_and_extract
-_fetch_theme_archive_by_name = DataManager._fetch_theme_archive
-_fetch_web_archive = DataManager._fetch_web_archive
-_has_any_content = DataManager._has_any_content
-ensure_themes_extracted = DataManager.ensure_themes
-ensure_web_extracted = DataManager.ensure_web
-ensure_web_masks_extracted = DataManager.ensure_web_masks
-ensure_all_data = DataManager.ensure_all
-is_resolution_installed = DataManager.is_resolution_installed
-mark_resolution_installed = DataManager.mark_resolution_installed
-get_web_dir = DataManager.get_web_dir
-get_web_masks_dir = DataManager.get_web_masks_dir
-GITHUB_THEME_BASE_URL = DataManager.GITHUB_BASE_URL
-
-# ThemeDir convenience wrapper
-def get_theme_dir(width: int, height: int) -> str:
-    """Thin wrapper around ThemeDir.for_resolution() for backward compatibility."""
-    return str(ThemeDir.for_resolution(width, height))
-
-# Resources
-find_resource = Resources.find
-build_search_paths = Resources.build_search_paths

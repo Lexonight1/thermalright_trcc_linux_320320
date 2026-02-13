@@ -330,7 +330,7 @@ class TestSendFrame(unittest.TestCase):
 
 class TestFindLCDDevices(unittest.TestCase):
 
-    @patch('trcc.driver_lcd.LCDDriver')
+    @patch('trcc.device_lcd.LCDDriver')
     @patch('trcc.device_detector.detect_devices')
     def test_returns_device_dicts(self, mock_detect, mock_driver_cls):
         dev = MagicMock()
@@ -365,7 +365,7 @@ class TestFindLCDDevices(unittest.TestCase):
         mock_detect.return_value = [dev]
         self.assertEqual(find_lcd_devices(), [])
 
-    @patch('trcc.driver_lcd.LCDDriver', side_effect=Exception('driver fail'))
+    @patch('trcc.device_lcd.LCDDriver', side_effect=Exception('driver fail'))
     @patch('trcc.device_detector.detect_devices')
     def test_driver_error_uses_default_resolution(self, mock_detect, _):
         dev = MagicMock()

@@ -1,7 +1,7 @@
 """
 System Info dashboard panel configuration.
 
-Persists sensor-to-panel bindings as JSON in ~/.config/trcc/sysinfo_config.json.
+Persists sensor-to-panel bindings as JSON in ~/.config/trcc/system_config.json.
 Replaces the Windows binary Data/config format.
 
 Each panel has 4 sensor bindings (one per row), a category ID for background
@@ -58,13 +58,18 @@ CATEGORY_COLORS = {
 class SysInfoConfig:
     """Load/save dashboard panel configuration from JSON."""
 
-    CONFIG_PATH = Path.home() / '.config' / 'trcc' / 'sysinfo_config.json'
+    CONFIG_PATH = Path.home() / '.config' / 'trcc' / 'system_config.json'
 
     def __init__(self):
         self.panels: list[PanelConfig] = []
 
     def load(self) -> list[PanelConfig]:
         """Load from JSON file, or return defaults if not found."""
+        # Migrate legacy filename
+        legacy = self.CONFIG_PATH.parent / 'sysinfo_config.json'
+        if legacy.exists() and not self.CONFIG_PATH.exists():
+            legacy.rename(self.CONFIG_PATH)
+
         if self.CONFIG_PATH.exists():
             try:
                 data = json.loads(self.CONFIG_PATH.read_text())
@@ -148,7 +153,7 @@ class SysInfoConfig:
 
         Only fills sensors where sensor_id is empty (preserves user customizations).
         """
-        from .sensor_enumerator import map_defaults
+        from .system_sensors import map_defaults
         defaults = map_defaults(enumerator)
 
         # Map category_id + row index to legacy metric key

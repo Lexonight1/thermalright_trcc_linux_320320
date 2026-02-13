@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import struct
 
-from .device_base import HandshakeResult
+from .core.models import HandshakeResult
 
 log = logging.getLogger(__name__)
 

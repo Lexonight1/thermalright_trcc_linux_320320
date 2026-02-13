@@ -14,7 +14,7 @@ Theme files are MP4 videos named by category:
 - y001.mp4 - y005.mp4 (Aesthetic)
 
 Usage:
-    from trcc.cloud_downloader import CloudThemeDownloader, CATEGORIES
+    from trcc.theme_cloud import CloudThemeDownloader, CATEGORIES
 
     downloader = CloudThemeDownloader(
         resolution="320x320",

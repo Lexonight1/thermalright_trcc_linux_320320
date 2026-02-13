@@ -638,7 +638,7 @@ class TestFindLcdDevicesHid:
         from trcc.device_scsi import find_lcd_devices
 
         # Patch LCDDriver to avoid real SCSI access
-        with patch("trcc.driver_lcd.LCDDriver", side_effect=Exception("no hw")):
+        with patch("trcc.device_lcd.LCDDriver", side_effect=Exception("no hw")):
             devices = find_lcd_devices()
 
         assert len(devices) == 2
@@ -668,7 +668,7 @@ class TestFindLcdDevicesHid:
         ]
         from trcc.device_scsi import find_lcd_devices
 
-        with patch("trcc.driver_lcd.LCDDriver", side_effect=Exception("no hw")):
+        with patch("trcc.device_lcd.LCDDriver", side_effect=Exception("no hw")):
             devices = find_lcd_devices()
 
         indices = [d['device_index'] for d in devices]

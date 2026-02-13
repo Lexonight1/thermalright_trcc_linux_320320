@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Tuple
 
 from ..conf import settings
-from ..paths import ThemeDir, ensure_all_data
+from ..data_repository import DataManager, ThemeDir
 from .device import DeviceService
 from .image import ImageService
 from .media import MediaService
@@ -85,7 +85,7 @@ class DisplayService:
 
     def _setup_dirs(self, width: int, height: int) -> None:
         """Extract, locate, and set theme/web/mask directories."""
-        ensure_all_data(width, height)
+        DataManager.ensure_all(width, height)
         settings._resolve_paths()
 
         td = settings.theme_dir
@@ -471,8 +471,7 @@ class DisplayService:
 
     def _get_overlay_config(self) -> dict:
         """Get current overlay config for saving."""
-        renderer = self.overlay._ensure_renderer()
-        return renderer.config if renderer else {}
+        return self.overlay.config
 
     # ── Theme export / import (delegates to ThemeService) ─────────────
 

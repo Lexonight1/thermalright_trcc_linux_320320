@@ -25,11 +25,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .paths import (
+from .data_repository import (
     USER_DATA_DIR,
+    DataManager,
     ThemeDir,
-    get_web_dir,
-    get_web_masks_dir,
 )
 
 log = logging.getLogger(__name__)
@@ -261,8 +260,8 @@ class Settings:
         """Resolve theme/web/mask directories for current resolution."""
         w, h = self._width, self._height
         self.theme_dir = ThemeDir.for_resolution(w, h)
-        self.web_dir = Path(get_web_dir(w, h))
-        self.masks_dir = Path(get_web_masks_dir(w, h))
+        self.web_dir = Path(DataManager.get_web_dir(w, h))
+        self.masks_dir = Path(DataManager.get_web_masks_dir(w, h))
 
 
 # Module-level singleton — import and use directly

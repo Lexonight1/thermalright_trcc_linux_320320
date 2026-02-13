@@ -1,7 +1,7 @@
 """Video/animation playback service.
 
-Pure Python (FFmpeg via media_player), no Qt dependencies.
-Absorbed from VideoController + VideoModel in controllers.py/models.py.
+Pure Python (FFmpeg via media_player decoders), no Qt dependencies.
+Owns all playback state — decoders are pure frame sources.
 """
 from __future__ import annotations
 
@@ -23,9 +23,10 @@ class MediaService:
     def __init__(self) -> None:
         self._state = VideoState()
         self._frames: list[Any] = []
+        self._delays: list[int] = []  # Per-frame delays (ms), for .zt files
         self._source_path: Path | None = None
         self._target_size: tuple[int, int] = (320, 320)
-        self._player: Any = None
+        self._decoder: Any = None
         self._frame_counter = 0
         self._progress_counter = 0
 
@@ -44,23 +45,25 @@ class MediaService:
         self.stop()
         self._source_path = path
         self._frames.clear()
+        self._delays.clear()
 
         try:
-            from ..media_player import ThemeZtPlayer, VideoPlayer
+            from ..media_player import ThemeZtDecoder, VideoDecoder
 
             suffix = path.suffix.lower()
             if suffix == '.zt':
-                self._player = ThemeZtPlayer(str(path), self._target_size)
+                self._decoder = ThemeZtDecoder(str(path), self._target_size)
+                self._delays = list(self._decoder.delays)
             else:
-                self._player = VideoPlayer(str(path), self._target_size)
+                self._decoder = VideoDecoder(str(path), self._target_size)
 
-            self._state.total_frames = self._player.frame_count
-            self._state.fps = self._player.fps if self._player.fps > 0 else 16
+            self._state.total_frames = self._decoder.frame_count
+            self._state.fps = self._decoder.fps if self._decoder.fps > 0 else 16
             self._state.current_frame = 0
             self._state.state = PlaybackState.STOPPED
 
-            if preload and hasattr(self._player, 'frames'):
-                self._frames = self._player.frames
+            if preload:
+                self._frames = list(self._decoder.frames)
 
             return True
         except Exception as e:
@@ -70,19 +73,14 @@ class MediaService:
     # ── Playback control ─────────────────────────────────────────────
 
     def play(self) -> None:
-        if self._player:
-            self._player.play()
+        if self._frames:
             self._state.state = PlaybackState.PLAYING
             self._frame_counter = 0
 
     def pause(self) -> None:
-        if self._player:
-            self._player.pause()
-            self._state.state = PlaybackState.PAUSED
+        self._state.state = PlaybackState.PAUSED
 
     def stop(self) -> None:
-        if self._player:
-            self._player.stop()
         self._state.state = PlaybackState.STOPPED
         self._state.current_frame = 0
 
@@ -104,14 +102,8 @@ class MediaService:
         """Get frame at index (or current frame)."""
         if index is None:
             index = self._state.current_frame
-
-        if self._frames and 0 <= index < len(self._frames):
+        if 0 <= index < len(self._frames):
             return self._frames[index]
-
-        if self._player:
-            self._player.current_frame = index
-            return self._player.get_current_frame()
-
         return None
 
     def advance_frame(self) -> Any | None:
@@ -199,3 +191,11 @@ class MediaService:
     @property
     def state(self) -> VideoState:
         return self._state
+
+    def close(self) -> None:
+        """Release decoder resources."""
+        if self._decoder:
+            self._decoder.close()
+            self._decoder = None
+        self._frames.clear()
+        self._delays.clear()

@@ -186,14 +186,14 @@ def _cmd_hid_debug() -> int:
     return DiagCommands.hid_debug()
 
 
-@app.command("led-diag")
-def _cmd_led_diag(
+@app.command("led-debug")
+def _cmd_led_debug(
     test_colors: Annotated[bool, typer.Option(
         "--test", help="Send test colors after handshake",
     )] = False,
 ) -> int:
     """Diagnose LED device (handshake, PM byte)."""
-    return DiagCommands.led_diag(test=test_colors)
+    return DiagCommands.led_debug(test=test_colors)
 
 
 @app.command("hr10-tempd")
@@ -374,8 +374,8 @@ class DeviceCommands:
         try:
             if driver.implementation:
                 w, h = driver.implementation.resolution
-                from trcc.paths import ensure_all_data
-                ensure_all_data(w, h)
+                from trcc.data_repository import DataManager
+                DataManager.ensure_all(w, h)
         except Exception:
             pass  # Non-fatal — themes are optional for CLI commands
 
@@ -383,7 +383,7 @@ class DeviceCommands:
     def _get_driver(device=None):
         """Create an LCDDriver, resolving selected device and extracting archives."""
         from trcc.conf import get_selected_device
-        from trcc.driver_lcd import LCDDriver
+        from trcc.device_lcd import LCDDriver
         if device is None:
             device = get_selected_device()
         driver = LCDDriver(device_path=device)
@@ -950,7 +950,7 @@ class DiagCommands:
             return 1
 
     @staticmethod
-    def led_diag(test=False):
+    def led_debug(test=False):
         """Diagnose LED device — handshake, PM byte discovery, optional test colors."""
         try:
             import time
@@ -1264,7 +1264,7 @@ StartupWMClass=trcc-linux
         # User files/dirs to remove
         user_items = [
             home / ".config" / "trcc",                          # config dir
-            home / ".trcc",                                      # legacy config dir
+            home / ".trcc",                                      # downloaded themes/web data
             home / ".config" / "autostart" / "trcc-linux.desktop",     # autostart
             home / ".local" / "share" / "applications" / "trcc-linux.desktop",  # desktop shortcut
             # Legacy filenames (pre-v2.0.2)
@@ -1308,6 +1308,13 @@ StartupWMClass=trcc-linux
         if os.geteuid() == 0 and any("udev" in r for r in removed):
             subprocess.run(["udevadm", "control", "--reload-rules"], check=False)
             subprocess.run(["udevadm", "trigger"], check=False)
+
+        # Uninstall the pip package itself
+        print("\nUninstalling trcc-linux pip package...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "uninstall", "trcc-linux"],
+            check=False,
+        )
 
         return 0
 
@@ -1370,7 +1377,7 @@ reset_device = DisplayCommands.reset
 resume = DisplayCommands.resume
 show_info = SystemCommands.show_info
 hid_debug = DiagCommands.hid_debug
-led_diag = DiagCommands.led_diag
+led_debug = DiagCommands.led_debug
 hr10_tempd = DiagCommands.hr10_tempd
 setup_udev = SystemCommands.setup_udev
 install_desktop = SystemCommands.install_desktop

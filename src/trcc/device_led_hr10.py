@@ -202,12 +202,6 @@ class Hr10Display:
         ]
 
 
-# Backward-compat aliases
-render_display = Hr10Display.render
-render_metric = Hr10Display.render_metric
-get_digit_mask = Hr10Display.get_digit_mask
-apply_animation_colors = Hr10Display.apply_animation_colors
-
 
 # =========================================================================
 # SSD Thermal Profiles
@@ -320,21 +314,6 @@ def read_temp_celsius(hwmon_path: str) -> Optional[float]:
         return None
 
 
-def celsius_to_f(c: float) -> float:
-    """Convert Celsius to Fahrenheit."""
-    return c * 9.0 / 5.0 + 32.0
-
-
-def temp_to_color(
-    temp_c: float, gradient: List[Tuple[float, Tuple[int, int, int]]]
-) -> Tuple[int, int, int]:
-    """Map a temperature to an RGB color using gradient stops.
-
-    Delegates to color_for_value() in device_led.py (shared gradient logic).
-    """
-    from .device_led import color_for_value
-    return color_for_value(temp_c, gradient)
-
 
 def breathe_brightness(
     temp_c: float, throttle_c: float, phase: float
@@ -407,6 +386,7 @@ def run_hr10_daemon(
         LED_VID,
         LedHidSender,
         LedPacketBuilder,
+        color_for_value,
     )
 
     # Find NVMe drive
@@ -512,7 +492,7 @@ def run_hr10_daemon(
                 continue
 
             temp_c = last_temp_c
-            display_temp = celsius_to_f(temp_c) if use_f else temp_c
+            display_temp = (temp_c * 9.0 / 5.0 + 32.0) if use_f else temp_c
 
             # Determine if text content has changed
             text_changed = False
@@ -524,12 +504,12 @@ def run_hr10_daemon(
                 text_changed = True
 
             # Compute thermal color and breathe brightness
-            thermal_color = temp_to_color(temp_c, gradient)
+            thermal_color = color_for_value(temp_c, gradient)
             breathe_mult = breathe_brightness(temp_c, throttle_c, phase)
             effective_brightness = int(brightness * breathe_mult)
 
             text = f"{display_temp:.0f}{unit_suffix}"
-            led_colors = render_display(text, thermal_color, {'deg'})
+            led_colors = Hr10Display.render(text, thermal_color, {'deg'})
 
             is_breathing = temp_c >= 40
             should_send = text_changed or is_breathing

@@ -18,9 +18,9 @@ import tempfile
 import time
 from typing import Dict, List, Set
 
-from .constants import RESOLUTION_TO_PM as _RESOLUTION_TO_PM
-from .device_base import HandshakeResult
-from .paths import require_sg_raw
+from .core.models import RESOLUTION_TO_PM as _RESOLUTION_TO_PM
+from .core.models import HandshakeResult
+from .data_repository import SysUtils
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def _build_header(cmd: int, size: int) -> bytes:
 
 def _scsi_read(dev: str, cdb: bytes, length: int) -> bytes:
     """Execute SCSI READ via sg_raw."""
-    require_sg_raw()
+    SysUtils.require_sg_raw()
     cdb_hex = ' '.join(f'{b:02x}' for b in cdb)
     cmd = ['sg_raw', '-r', str(length), dev] + cdb_hex.split()
     result = subprocess.run(cmd, capture_output=True, timeout=10)
@@ -87,7 +87,7 @@ def _scsi_read(dev: str, cdb: bytes, length: int) -> bytes:
 
 def _scsi_write(dev: str, header: bytes, data: bytes) -> bool:
     """Execute SCSI WRITE via sg_raw with temp file for payload."""
-    require_sg_raw()
+    SysUtils.require_sg_raw()
     cdb_hex = ' '.join(f'{b:02x}' for b in list(header[:16]))
 
     with tempfile.NamedTemporaryFile(delete=False) as f:
@@ -211,7 +211,7 @@ def find_lcd_devices() -> List[Dict]:
             # Detect resolution via LCDDriver if possible
             resolution = (320, 320)
             try:
-                from .driver_lcd import LCDDriver
+                from .device_lcd import LCDDriver
                 driver = LCDDriver(device_path=dev.scsi_device, auto_detect_resolution=True)
                 if driver.implementation:
                     resolution = driver.implementation.resolution

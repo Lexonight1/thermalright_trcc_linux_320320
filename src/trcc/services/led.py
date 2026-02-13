@@ -281,8 +281,8 @@ class LEDService:
     def _update_hr10_mask(self) -> None:
         if not self._hr10_mode:
             return
-        from ..device_led_hr10 import get_digit_mask
-        self._hr10_mask = get_digit_mask(
+        from ..device_led_hr10 import Hr10Display
+        self._hr10_mask = Hr10Display.get_digit_mask(
             self._hr10_display_text, self._hr10_indicators
         )
 

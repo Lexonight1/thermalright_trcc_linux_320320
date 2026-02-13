@@ -22,10 +22,8 @@ from tempfile import TemporaryDirectory
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
+from trcc.core.models import DisplayElement, ElementConfig, FontConfig
 from trcc.dc_parser import (
-    DisplayElement,
-    ElementConfig,
-    FontConfig,
     dc_to_overlay_config,
     get_hardware_metric_name,
     list_theme_configs,

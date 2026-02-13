@@ -9,7 +9,7 @@ import logging
 import threading
 from typing import Any, Optional
 
-from ..core.models import DeviceInfo
+from ..core.models import DeviceInfo, LCDDeviceConfig
 
 log = logging.getLogger(__name__)
 
@@ -177,6 +177,41 @@ class DeviceService:
         """Check if a send is in progress."""
         with self._send_lock:
             return self._send_busy
+
+    # ── LCD resolution detection ────────────────────────────────────
+
+    @staticmethod
+    def detect_lcd_resolution(config: LCDDeviceConfig, device_path: str,
+                              verbose: bool = False) -> bool:
+        """Auto-detect SCSI LCD resolution by querying FBL from device.
+
+        Mutates config.width/height/fbl/resolution_detected on success.
+        """
+        try:
+            from ..fbl_detector import detect_display_resolution  # type: ignore[import-not-found]
+        except ImportError:
+            try:
+                from fbl_detector import detect_display_resolution  # type: ignore[import-not-found]
+            except ImportError:
+                if verbose:
+                    log.warning("fbl_detector module not available")
+                return False
+
+        display_info = detect_display_resolution(device_path, verbose=verbose)
+        if display_info:
+            config.width = display_info.width
+            config.height = display_info.height
+            config.fbl = display_info.fbl
+            config.resolution_detected = True
+            if verbose:
+                log.info("Auto-detected resolution: %s (FBL=%s)",
+                         display_info.resolution_name, config.fbl)
+            return True
+
+        if verbose:
+            log.warning("Failed to auto-detect resolution, using default %dx%d",
+                        config.width, config.height)
+        return False
 
     # ── Protocol info ────────────────────────────────────────────────
 

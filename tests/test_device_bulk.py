@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from trcc.device_base import HandshakeResult
+from trcc.core.models import HandshakeResult
 from trcc.device_bulk import (
     _HANDSHAKE_PAYLOAD,
     _HANDSHAKE_READ_SIZE,

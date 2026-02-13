@@ -6,6 +6,7 @@ _apply_brightness(), byte_order_for().
 """
 from __future__ import annotations
 
+import struct
 from typing import Any
 
 import numpy as np
@@ -80,6 +81,12 @@ class ImageService:
         from PIL import Image as PILImage
 
         return img.resize((w, h), PILImage.Resampling.LANCZOS)
+
+    @staticmethod
+    def rgb_to_bytes(r: int, g: int, b: int, byte_order: str = '>') -> bytes:
+        """Convert single RGB pixel to RGB565 bytes."""
+        pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+        return struct.pack(f'{byte_order}H', pixel)
 
     @staticmethod
     def byte_order_for(protocol: str, resolution: tuple[int, int]) -> str:

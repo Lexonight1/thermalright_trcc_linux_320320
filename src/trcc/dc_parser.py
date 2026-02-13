@@ -9,101 +9,17 @@ Based on decompiled Windows TRCC code:
 """
 
 import struct
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from trcc.binary_reader import BinaryReader
-
-
-@dataclass
-class FontConfig:
-    """Font configuration from .dc file"""
-    name: str
-    size: float
-    style: int      # 0=Regular, 1=Bold, 2=Italic
-    unit: int       # GraphicsUnit
-    charset: int
-    color_argb: tuple  # (alpha, red, green, blue)
-
-
-@dataclass
-class ElementConfig:
-    """Element position and font config"""
-    x: int
-    y: int
-    font: Optional[FontConfig] = None
-    enabled: bool = True
-
-
-@dataclass
-class DisplayElement:
-    """
-    Display element from UCXiTongXianShiSub (time, date, weekday, hardware info, custom text).
-
-    myMode values:
-        0 = Hardware info (CPU/GPU metrics)
-        1 = Time
-        2 = Weekday (SUN, MON, TUE, etc.)
-        3 = Date
-        4 = Custom text
-
-    myModeSub values (format variants):
-        For mode 1 (Time):
-            0 = HH:mm (24-hour)
-            1 = hh:mm AM/PM (12-hour)
-            2 = HH:mm (same as 0)
-        For mode 3 (Date):
-            0 = yyyy/MM/dd
-            1 = yyyy/MM/dd (same as 0)
-            2 = dd/MM/yyyy
-            3 = MM/dd
-            4 = dd/MM
-    """
-    mode: int           # Display type (0=hardware, 1=time, 2=weekday, 3=date, 4=custom)
-    mode_sub: int       # Format variant
-    x: int              # X position
-    y: int              # Y position
-    main_count: int = 0     # For hardware info - sensor category
-    sub_count: int = 0      # For hardware info - specific sensor
-    font_name: str = "Microsoft YaHei"
-    font_size: float = 24.0
-    font_style: int = 0  # 0=Regular, 1=Bold, 2=Italic
-    font_unit: int = 3   # GraphicsUnit.Point
-    font_charset: int = 134  # GB2312 (Windows default: new Font("微软雅黑", 36f, 0, 3, 134))
-    color_argb: tuple = (255, 255, 255, 255)  # ARGB
-    text: str = ""      # Custom text content
-
-    @property
-    def mode_name(self) -> str:
-        """Get human-readable mode name"""
-        names = {0: 'hardware', 1: 'time', 2: 'weekday', 3: 'date', 4: 'custom'}
-        return names.get(self.mode, f'unknown_{self.mode}')
-
-    @property
-    def color_hex(self) -> str:
-        """Get color as hex string"""
-        _, r, g, b = self.color_argb
-        return f"#{r:02x}{g:02x}{b:02x}"
-
-
-# Single source of truth for hardware sensor ↔ metric name mapping.
-# dc_writer and dc_config import from here.
-HARDWARE_METRICS: Dict[Tuple[int, int], str] = {
-    (0, 1): 'cpu_temp',
-    (0, 2): 'cpu_percent',
-    (0, 3): 'cpu_freq',
-    (0, 4): 'cpu_power',
-    (1, 1): 'gpu_temp',
-    (1, 2): 'gpu_usage',
-    (1, 3): 'gpu_clock',
-    (1, 4): 'gpu_power',
-    (2, 1): 'mem_percent',
-    (2, 2): 'mem_clock',
-    (3, 1): 'disk_activity',
-}
-
-METRIC_TO_IDS: Dict[str, Tuple[int, int]] = {v: k for k, v in HARDWARE_METRICS.items()}
+from trcc.core.models import (
+    HARDWARE_METRICS,
+    METRIC_TO_IDS,
+    DisplayElement,
+    ElementConfig,
+    FontConfig,
+)
 
 
 class DcParser:

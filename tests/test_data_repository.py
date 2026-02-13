@@ -1,5 +1,5 @@
 """
-Tests for paths.py (directory/extraction helpers) and conf.py (config persistence).
+Tests for data_repository.py (directory/extraction helpers) and conf.py (config persistence).
 """
 
 import json
@@ -21,21 +21,11 @@ from trcc.conf import (
     save_resolution,
     save_temp_unit,
 )
-from trcc.paths import (
+from trcc.data_repository import (
     DataManager,
-    _extract_7z,
+    Resources,
+    ThemeDir,
     _find_data_dir,
-    _has_actual_themes,
-    build_search_paths,
-    ensure_themes_extracted,
-    ensure_web_extracted,
-    ensure_web_masks_extracted,
-    find_resource,
-    get_theme_dir,
-    get_web_dir,
-    get_web_masks_dir,
-    is_resolution_installed,
-    mark_resolution_installed,
 )
 
 
@@ -43,43 +33,43 @@ class TestPathHelpers(unittest.TestCase):
     """Test path construction helpers."""
 
     def test_get_theme_dir(self):
-        path = get_theme_dir(320, 320)
+        path = str(ThemeDir.for_resolution(320, 320))
         self.assertTrue(path.endswith('theme320320'))
 
     def test_get_theme_dir_other_resolution(self):
-        path = get_theme_dir(480, 480)
+        path = str(ThemeDir.for_resolution(480, 480))
         self.assertTrue(path.endswith('theme480480'))
 
     def test_get_web_dir(self):
-        path = get_web_dir(320, 320)
+        path = DataManager.get_web_dir(320, 320)
         self.assertTrue(path.endswith(os.path.join('web', '320320')))
 
     def test_get_web_masks_dir(self):
-        path = get_web_masks_dir(320, 320)
+        path = DataManager.get_web_masks_dir(320, 320)
         self.assertTrue(path.endswith(os.path.join('web', 'zt320320')))
 
 
 class TestHasActualThemes(unittest.TestCase):
-    """Test _has_actual_themes helper."""
+    """Test ThemeDir.has_themes helper."""
 
     def test_nonexistent_dir(self):
-        self.assertFalse(_has_actual_themes('/nonexistent/path'))
+        self.assertFalse(ThemeDir.has_themes('/nonexistent/path'))
 
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as d:
-            self.assertFalse(_has_actual_themes(d))
+            self.assertFalse(ThemeDir.has_themes(d))
 
     def test_dir_with_only_gitkeep(self):
         with tempfile.TemporaryDirectory() as d:
             Path(d, '.gitkeep').touch()
-            self.assertFalse(_has_actual_themes(d))
+            self.assertFalse(ThemeDir.has_themes(d))
 
     def test_dir_with_subdirs_and_pngs(self):
         with tempfile.TemporaryDirectory() as d:
             subdir = os.path.join(d, '000a')
             os.mkdir(subdir)
             Path(subdir, '01.png').touch()
-            self.assertTrue(_has_actual_themes(d))
+            self.assertTrue(ThemeDir.has_themes(d))
 
     def test_dir_with_subdirs_no_pngs(self):
         """Subdirs without PNGs (e.g. leftover config1.dc) are not valid themes."""
@@ -87,30 +77,30 @@ class TestHasActualThemes(unittest.TestCase):
             subdir = os.path.join(d, '000a')
             os.mkdir(subdir)
             Path(subdir, 'config1.dc').touch()
-            self.assertFalse(_has_actual_themes(d))
+            self.assertFalse(ThemeDir.has_themes(d))
 
 
 class TestFindResource(unittest.TestCase):
-    """Test find_resource and build_search_paths."""
+    """Test Resources.find and Resources.build_search_paths."""
 
     def test_find_existing(self):
         with tempfile.TemporaryDirectory() as d:
             Path(d, 'test.png').touch()
-            result = find_resource('test.png', [d])
+            result = Resources.find('test.png', [d])
             self.assertIsNotNone(result)
             self.assertTrue(result.endswith('test.png'))
 
     def test_find_missing(self):
         with tempfile.TemporaryDirectory() as d:
-            result = find_resource('nope.png', [d])
+            result = Resources.find('nope.png', [d])
             self.assertIsNone(result)
 
     def test_build_search_paths_with_custom(self):
-        paths = build_search_paths('/custom/dir')
+        paths = Resources.build_search_paths('/custom/dir')
         self.assertEqual(paths[0], '/custom/dir')
 
     def test_build_search_paths_without_custom(self):
-        paths = build_search_paths()
+        paths = Resources.build_search_paths()
         self.assertGreater(len(paths), 0)
 
 
@@ -225,8 +215,8 @@ class TestResolutionInstalled(unittest.TestCase):
         self.patches = [
             patch('trcc.conf.CONFIG_PATH', self.config_path),
             patch('trcc.conf.CONFIG_DIR', self.tmp),
-            patch('trcc.paths.USER_DATA_DIR', self.user_data),
-            patch('trcc.paths.DATA_DIR', self.pkg_data),
+            patch('trcc.data_repository.USER_DATA_DIR', self.user_data),
+            patch('trcc.data_repository.DATA_DIR', self.pkg_data),
         ]
         for p in self.patches:
             p.start()
@@ -238,51 +228,51 @@ class TestResolutionInstalled(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _create_theme_dir(self, width, height):
-        """Create a fake theme directory with a subfolder + PNG so _has_actual_themes passes."""
+        """Create a fake theme directory with a subfolder + PNG so has_themes passes."""
         theme_dir = os.path.join(self.user_data, f'theme{width}{height}', 'DefaultTheme')
         os.makedirs(theme_dir, exist_ok=True)
         Path(theme_dir, '00.png').touch()
 
     def test_not_installed_by_default(self):
-        self.assertFalse(is_resolution_installed(320, 320))
+        self.assertFalse(DataManager.is_resolution_installed(320, 320))
 
     def test_mark_and_check(self):
         self._create_theme_dir(320, 320)
-        mark_resolution_installed(320, 320)
-        self.assertTrue(is_resolution_installed(320, 320))
-        self.assertFalse(is_resolution_installed(480, 480))
+        DataManager.mark_resolution_installed(320, 320)
+        self.assertTrue(DataManager.is_resolution_installed(320, 320))
+        self.assertFalse(DataManager.is_resolution_installed(480, 480))
 
     def test_mark_is_idempotent(self):
-        mark_resolution_installed(320, 320)
-        mark_resolution_installed(320, 320)
+        DataManager.mark_resolution_installed(320, 320)
+        DataManager.mark_resolution_installed(320, 320)
         config = load_config()
         self.assertEqual(config["installed_resolutions"].count("320x320"), 1)
 
     def test_multiple_resolutions(self):
         self._create_theme_dir(320, 320)
         self._create_theme_dir(480, 480)
-        mark_resolution_installed(320, 320)
-        mark_resolution_installed(480, 480)
-        self.assertTrue(is_resolution_installed(320, 320))
-        self.assertTrue(is_resolution_installed(480, 480))
+        DataManager.mark_resolution_installed(320, 320)
+        DataManager.mark_resolution_installed(480, 480)
+        self.assertTrue(DataManager.is_resolution_installed(320, 320))
+        self.assertTrue(DataManager.is_resolution_installed(480, 480))
 
     def test_clear_removes_all(self):
-        mark_resolution_installed(320, 320)
-        mark_resolution_installed(480, 480)
+        DataManager.mark_resolution_installed(320, 320)
+        DataManager.mark_resolution_installed(480, 480)
         clear_installed_resolutions()
-        self.assertFalse(is_resolution_installed(320, 320))
-        self.assertFalse(is_resolution_installed(480, 480))
+        self.assertFalse(DataManager.is_resolution_installed(320, 320))
+        self.assertFalse(DataManager.is_resolution_installed(480, 480))
 
     def test_clear_on_empty_config(self):
         # Should not raise
         clear_installed_resolutions()
-        self.assertFalse(is_resolution_installed(320, 320))
+        self.assertFalse(DataManager.is_resolution_installed(320, 320))
 
     def test_marker_without_data_returns_false(self):
         """Config says installed but data was wiped — should return False."""
-        mark_resolution_installed(320, 320)
+        DataManager.mark_resolution_installed(320, 320)
         # No theme dir created — simulates pip uninstall wiping data
-        self.assertFalse(is_resolution_installed(320, 320))
+        self.assertFalse(DataManager.is_resolution_installed(320, 320))
 
 
 class TestDeviceConfigKey(unittest.TestCase):
@@ -385,7 +375,7 @@ class TestPerDeviceConfig(unittest.TestCase):
         self.assertEqual(raw['devices']['0:87cd_70db']['theme_path'], '/some/path')
 
 
-# ── _extract_7z ──────────────────────────────────────────────────────────────
+# -- DataManager.extract_7z ------------------------------------------------
 
 class TestExtract7z(unittest.TestCase):
     """Test extract_7z with 7z CLI."""
@@ -398,8 +388,8 @@ class TestExtract7z(unittest.TestCase):
             Path(archive).touch()
 
             mock_result = type('R', (), {'returncode': 0, 'stderr': b''})()
-            with patch('trcc.paths.subprocess.run', return_value=mock_result):
-                result = _extract_7z(archive, target)
+            with patch('trcc.data_repository.subprocess.run', return_value=mock_result):
+                result = DataManager.extract_7z(archive, target)
 
             self.assertTrue(result)
             self.assertTrue(os.path.isdir(target))
@@ -412,8 +402,8 @@ class TestExtract7z(unittest.TestCase):
             Path(archive).touch()
 
             mock_result = type('R', (), {'returncode': 2, 'stderr': b'error'})()
-            with patch('trcc.paths.subprocess.run', return_value=mock_result):
-                result = _extract_7z(archive, target)
+            with patch('trcc.data_repository.subprocess.run', return_value=mock_result):
+                result = DataManager.extract_7z(archive, target)
 
             self.assertFalse(result)
 
@@ -424,16 +414,16 @@ class TestExtract7z(unittest.TestCase):
             target = os.path.join(d, 'out')
             Path(archive).touch()
 
-            with patch('trcc.paths.subprocess.run', side_effect=FileNotFoundError):
-                result = _extract_7z(archive, target)
+            with patch('trcc.data_repository.subprocess.run', side_effect=FileNotFoundError):
+                result = DataManager.extract_7z(archive, target)
 
             self.assertFalse(result)
 
 
-# ── ensure_*_extracted ───────────────────────────────────────────────────────
+# -- DataManager.ensure_* --------------------------------------------------
 
 class TestEnsureThemesExtracted(unittest.TestCase):
-    """Test ensure_themes_extracted."""
+    """Test DataManager.ensure_themes."""
 
     def test_already_present(self):
         """Returns True when themes already exist."""
@@ -442,17 +432,17 @@ class TestEnsureThemesExtracted(unittest.TestCase):
             sub = os.path.join(theme_dir, '000a')
             os.makedirs(sub)
             Path(sub, '00.png').touch()
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')):
-                self.assertTrue(ensure_themes_extracted(320, 320))
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')):
+                self.assertTrue(DataManager.ensure_themes(320, 320))
 
     def test_no_archive(self):
         """Returns False when no archive and no themes."""
         with tempfile.TemporaryDirectory() as d:
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')), \
                  patch.object(DataManager, 'download_archive', return_value=False):
-                self.assertFalse(ensure_themes_extracted(320, 320))
+                self.assertFalse(DataManager.ensure_themes(320, 320))
 
     def test_extracts_from_archive(self):
         """Calls extract_7z when archive exists but themes don't."""
@@ -461,33 +451,33 @@ class TestEnsureThemesExtracted(unittest.TestCase):
             # Place archive in pkg DATA_DIR
             archive = os.path.join(d, 'theme320320.7z')
             Path(archive).touch()
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')), \
                  patch.object(DataManager, 'extract_7z', return_value=True) as mock_ex:
-                result = ensure_themes_extracted(320, 320)
+                result = DataManager.ensure_themes(320, 320)
             self.assertTrue(result)
             # Extracts to user_dir (~/.trcc/data/) so data survives pip upgrades
             mock_ex.assert_called_once_with(archive, user_theme_dir)
 
 
 class TestEnsureWebExtracted(unittest.TestCase):
-    """Test ensure_web_extracted."""
+    """Test DataManager.ensure_web."""
 
     def test_already_present(self):
         with tempfile.TemporaryDirectory() as d:
             web_dir = os.path.join(d, 'web', '320320')
             os.makedirs(web_dir)
             Path(web_dir, 'preview.png').touch()
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')):
-                self.assertTrue(ensure_web_extracted(320, 320))
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')):
+                self.assertTrue(DataManager.ensure_web(320, 320))
 
     def test_no_archive(self):
         with tempfile.TemporaryDirectory() as d:
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')), \
                  patch.object(DataManager, 'download_archive', return_value=False):
-                self.assertFalse(ensure_web_extracted(320, 320))
+                self.assertFalse(DataManager.ensure_web(320, 320))
 
     def test_extracts_from_archive(self):
         with tempfile.TemporaryDirectory() as d:
@@ -496,16 +486,16 @@ class TestEnsureWebExtracted(unittest.TestCase):
             os.makedirs(archive_dir)
             archive = os.path.join(archive_dir, '320320.7z')
             Path(archive).touch()
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')), \
                  patch.object(DataManager, 'extract_7z', return_value=True) as mock_ex:
-                result = ensure_web_extracted(320, 320)
+                result = DataManager.ensure_web(320, 320)
             self.assertTrue(result)
             mock_ex.assert_called_once_with(archive, user_web_dir)
 
 
 class TestEnsureWebMasksExtracted(unittest.TestCase):
-    """Test ensure_web_masks_extracted."""
+    """Test DataManager.ensure_web_masks."""
 
     def test_already_present(self):
         with tempfile.TemporaryDirectory() as d:
@@ -513,65 +503,65 @@ class TestEnsureWebMasksExtracted(unittest.TestCase):
             sub = os.path.join(masks_dir, '000a')
             os.makedirs(sub)
             Path(sub, '00.png').touch()  # has_themes needs a .png
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')):
-                self.assertTrue(ensure_web_masks_extracted(320, 320))
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')):
+                self.assertTrue(DataManager.ensure_web_masks(320, 320))
 
     def test_no_archive(self):
         with tempfile.TemporaryDirectory() as d:
-            with patch('trcc.paths.DATA_DIR', d), \
-                 patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
+            with patch('trcc.data_repository.DATA_DIR', d), \
+                 patch('trcc.data_repository.USER_DATA_DIR', os.path.join(d, 'user')), \
                  patch.object(DataManager, 'download_archive', return_value=False):
-                self.assertFalse(ensure_web_masks_extracted(320, 320))
+                self.assertFalse(DataManager.ensure_web_masks(320, 320))
 
 
-# ── _find_data_dir ───────────────────────────────────────────────────────────
+# -- _find_data_dir ---------------------------------------------------------
 
 class TestFindDataDir(unittest.TestCase):
     """Test _find_data_dir search logic."""
 
     def test_returns_src_data_as_fallback(self):
         """When no valid themes exist, falls back to trcc/data."""
-        with patch('trcc.paths._THIS_DIR', '/fake/src/trcc'), \
-             patch('trcc.paths.PROJECT_ROOT', '/fake'), \
-             patch('trcc.paths.USER_DATA_DIR', '/fake/home/.trcc/data'), \
+        with patch('trcc.data_repository._THIS_DIR', '/fake/src/trcc'), \
+             patch('trcc.data_repository.PROJECT_ROOT', '/fake'), \
+             patch('trcc.data_repository.USER_DATA_DIR', '/fake/home/.trcc/data'), \
              patch('os.path.isdir', return_value=False):
             result = _find_data_dir()
             self.assertEqual(result, '/fake/src/trcc/data')
 
 
-# ── Targeted coverage: extraction fallbacks ──────────────────────────────────
+# -- Extract 7z CLI edge cases ----------------------------------------------
 
 class TestExtract7zCLI(unittest.TestCase):
     """Cover 7z CLI edge cases."""
 
-    @patch('trcc.paths.subprocess.run')
+    @patch('trcc.data_repository.subprocess.run')
     def test_7z_cli_success(self, mock_run):
         """7z CLI succeeds."""
         mock_run.return_value = MagicMock(returncode=0)
         with tempfile.TemporaryDirectory() as d:
-            result = _extract_7z('/fake/archive.7z', d)
+            result = DataManager.extract_7z('/fake/archive.7z', d)
         self.assertTrue(result)
 
-    @patch('trcc.paths.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.data_repository.subprocess.run', side_effect=FileNotFoundError)
     def test_7z_cli_not_found(self, _):
-        """7z not installed → returns False."""
+        """7z not installed -> returns False."""
         with tempfile.TemporaryDirectory() as d:
-            result = _extract_7z('/fake/archive.7z', d)
+            result = DataManager.extract_7z('/fake/archive.7z', d)
             self.assertFalse(result)
 
-    @patch('trcc.paths.subprocess.run', side_effect=RuntimeError("fail"))
+    @patch('trcc.data_repository.subprocess.run', side_effect=RuntimeError("fail"))
     def test_7z_cli_exception(self, _):
-        """7z CLI raises unexpected exception → returns False."""
+        """7z CLI raises unexpected exception -> returns False."""
         with tempfile.TemporaryDirectory() as d:
-            result = _extract_7z('/fake/archive.7z', d)
+            result = DataManager.extract_7z('/fake/archive.7z', d)
             self.assertFalse(result)
 
 
 class TestFindResourceDefault(unittest.TestCase):
-    """Cover find_resource with default search_paths=None."""
+    """Cover Resources.find with default search_paths=None."""
 
     def test_default_paths(self):
         with patch('os.path.exists', return_value=False):
-            result = find_resource('nonexistent.file')
+            result = Resources.find('nonexistent.file')
             self.assertIsNone(result)

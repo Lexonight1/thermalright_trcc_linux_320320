@@ -28,8 +28,7 @@ from typing import Any, Optional, Set
 import usb.core
 import usb.util
 
-from .constants import FBL_TO_RESOLUTION
-from .device_base import HandshakeResult
+from .core.models import FBL_TO_RESOLUTION, HandshakeResult
 
 # hidapi is optional ([hid] extra)
 try:

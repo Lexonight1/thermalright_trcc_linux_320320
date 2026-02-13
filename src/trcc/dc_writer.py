@@ -47,53 +47,16 @@ Export Format (.tr files):
 import os
 import struct
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, List, Optional, Tuple
+from typing import IO, Optional, Tuple
 
-# Import shared types from parser (single source of truth)
 from trcc.binary_reader import BinaryReader
-from trcc.dc_parser import METRIC_TO_IDS, DisplayElement
-
-
-@dataclass
-class ThemeConfig:
-    """Complete theme configuration for saving."""
-    # Display elements (UCXiTongXianShiSubArray)
-    elements: List[DisplayElement] = field(default_factory=list)
-
-    # System info global enable
-    system_info_enabled: bool = True
-
-    # Display options
-    background_display: bool = True    # myBjxs
-    transparent_display: bool = False  # myTpxs
-    rotation: int = 0                  # directionB (0/90/180/270)
-    ui_mode: int = 0                   # myUIMode
-    display_mode: int = 0              # myMode
-
-    # Overlay settings
-    overlay_enabled: bool = True       # myYcbk
-    overlay_x: int = 0                 # JpX
-    overlay_y: int = 0                 # JpY
-    overlay_w: int = 320               # JpW
-    overlay_h: int = 320               # JpH
-
-    # Mask settings
-    mask_enabled: bool = False         # myMbxs
-    mask_x: int = 0                    # XvalMB
-    mask_y: int = 0                    # YvalMB
-
-
-@dataclass
-class CarouselConfig:
-    """Carousel/slideshow configuration."""
-    current_theme: int = 0             # myTheme - index of current theme
-    enabled: bool = False              # isLunbo
-    interval_seconds: int = 3          # myLunBoTimer (minimum 3)
-    count: int = 0                     # lunBoCount
-    theme_indices: List[int] = field(default_factory=lambda: [-1, -1, -1, -1, -1, -1])
-    lcd_rotation: int = 1              # myLddVal (1-4)
+from trcc.core.models import (
+    METRIC_TO_IDS,
+    CarouselConfig,
+    DisplayElement,
+    ThemeConfig,
+)
 
 
 class DcWriter:

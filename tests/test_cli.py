@@ -34,7 +34,7 @@ from trcc.cli import (
     hid_debug,
     hr10_tempd,
     install_desktop,
-    led_diag,
+    led_debug,
     main,
     report,
     reset_device,
@@ -458,7 +458,7 @@ class TestEnsureExtracted(unittest.TestCase):
         """With a valid implementation, extraction runs without error."""
         driver = MagicMock()
         driver.implementation.resolution = (320, 320)
-        with patch('trcc.paths.ensure_all_data', return_value=True):
+        with patch('trcc.data_repository.DataManager.ensure_all', return_value=True):
             _ensure_extracted(driver)  # should not raise
 
     def test_exception_is_swallowed(self):
@@ -466,11 +466,8 @@ class TestEnsureExtracted(unittest.TestCase):
         driver = MagicMock()
         driver.implementation.resolution = (320, 320)
         # Force an exception in the extraction calls
-        with patch.dict('sys.modules', {
-            'trcc.paths': MagicMock(
-                ensure_all_data=MagicMock(side_effect=RuntimeError('boom'))
-            )
-        }):
+        with patch('trcc.data_repository.DataManager.ensure_all',
+                   side_effect=RuntimeError('boom')):
             _ensure_extracted(driver)  # should not raise
 
 
@@ -1274,16 +1271,16 @@ class TestHidDebug(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# led_diag
+# led_debug
 # ---------------------------------------------------------------------------
 
-class TestLedDiag(unittest.TestCase):
-    """Tests for led_diag() command."""
+class TestLedDebug(unittest.TestCase):
+    """Tests for led_debug() command."""
 
     def test_exception_returns_1(self):
         with patch('trcc.device_factory.LedProtocol',
                    side_effect=Exception("fail")):
-            result = led_diag()
+            result = led_debug()
         self.assertEqual(result, 1)
 
     def test_handshake_success(self):
@@ -1297,7 +1294,7 @@ class TestLedDiag(unittest.TestCase):
         mock_protocol = MagicMock()
         mock_protocol.handshake.return_value = info
         with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol):
-            result = led_diag(test=False)
+            result = led_debug(test=False)
         self.assertEqual(result, 0)
         mock_protocol.close.assert_called_once()
 
@@ -1307,7 +1304,7 @@ class TestLedDiag(unittest.TestCase):
         mock_protocol.handshake.return_value = None
         mock_protocol.last_error = RuntimeError("timeout")
         with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol):
-            result = led_diag(test=False)
+            result = led_debug(test=False)
         self.assertEqual(result, 1)
         mock_protocol.close.assert_called_once()
 
@@ -1323,15 +1320,15 @@ class TestLedDiag(unittest.TestCase):
         mock_protocol.handshake.return_value = info
         with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol), \
              patch('time.sleep'):
-            result = led_diag(test=True)
+            result = led_debug(test=True)
         self.assertEqual(result, 0)
         # 4 colors + OFF = 5 send_led_data calls
         self.assertEqual(mock_protocol.send_led_data.call_count, 5)
 
-    def test_dispatch_led_diag(self):
-        """main() dispatches 'led-diag' to DiagCommands.led_diag()."""
-        with patch.object(DiagCommands, 'led_diag', return_value=0) as mock_fn, \
-             patch('sys.argv', ['trcc', 'led-diag']):
+    def test_dispatch_led_debug(self):
+        """main() dispatches 'led-debug' to DiagCommands.led_debug()."""
+        with patch.object(DiagCommands, 'led_debug', return_value=0) as mock_fn, \
+             patch('sys.argv', ['trcc', 'led-debug']):
             result = main()
         self.assertEqual(result, 0)
         mock_fn.assert_called_once()

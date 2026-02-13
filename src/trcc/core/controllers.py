@@ -288,8 +288,7 @@ class OverlayController:
 
     @property
     def config(self) -> dict:
-        renderer = self._svc._ensure_renderer()
-        return renderer.config if renderer else {}
+        return self._svc.config
 
 
 class LCDDeviceController:

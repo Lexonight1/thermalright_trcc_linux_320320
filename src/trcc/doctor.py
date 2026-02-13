@@ -216,13 +216,9 @@ def _check_udev_rules() -> bool:
         with open(path) as f:
             content = f.read()
 
-        from trcc.device_detector import (
-            _BULK_DEVICES,
-            _HID_LCD_DEVICES,
-            _LED_DEVICES,
-            KNOWN_DEVICES,
-        )
-        all_devices = {**KNOWN_DEVICES, **_HID_LCD_DEVICES, **_LED_DEVICES, **_BULK_DEVICES}
+        from trcc.device_detector import DeviceDetector
+
+        all_devices = DeviceDetector._get_all_registries()
         all_vids = {f"{vid:04x}" for vid, _ in all_devices}
         missing = [vid for vid in sorted(all_vids) if vid not in content]
 

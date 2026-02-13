@@ -34,7 +34,7 @@ from trcc.core.models import (
 
 # Patches to avoid file I/O and downloads during LCDDeviceController tests
 LCD_SVC_PATCHES = [
-    ('trcc.services.display.ensure_all_data', None),
+    ('trcc.data_repository.DataManager.ensure_all', None),
     ('trcc.conf.save_resolution', None),
 ]
 
@@ -224,7 +224,7 @@ class TestVideoController(unittest.TestCase):
         self.assertEqual(self.ctrl._svc._target_size, (480, 480))
 
     def test_play_pause_stop(self):
-        self.ctrl._svc._player = MagicMock()
+        self.ctrl._svc._frames = [MagicMock()] * 10
         self.ctrl._svc._state.total_frames = 10
 
         self.ctrl.play()
@@ -238,7 +238,7 @@ class TestVideoController(unittest.TestCase):
         self.assertFalse(self.ctrl.is_playing())
 
     def test_toggle_play_pause(self):
-        self.ctrl._svc._player = MagicMock()
+        self.ctrl._svc._frames = [MagicMock()] * 10
         self.ctrl._svc._state.total_frames = 10
 
         self.ctrl.toggle_play_pause()
@@ -361,9 +361,10 @@ class TestOverlayController(unittest.TestCase):
     def test_update_metrics(self):
         self.ctrl.update_metrics({'cpu_temp': 65})
 
-    def test_render_disabled_returns_background(self):
-        bg = MagicMock()
-        self.ctrl._svc._background = bg
+    def test_render_no_config_returns_background(self):
+        """With no config/mask, render returns background as-is (fast path)."""
+        bg = Image.new('RGB', (320, 320), 'blue')
+        self.ctrl.set_background(bg)
         result = self.ctrl.render()
         self.assertIs(result, bg)
 
@@ -372,40 +373,40 @@ class TestOverlayControllerRenderer(unittest.TestCase):
 
     def setUp(self):
         self.ctrl = OverlayController()
-        self.mock_renderer = MagicMock()
-        self.ctrl._svc._renderer = self.mock_renderer
 
     def test_set_theme_mask(self):
-        mask_img = MagicMock()
+        mask_img = Image.new('RGBA', (320, 100), (255, 0, 0, 128))
         self.ctrl.set_theme_mask(mask_img, (10, 20))
-        self.mock_renderer.set_theme_mask.assert_called_once_with(mask_img, (10, 20))
+        self.assertIsNotNone(self.ctrl._svc.theme_mask)
+        self.assertEqual(self.ctrl._svc.theme_mask_position, (10, 20))
 
     def test_get_theme_mask(self):
-        self.mock_renderer.theme_mask = 'mask'
-        self.mock_renderer.theme_mask_position = (5, 5)
+        mask_img = Image.new('RGBA', (320, 100), (255, 0, 0, 128))
+        self.ctrl._svc.theme_mask = mask_img
+        self.ctrl._svc.theme_mask_position = (5, 5)
         mask, pos = self.ctrl.get_theme_mask()
-        self.assertEqual(mask, 'mask')
+        self.assertIs(mask, mask_img)
         self.assertEqual(pos, (5, 5))
 
     def test_set_mask_visible(self):
-        self.ctrl.set_mask_visible(True)
-        self.mock_renderer.set_mask_visible.assert_called_once_with(True)
+        self.ctrl.set_mask_visible(False)
+        self.assertFalse(self.ctrl._svc.theme_mask_visible)
 
     def test_set_temp_unit(self):
         self.ctrl.set_temp_unit(1)
-        self.mock_renderer.set_temp_unit.assert_called_once_with(1)
+        self.assertEqual(self.ctrl._svc.temp_unit, 1)
 
     def test_set_config(self):
         self.ctrl.set_config({'key': 'val'})
-        self.mock_renderer.set_config.assert_called_once_with({'key': 'val'})
+        self.assertEqual(self.ctrl._svc.config, {'key': 'val'})
 
     def test_set_config_resolution(self):
         self.ctrl.set_config_resolution(480, 480)
-        self.mock_renderer.set_config_resolution.assert_called_once_with(480, 480)
+        self.assertEqual(self.ctrl._svc._config_resolution, (480, 480))
 
     def test_set_scale_enabled(self):
         self.ctrl.set_scale_enabled(False)
-        self.mock_renderer.set_scale_enabled.assert_called_once_with(False)
+        self.assertFalse(self.ctrl._svc._scale_enabled)
 
     def test_load_from_dc(self):
         with patch.object(self.ctrl._svc, 'load_from_dc', return_value={}) as m:
@@ -414,54 +415,48 @@ class TestOverlayControllerRenderer(unittest.TestCase):
             m.assert_called_once()
 
     def test_render_delegates_to_service(self):
-        bg = MagicMock()
+        bg = Image.new('RGB', (320, 320), 'blue')
         with patch.object(self.ctrl._svc, 'render', return_value=bg) as mock_render:
             result = self.ctrl.render(bg)
             mock_render.assert_called_once_with(bg, force=False)
             self.assertEqual(result, bg)
 
     def test_set_background(self):
-        bg = MagicMock()
-        with patch.object(self.ctrl._svc, 'set_background') as m:
-            self.ctrl.set_background(bg)
-            m.assert_called_once_with(bg)
+        bg = Image.new('RGB', (320, 320), 'blue')
+        self.ctrl.set_background(bg)
+        self.assertIsNotNone(self.ctrl._svc.background)
 
 
-class TestOverlayControllerNoRenderer(unittest.TestCase):
+class TestOverlayControllerDefaults(unittest.TestCase):
+    """Test overlay controller methods on fresh (empty) service."""
 
     def setUp(self):
         self.ctrl = OverlayController()
-        self.ctrl._svc._renderer = None
 
-    def test_get_theme_mask_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            mask, pos = self.ctrl.get_theme_mask()
-            self.assertIsNone(mask)
-            self.assertIsNone(pos)
+    def test_get_theme_mask_default(self):
+        mask, pos = self.ctrl.get_theme_mask()
+        self.assertIsNone(mask)
+        self.assertEqual(pos, (0, 0))
 
-    def test_set_theme_mask_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_theme_mask(MagicMock())
+    def test_set_mask_visible_default(self):
+        self.ctrl.set_mask_visible(True)
+        self.assertTrue(self.ctrl._svc.theme_mask_visible)
 
-    def test_set_mask_visible_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_mask_visible(True)
+    def test_set_temp_unit_default(self):
+        self.ctrl.set_temp_unit(0)
+        self.assertEqual(self.ctrl._svc.temp_unit, 0)
 
-    def test_set_temp_unit_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_temp_unit(0)
+    def test_set_config_empty(self):
+        self.ctrl.set_config({})
+        self.assertEqual(self.ctrl._svc.config, {})
 
-    def test_set_config_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_config({})
+    def test_set_config_resolution_default(self):
+        self.ctrl.set_config_resolution(320, 320)
+        self.assertEqual(self.ctrl._svc._config_resolution, (320, 320))
 
-    def test_set_config_resolution_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_config_resolution(320, 320)
-
-    def test_set_scale_enabled_no_renderer(self):
-        with patch('trcc.services.overlay.OverlayService._ensure_renderer', return_value=None):
-            self.ctrl.set_scale_enabled(True)
+    def test_set_scale_enabled_default(self):
+        self.ctrl.set_scale_enabled(True)
+        self.assertTrue(self.ctrl._svc._scale_enabled)
 
 
 # =============================================================================
@@ -476,7 +471,7 @@ class TestLCDDeviceController(unittest.TestCase):
         _settings._height = 320
 
         self.patches = [
-            patch('trcc.services.display.ensure_all_data'),
+            patch('trcc.data_repository.DataManager.ensure_all'),
             patch('trcc.conf.save_resolution'),
         ]
         for p in self.patches:
@@ -1179,7 +1174,7 @@ class TestCreateController(unittest.TestCase):
             data_dir = Path(tmp)
             (data_dir / 'theme320320').mkdir()
 
-            with patch('trcc.services.display.ensure_all_data'), \
+            with patch('trcc.data_repository.DataManager.ensure_all'), \
                  patch('trcc.conf.save_resolution'):
                 ctrl = create_controller(data_dir)
                 self.assertIsInstance(ctrl, LCDDeviceController)

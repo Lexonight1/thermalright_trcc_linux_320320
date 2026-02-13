@@ -347,7 +347,7 @@ PyQt6 MVC architecture. Controllers are GUI-independent; views subscribe via cal
 ```
 src/trcc/
 ├── cli.py                       # CLI entry point
-├── driver_lcd.py                # SCSI RGB565 frame send
+├── device_lcd.py                # SCSI RGB565 frame send
 ├── device_detector.py           # USB device scan + KNOWN_DEVICES registry
 ├── device_implementations.py    # Per-device protocol variants
 ├── device_scsi.py               # Low-level SCSI commands
@@ -355,10 +355,10 @@ src/trcc/
 ├── dc_writer.py                 # Write config1.dc files
 ├── overlay_renderer.py          # PIL-based text/sensor overlay rendering
 ├── media_player.py              # FFmpeg video frame extraction
-├── sensor_enumerator.py         # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
-├── sysinfo_config.py            # Dashboard panel config persistence
+├── system_sensors.py            # Hardware sensor discovery (hwmon, nvidia-ml-py, psutil, RAPL)
+├── system_config.py             # Dashboard panel config persistence
 ├── system_info.py               # CPU/GPU/RAM/disk sensor collection
-├── cloud_downloader.py          # Cloud theme HTTP fetch
+├── theme_cloud.py               # Cloud theme HTTP fetch
 ├── theme_downloader.py          # Theme pack download manager
 ├── theme_io.py                  # Theme export/import (.tr format)
 ├── binary_reader.py             # Binary data reader (DC parsing helper)
@@ -372,6 +372,16 @@ src/trcc/
 ├── hr10_display.py              # HR10 7-segment display renderer (31-LED color array)
 ├── hr10_tempd.py                # HR10 NVMe temperature daemon (sysfs → 7-segment)
 ├── __version__.py               # Version info
+├── services/
+│   ├── __init__.py              # Re-exports all service classes
+│   ├── device.py                # DeviceService — detect, select, send_pil, send_rgb565
+│   ├── image.py                 # ImageService — solid_color, resize, brightness, rotation
+│   ├── display.py               # DisplayService — high-level display orchestration
+│   ├── led.py                   # LEDService — LED RGB control via LedProtocol
+│   ├── media.py                 # MediaService — GIF/video frame extraction
+│   ├── overlay.py               # OverlayService — overlay rendering
+│   ├── system.py                # SystemService — system sensor access and monitoring
+│   └── theme.py                 # ThemeService — theme loading/saving
 ├── core/
 │   ├── models.py                # ThemeInfo, DeviceInfo, VideoState, OverlayElement
 │   └── controllers.py           # LCDDeviceController, LEDDeviceController, MVC controllers
@@ -500,8 +510,8 @@ trcc send image.png
 trcc color ff0000
 
 # LED diagnostics
-trcc led-diag
-trcc led-diag --test
+trcc led-debug
+trcc led-debug --test
 
 # HR10 NVMe temperature daemon
 trcc hr10-tempd

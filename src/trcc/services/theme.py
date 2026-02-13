@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.models import ThemeData, ThemeInfo, ThemeType
-from ..paths import ThemeDir
+from ..data_repository import ThemeDir
 
 log = logging.getLogger(__name__)
 
@@ -90,9 +90,9 @@ class ThemeService:
     @staticmethod
     def setup_dirs(width: int, height: int) -> None:
         """Extract all .7z archives for a resolution if needed."""
-        from ..paths import ensure_all_data
+        from ..data_repository import DataManager
 
-        ensure_all_data(width, height)
+        DataManager.ensure_all(width, height)
 
     # ── Discovery ────────────────────────────────────────────────────
 

@@ -7,9 +7,11 @@ Combines device detection with implementation-specific protocols.
 import logging
 from typing import Optional
 
+from .core.models import LCDDeviceConfig
 from .device_detector import DetectedDevice, detect_devices, get_default_device
-from .device_implementations import LCDDeviceImplementation, get_implementation
-from .device_scsi import _build_header, _scsi_read, _scsi_write
+from .device_scsi import _build_header, _get_frame_chunks, _scsi_read, _scsi_write
+from .services.device import DeviceService
+from .services.image import ImageService
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class LCDDriver:
         """
         self.device_info: Optional[DetectedDevice] = None
         self.device_path: Optional[str] = device_path
-        self.implementation: Optional[LCDDeviceImplementation] = None
+        self.implementation: Optional[LCDDeviceConfig] = None
         self.initialized = False
 
         if device_path:
@@ -44,7 +46,8 @@ class LCDDriver:
 
         # Auto-detect resolution via FBL if requested
         if auto_detect_resolution and self.device_path and self.implementation:
-            self.implementation.detect_resolution(self.device_path, verbose=False)
+            DeviceService.detect_lcd_resolution(
+                self.implementation, self.device_path, verbose=False)
 
     def _init_with_path(self, device_path: str):
         """Initialize with explicit device path"""
@@ -54,11 +57,11 @@ class LCDDriver:
         for dev in devices:
             if dev.scsi_device == device_path:
                 self.device_info = dev
-                self.implementation = get_implementation(dev.implementation)
+                self.implementation = LCDDeviceConfig.from_key(dev.implementation)
                 return
 
         # Fallback to generic
-        self.implementation = get_implementation("generic")
+        self.implementation = LCDDeviceConfig.from_key("generic")
 
     def _init_by_vid_pid(self, vid: int, pid: int):
         """Initialize by finding device with specific VID/PID"""
@@ -67,7 +70,7 @@ class LCDDriver:
             if dev.vid == vid and dev.pid == pid:
                 self.device_info = dev
                 self.device_path = dev.scsi_device
-                self.implementation = get_implementation(dev.implementation)
+                self.implementation = LCDDeviceConfig.from_key(dev.implementation)
                 return
 
         raise RuntimeError(f"Device with VID={vid:04X} PID={pid:04X} not found")
@@ -80,7 +83,7 @@ class LCDDriver:
 
         self.device_info = device
         self.device_path = device.scsi_device
-        self.implementation = get_implementation(device.implementation)
+        self.implementation = LCDDeviceConfig.from_key(device.implementation)
 
     def init_device(self):
         """Initialize device (call once at startup)"""
@@ -92,13 +95,13 @@ class LCDDriver:
         assert self.device_path is not None
 
         # Step 1: Poll device
-        poll_cmd, poll_size = self.implementation.get_poll_command()
+        poll_cmd, poll_size = self.implementation.poll_command
         poll_header = _build_header(poll_cmd, poll_size)
         log.debug("Poll: cmd=0x%X, size=0x%X", poll_cmd, poll_size)
         _scsi_read(self.device_path, poll_header[:16], poll_size)
 
         # Step 2: Init
-        init_cmd, init_size = self.implementation.get_init_command()
+        init_cmd, init_size = self.implementation.init_command
         init_header = _build_header(init_cmd, init_size)
         log.debug("Init: cmd=0x%X, size=0x%X", init_cmd, init_size)
         _scsi_write(self.device_path, init_header, b'\x00' * init_size)
@@ -122,8 +125,9 @@ class LCDDriver:
         if force_init or not self.initialized:
             self.init_device()
 
-        # Get frame chunks from implementation
-        chunks = self.implementation.get_frame_chunks()
+        # Get frame chunks for current resolution
+        chunks = _get_frame_chunks(self.implementation.width,
+                                   self.implementation.height)
         total_size = sum(size for _, size in chunks)
 
         # Pad image data if needed
@@ -145,7 +149,9 @@ class LCDDriver:
             raise RuntimeError("No implementation loaded")
 
         width, height = self.implementation.resolution
-        pixel = self.implementation.rgb_to_bytes(r, g, b)
+        byte_order = ImageService.byte_order_for('scsi',
+                                                 self.implementation.resolution)
+        pixel = ImageService.rgb_to_bytes(r, g, b, byte_order)
         return pixel * (width * height)
 
     def load_image(self, path: str) -> bytes:
@@ -155,14 +161,15 @@ class LCDDriver:
 
         try:
             from PIL import Image
-            assert self.implementation is not None
             width, height = self.implementation.resolution
             img = Image.open(path).convert('RGB').resize((width, height))
+            byte_order = ImageService.byte_order_for(
+                'scsi', self.implementation.resolution)
             data = bytearray()
             for y in range(height):
                 for x in range(width):
                     r, g, b = img.getpixel((x, y))  # type: ignore[misc]
-                    data.extend(self.implementation.rgb_to_bytes(r, g, b))
+                    data.extend(ImageService.rgb_to_bytes(r, g, b, byte_order))
             return bytes(data)
         except ImportError:
             raise RuntimeError("PIL not installed. Run: pip install Pillow")

@@ -41,6 +41,7 @@ class DebugReport:
 
     def __init__(self) -> None:
         self._sections: list[_Section] = []
+        self._detected_devices: list = []  # Cached DetectedDevice list
 
     # ------------------------------------------------------------------
     # Public API
@@ -158,9 +159,10 @@ class DebugReport:
     def _devices(self) -> None:
         sec = self._add("Detected devices")
         try:
-            from trcc.device_detector import detect_devices
+            from trcc.device_detector import DeviceDetector
 
-            devices = detect_devices()
+            devices = DeviceDetector.detect()
+            self._detected_devices = devices
             if not devices:
                 sec.lines.append("  (none)")
                 return
@@ -195,11 +197,8 @@ class DebugReport:
     def _handshakes(self) -> None:
         sec = self._add("Handshakes")
         try:
-            from trcc.device_detector import detect_devices
-
-            devices = detect_devices()
-            hid_devs = [d for d in devices if d.protocol == "hid"]
-            bulk_devs = [d for d in devices if d.protocol == "bulk"]
+            hid_devs = [d for d in self._detected_devices if d.protocol == "hid"]
+            bulk_devs = [d for d in self._detected_devices if d.protocol == "bulk"]
 
             if not hid_devs and not bulk_devs:
                 sec.lines.append("  (no HID/Bulk devices to handshake)")

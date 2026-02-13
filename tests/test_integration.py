@@ -39,23 +39,17 @@ def _make_png(path, w=320, h=320):
 class TestDetectToSend(unittest.TestCase):
     """Full pipeline: detect device → create LCDDriver → send_frame."""
 
-    @patch("trcc.device_scsi.require_sg_raw")
+    @patch("trcc.data_repository.SysUtils.require_sg_raw")
     @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    def test_detect_init_send(self, mock_get_impl, mock_detect, mock_run, mock_sg):
+    @patch("trcc.device_lcd.detect_devices")
+    @patch("trcc.device_lcd.DeviceService.detect_lcd_resolution", return_value=False)
+    def test_detect_init_send(self, _, mock_detect, mock_run, mock_sg):
         """detect_devices → LCDDriver(path) → send_frame goes through all layers."""
-        from trcc.device_implementations import get_implementation as real_get_impl
-        from trcc.driver_lcd import LCDDriver
+        from trcc.device_lcd import LCDDriver
+        from trcc.device_scsi import _get_frame_chunks
 
         dev = _make_device()
         mock_detect.return_value = [dev]
-
-        # Use the real implementation so frame chunking is exercised
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.detect_resolution = MagicMock()  # skip SCSI FBL query
-        mock_get_impl.return_value = real_impl
-
         mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
 
         driver = LCDDriver(device_path="/dev/sg0")
@@ -74,26 +68,20 @@ class TestDetectToSend(unittest.TestCase):
 
         # poll(read) + init(write) + frame chunks(write)
         # sg_raw calls: 1 read (poll) + 1 write (init) + N chunk writes
-        chunks = real_impl.get_frame_chunks()
+        chunks = _get_frame_chunks(320, 320)
         expected_calls = 1 + 1 + len(chunks)  # poll + init + chunks
         self.assertEqual(mock_run.call_count, expected_calls)
 
-    @patch("trcc.device_scsi.require_sg_raw")
+    @patch("trcc.data_repository.SysUtils.require_sg_raw")
     @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    def test_send_image_pipeline(self, mock_get_impl, mock_detect, mock_run, mock_sg):
+    @patch("trcc.device_lcd.detect_devices")
+    @patch("trcc.device_lcd.DeviceService.detect_lcd_resolution", return_value=False)
+    def test_send_image_pipeline(self, _, mock_detect, mock_run, mock_sg):
         """LCDDriver.load_image → send_frame end-to-end."""
-        from trcc.device_implementations import get_implementation as real_get_impl
-        from trcc.driver_lcd import LCDDriver
+        from trcc.device_lcd import LCDDriver
 
         dev = _make_device()
         mock_detect.return_value = [dev]
-
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
         mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
 
         driver = LCDDriver(device_path="/dev/sg0")
@@ -315,61 +303,55 @@ class TestDeviceDetectorRoundTrip(unittest.TestCase):
 class TestMultiResolution(unittest.TestCase):
     """Verify frame sizing and chunk counts for different resolutions."""
 
-    @patch("trcc.device_scsi.require_sg_raw")
+    @patch("trcc.data_repository.SysUtils.require_sg_raw")
     @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    def test_480x480_frame_size(self, mock_get_impl, mock_detect, mock_run, mock_sg):
+    @patch("trcc.device_lcd.detect_devices")
+    @patch("trcc.device_lcd.DeviceService.detect_lcd_resolution", return_value=False)
+    def test_480x480_frame_size(self, _, mock_detect, mock_run, mock_sg):
         """480x480 produces correct frame size and chunk count."""
-        from trcc.device_implementations import get_implementation as real_get_impl
-        from trcc.driver_lcd import LCDDriver
+        from trcc.device_lcd import LCDDriver
+        from trcc.device_scsi import _get_frame_chunks
 
         dev = _make_device()
         mock_detect.return_value = [dev]
-
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.width = 480
-        real_impl.height = 480
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
         mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
 
         driver = LCDDriver(device_path="/dev/sg0")
+        # Override resolution after init
+        driver.implementation.width = 480
+        driver.implementation.height = 480
+
         frame = driver.create_solid_color(0, 255, 0)
         self.assertEqual(len(frame), 480 * 480 * 2)
 
-        chunks = real_impl.get_frame_chunks()
+        chunks = _get_frame_chunks(480, 480)
         total = sum(s for _, s in chunks)
         self.assertEqual(total, 480 * 480 * 2)
         # 480*480*2 = 460800, ceil(460800/65536) = 8 chunks
         self.assertEqual(len(chunks), 8)
 
-    @patch("trcc.device_scsi.require_sg_raw")
+    @patch("trcc.data_repository.SysUtils.require_sg_raw")
     @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    def test_240x240_frame_size(self, mock_get_impl, mock_detect, mock_run, mock_sg):
+    @patch("trcc.device_lcd.detect_devices")
+    @patch("trcc.device_lcd.DeviceService.detect_lcd_resolution", return_value=False)
+    def test_240x240_frame_size(self, _, mock_detect, mock_run, mock_sg):
         """240x240 produces correct frame size and chunk count."""
-        from trcc.device_implementations import get_implementation as real_get_impl
-        from trcc.driver_lcd import LCDDriver
+        from trcc.device_lcd import LCDDriver
+        from trcc.device_scsi import _get_frame_chunks
 
         dev = _make_device()
         mock_detect.return_value = [dev]
-
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.width = 240
-        real_impl.height = 240
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
         mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
 
         driver = LCDDriver(device_path="/dev/sg0")
+        # Override resolution after init
+        driver.implementation.width = 240
+        driver.implementation.height = 240
+
         frame = driver.create_solid_color(0, 0, 255)
         self.assertEqual(len(frame), 240 * 240 * 2)
 
-        chunks = real_impl.get_frame_chunks()
+        chunks = _get_frame_chunks(240, 240)
         total = sum(s for _, s in chunks)
         self.assertEqual(total, 240 * 240 * 2)
         # 240*240*2 = 115200, ceil(115200/65536) = 2 chunks
@@ -382,20 +364,17 @@ class TestRGB565Consistency(unittest.TestCase):
     """Verify RGB565 conversion is consistent between LCDDriver and controllers."""
 
     def test_driver_rgb_matches_controller(self):
-        """LCDDriver.implementation.rgb_to_bytes matches controllers.image_to_rgb565."""
-        from trcc.device_implementations import get_implementation
-        from trcc.services import ImageService
-
-        impl = get_implementation("thermalright_lcd_v1")
-
+        """ImageService.rgb_to_bytes matches ImageService.to_rgb565 for single pixels."""
         # Test a few colors
         from PIL import Image
+
+        from trcc.services import ImageService
         for r, g, b in [(255, 0, 0), (0, 255, 0), (0, 0, 255),
                          (128, 128, 128), (255, 255, 255), (0, 0, 0)]:
             img = Image.new("RGB", (1, 1), (r, g, b))
             controller_bytes = ImageService.to_rgb565(img)
 
-            impl_bytes = impl.rgb_to_bytes(r, g, b)
+            impl_bytes = ImageService.rgb_to_bytes(r, g, b, '>')
 
             # Both should produce the same 2 bytes for the same color
             self.assertEqual(controller_bytes, impl_bytes,
@@ -404,25 +383,22 @@ class TestRGB565Consistency(unittest.TestCase):
 
     def test_rgb565_red_channel(self):
         """Red (255,0,0) → RGB565 big-endian: 0xF800."""
-        from trcc.device_implementations import get_implementation
-        impl = get_implementation("thermalright_lcd_v1")
-        pixel = impl.rgb_to_bytes(255, 0, 0)
+        from trcc.services import ImageService
+        pixel = ImageService.rgb_to_bytes(255, 0, 0, '>')
         val = struct.unpack(">H", pixel)[0]
         self.assertEqual(val, 0xF800)
 
     def test_rgb565_green_channel(self):
         """Green (0,255,0) → RGB565 big-endian: 0x07E0."""
-        from trcc.device_implementations import get_implementation
-        impl = get_implementation("thermalright_lcd_v1")
-        pixel = impl.rgb_to_bytes(0, 255, 0)
+        from trcc.services import ImageService
+        pixel = ImageService.rgb_to_bytes(0, 255, 0, '>')
         val = struct.unpack(">H", pixel)[0]
         self.assertEqual(val, 0x07E0)
 
     def test_rgb565_blue_channel(self):
         """Blue (0,0,255) → RGB565 big-endian: 0x001F."""
-        from trcc.device_implementations import get_implementation
-        impl = get_implementation("thermalright_lcd_v1")
-        pixel = impl.rgb_to_bytes(0, 0, 255)
+        from trcc.services import ImageService
+        pixel = ImageService.rgb_to_bytes(0, 0, 255, '>')
         val = struct.unpack(">H", pixel)[0]
         self.assertEqual(val, 0x001F)
 
@@ -569,12 +545,9 @@ class TestSCSIHeaderIntegrity(unittest.TestCase):
 
     def test_frame_chunk_headers_unique(self):
         """Each frame chunk has a unique command with incrementing index."""
-        from trcc.device_implementations import get_implementation
-        impl = get_implementation("thermalright_lcd_v1")
-        impl.width = 320
-        impl.height = 320
+        from trcc.device_scsi import _get_frame_chunks
 
-        chunks = impl.get_frame_chunks()
+        chunks = _get_frame_chunks(320, 320)
         cmds = [cmd for cmd, _ in chunks]
 
         # All commands should be unique
@@ -589,23 +562,23 @@ class TestSCSIHeaderIntegrity(unittest.TestCase):
 # ── Pipeline: device implementation registry ────────────────────────────────
 
 class TestImplementationRegistry(unittest.TestCase):
-    """Verify get_implementation returns correct impl for known names."""
+    """Verify LCDDeviceConfig.from_key returns correct config for known names."""
 
     def test_known_implementations(self):
         """All registered implementation names resolve."""
-        from trcc.device_implementations import get_implementation
+        from trcc.core.models import LCDDeviceConfig
 
         for name in ["generic", "thermalright_lcd_v1"]:
-            impl = get_implementation(name)
-            self.assertIsNotNone(impl)
-            self.assertIsNotNone(impl.name)
-            self.assertEqual(impl.pixel_format, "RGB565")
+            cfg = LCDDeviceConfig.from_key(name)
+            self.assertIsNotNone(cfg)
+            self.assertIsNotNone(cfg.name)
+            self.assertEqual(cfg.pixel_format, "RGB565")
 
     def test_generic_fallback(self):
         """Unknown implementation name falls back to generic."""
-        from trcc.device_implementations import get_implementation
-        impl = get_implementation("nonexistent_device_xyz")
-        self.assertIn("generic", impl.name.lower())
+        from trcc.core.models import LCDDeviceConfig
+        cfg = LCDDeviceConfig.from_key("nonexistent_device_xyz")
+        self.assertIn("generic", cfg.name.lower())
 
 
 if __name__ == "__main__":

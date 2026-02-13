@@ -7,10 +7,9 @@ import struct
 import tempfile
 import unittest
 
-from trcc.dc_parser import DisplayElement, parse_dc_file
+from trcc.core.models import CarouselConfig, DisplayElement, ThemeConfig
+from trcc.dc_parser import parse_dc_file
 from trcc.dc_writer import (
-    CarouselConfig,
-    ThemeConfig,
     _hex_to_argb,
     _metric_to_hardware_ids,
     _write_string,

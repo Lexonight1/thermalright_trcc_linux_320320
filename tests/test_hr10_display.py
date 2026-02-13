@@ -14,11 +14,13 @@ from trcc.device_led_hr10 import (
     IND_PCT,
     LED_COUNT,
     WIRE_ORDER,
-    apply_animation_colors,
-    get_digit_mask,
-    render_display,
-    render_metric,
+    Hr10Display,
 )
+
+render_display = Hr10Display.render
+render_metric = Hr10Display.render_metric
+get_digit_mask = Hr10Display.get_digit_mask
+apply_animation_colors = Hr10Display.apply_animation_colors
 
 OFF = (0, 0, 0)
 WHITE = (255, 255, 255)

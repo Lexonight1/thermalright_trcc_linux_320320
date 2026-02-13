@@ -18,7 +18,7 @@ All features are tested and working on the `stable` branch:
 - **HR10 support** — 7-segment display renderer, NVMe temperature daemon, color wheel
 - **Per-device config** — each LCD remembers its theme, brightness, rotation, overlay, and carousel settings
 - **Autostart** — launches minimized to system tray on login, sends last-used theme
-- **CLI** — 15 commands: `detect`, `send`, `setup-udev`, `gui`, `resume`, `report`, `hid-debug`, `led-diag`, `hr10-tempd`, and more
+- **CLI** — 15 commands: `detect`, `send`, `setup-udev`, `gui`, `resume`, `report`, `hid-debug`, `led-debug`, `hr10-tempd`, and more
 - **Cross-distro compatibility** — tested on Fedora, Debian/Ubuntu, Arch, openSUSE, Void, Alpine, Gentoo, NixOS, SteamOS, Bazzite
 - **96% test coverage** — 2105 tests across 29 test files
 

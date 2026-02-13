@@ -46,8 +46,8 @@ from ..core.controllers import LEDDeviceController, create_controller
 from ..core.models import DeviceInfo, PlaybackState, ThemeInfo
 from ..dc_writer import CarouselConfig, read_carousel_config, write_carousel_config
 from ..device_scsi import find_lcd_devices
-from ..sensor_enumerator import SensorEnumerator
 from ..system_info import get_all_metrics
+from ..system_sensors import SensorEnumerator
 
 # Import view components
 from .assets import Assets, load_pixmap
@@ -404,11 +404,11 @@ class TRCCMainWindowMVC(QMainWindow):
         self.uc_about.setVisible(False)
 
         # === Sensor Enumerator (hardware sensor discovery) ===
-        self._sensor_enumerator = SensorEnumerator()
-        self._sensor_enumerator.discover()
+        self._system_sensors = SensorEnumerator()
+        self._system_sensors.discover()
 
         # === System Info dashboard (hidden, shown by sensor/home button) ===
-        self.uc_system_info = UCSystemInfo(self._sensor_enumerator, self._lang, central)
+        self.uc_system_info = UCSystemInfo(self._system_sensors, self._lang, central)
         self.uc_system_info.setGeometry(*Layout.FORM_CONTAINER)
         self.uc_system_info.setVisible(False)
 

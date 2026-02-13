@@ -144,7 +144,7 @@
 ### HR10 2280 PRO Digital Support
 - 7-segment display renderer (`hr10_display.py`) — converts text + unit into 31-LED color array
 - NVMe temperature daemon (`hr10-tempd` CLI command) — reads sysfs temp, breathe animation, thermal color gradient
-- LED diagnostic command (`led-diag`) — handshake + test colors for LED devices
+- LED diagnostic command (`led-debug`) — handshake + test colors for LED devices
 - Interactive HSV color wheel widget (`uc_color_wheel.py`) for LED hue selection
 - 7-segment preview widget (`uc_seven_segment.py`) — QPainter rendering matching physical HR10 display
 - Unified LED panel — all LED device styles (1-13) handled by single `UCLedControl` panel, matching Windows FormLED.cs

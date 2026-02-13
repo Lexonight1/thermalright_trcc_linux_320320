@@ -10,7 +10,7 @@ Matches Windows TRCC UCSystemInfoOptions:
 - Selector buttons (↓) to open sensor picker per row
 - Add (+) button to add custom panels
 - Page navigation for >12 panels
-- Config persistence via sysinfo_config.json
+- Config persistence via system_config.json
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
 
-from ..sensor_enumerator import SensorEnumerator
-from ..sysinfo_config import (
+from ..system_config import (
     CATEGORY_COLORS,
     CATEGORY_IMAGES,
     PanelConfig,
     SensorBinding,
     SysInfoConfig,
 )
+from ..system_sensors import SensorEnumerator
 from .assets import load_pixmap
 from .constants import Colors
 
@@ -224,7 +224,7 @@ class UCSystemInfo(QWidget):
 
     Windows UCSystemInfoOptions layout:
     - Grid: 4 columns, starting at (44, 36), spacing (300, 199)
-    - Panels: loaded from sysinfo_config.json
+    - Panels: loaded from system_config.json
     - "+" button to add custom panels
     - Page navigation for >12 panels
 

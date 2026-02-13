@@ -12,6 +12,7 @@ from .image import ImageService
 from .led import LEDService
 from .media import MediaService
 from .overlay import OverlayService
+from .system import SystemService
 from .theme import ThemeService
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     'LEDService',
     'MediaService',
     'OverlayService',
+    'SystemService',
     'ThemeService',
 ]

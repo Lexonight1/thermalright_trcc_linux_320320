@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..sensor_enumerator import SensorEnumerator, SensorInfo
+from ..system_sensors import SensorEnumerator, SensorInfo
 from .assets import Assets, load_pixmap
 from .constants import Styles
 

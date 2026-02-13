@@ -90,7 +90,7 @@ class TestDependencyInjection(unittest.TestCase):
         self.assertIsInstance(VideoController().svc, MediaService)
         self.assertIsInstance(OverlayController().svc, OverlayService)
 
-    @patch('trcc.services.display.ensure_all_data')
+    @patch('trcc.data_repository.DataManager.ensure_all')
     def test_shared_services_across_controllers(self, _):
         """LCDDeviceController shares service instances with sub-controllers."""
         ctrl = LCDDeviceController()
@@ -172,7 +172,7 @@ class TestObserverPattern(unittest.TestCase):
 class TestFactoryPattern(unittest.TestCase):
     """Factory methods create fully wired object graphs."""
 
-    @patch('trcc.services.display.ensure_all_data')
+    @patch('trcc.data_repository.DataManager.ensure_all')
     def test_create_controller_returns_wired_graph(self, _):
         """create_controller() builds the complete controller tree."""
         ctrl = create_controller()
@@ -182,7 +182,7 @@ class TestFactoryPattern(unittest.TestCase):
         self.assertIsInstance(ctrl.video, VideoController)
         self.assertIsInstance(ctrl.overlay, OverlayController)
 
-    @patch('trcc.services.display.ensure_all_data')
+    @patch('trcc.data_repository.DataManager.ensure_all')
     def test_create_controller_callbacks_wired(self, _):
         """Factory wires internal callbacks between sub-controllers."""
         ctrl = create_controller()

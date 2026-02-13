@@ -1,13 +1,13 @@
-"""Tests for lcd_driver – unified LCD driver with SCSI communication."""
+"""Tests for device_lcd – unified LCD driver with SCSI communication."""
 
 import binascii
 import struct
 import tempfile
 import unittest
-from typing import cast
 from unittest.mock import MagicMock, patch
 
-from trcc.driver_lcd import LCDDriver
+from trcc.core.models import LCDDeviceConfig
+from trcc.device_lcd import LCDDriver
 
 
 def _mock_device(vid=0x3633, pid=0x0002, scsi='/dev/sg0',
@@ -22,20 +22,6 @@ def _mock_device(vid=0x3633, pid=0x0002, scsi='/dev/sg0',
     dev.usb_path = '1-2'
     dev.implementation = impl
     return dev
-
-
-def _mock_implementation(name='generic', resolution=(320, 320)):
-    impl = MagicMock()
-    impl.name = name
-    impl.resolution = resolution
-    impl.pixel_format = 'RGB565'
-    impl.get_poll_command.return_value = (0x01, 512)
-    impl.get_init_command.return_value = (0x02, 512)
-    impl.get_frame_chunks.return_value = [(0x10, 204800)]
-    impl.needs_init_per_frame.return_value = False
-    impl.rgb_to_bytes.return_value = b'\x00\x00'
-    impl.detect_resolution = MagicMock()
-    return impl
 
 
 # ── Header building + CRC ───────────────────────────────────────────────────
@@ -72,55 +58,50 @@ class TestLCDDriverHeaderCRC(unittest.TestCase):
 
 class TestLCDDriverInit(unittest.TestCase):
 
-    @patch('trcc.driver_lcd.get_implementation')
-    @patch('trcc.driver_lcd.detect_devices')
-    def test_init_with_path_finds_device(self, mock_detect, mock_get_impl):
+    @patch('trcc.device_lcd.DeviceService.detect_lcd_resolution', return_value=False)
+    @patch('trcc.device_lcd.detect_devices')
+    def test_init_with_path_finds_device(self, mock_detect, _):
         dev = _mock_device(scsi='/dev/sg1')
         mock_detect.return_value = [dev]
-        impl = _mock_implementation()
-        mock_get_impl.return_value = impl
 
         driver = LCDDriver(device_path='/dev/sg1')
         self.assertEqual(driver.device_path, '/dev/sg1')
         self.assertEqual(driver.device_info, dev)
+        self.assertIsInstance(driver.implementation, LCDDeviceConfig)
 
-    @patch('trcc.driver_lcd.get_implementation')
-    @patch('trcc.driver_lcd.detect_devices', return_value=[])
-    def test_init_with_path_falls_back_to_generic(self, mock_detect, mock_get_impl):
-        impl = _mock_implementation()
-        mock_get_impl.return_value = impl
-
+    @patch('trcc.device_lcd.DeviceService.detect_lcd_resolution', return_value=False)
+    @patch('trcc.device_lcd.detect_devices', return_value=[])
+    def test_init_with_path_falls_back_to_generic(self, mock_detect, _):
         driver = LCDDriver(device_path='/dev/sg5')
         self.assertEqual(driver.device_path, '/dev/sg5')
-        self.assertIsNone(driver.device_info)  # No matching device found
+        self.assertIsNone(driver.device_info)
+        self.assertEqual(driver.implementation.name, 'Generic LCD')
 
-    @patch('trcc.driver_lcd.get_implementation')
-    @patch('trcc.driver_lcd.detect_devices')
-    def test_init_by_vid_pid(self, mock_detect, mock_get_impl):
+    @patch('trcc.device_lcd.DeviceService.detect_lcd_resolution', return_value=False)
+    @patch('trcc.device_lcd.detect_devices')
+    def test_init_by_vid_pid(self, mock_detect, _):
         dev = _mock_device(vid=0x3633, pid=0x0002, scsi='/dev/sg0')
         mock_detect.return_value = [dev]
-        mock_get_impl.return_value = _mock_implementation()
 
         driver = LCDDriver(vid=0x3633, pid=0x0002)
         self.assertEqual(driver.device_path, '/dev/sg0')
 
-    @patch('trcc.driver_lcd.get_implementation')
-    @patch('trcc.driver_lcd.detect_devices', return_value=[])
-    def test_init_by_vid_pid_not_found_raises(self, mock_detect, mock_get_impl):
+    @patch('trcc.device_lcd.DeviceService.detect_lcd_resolution', return_value=False)
+    @patch('trcc.device_lcd.detect_devices', return_value=[])
+    def test_init_by_vid_pid_not_found_raises(self, mock_detect, _):
         with self.assertRaises(RuntimeError):
             LCDDriver(vid=0xDEAD, pid=0xBEEF)
 
-    @patch('trcc.driver_lcd.get_implementation')
-    @patch('trcc.driver_lcd.get_default_device')
-    def test_init_auto_detect(self, mock_default, mock_get_impl):
+    @patch('trcc.device_lcd.DeviceService.detect_lcd_resolution', return_value=False)
+    @patch('trcc.device_lcd.get_default_device')
+    def test_init_auto_detect(self, mock_default, _):
         dev = _mock_device()
         mock_default.return_value = dev
-        mock_get_impl.return_value = _mock_implementation()
 
         driver = LCDDriver()
         self.assertEqual(driver.device_info, dev)
 
-    @patch('trcc.driver_lcd.get_default_device', return_value=None)
+    @patch('trcc.device_lcd.get_default_device', return_value=None)
     def test_init_auto_detect_no_device(self, _):
         with self.assertRaises(RuntimeError):
             LCDDriver()
@@ -134,15 +115,13 @@ class TestLCDDriverFrameOps(unittest.TestCase):
         driver = LCDDriver.__new__(LCDDriver)
         driver.device_info = _mock_device()
         driver.device_path = '/dev/sg0'
-        driver.implementation = _mock_implementation()
+        driver.implementation = LCDDeviceConfig()
         driver.initialized = True
         return driver
 
-    def test_create_solid_color(self):
+    @patch('trcc.device_lcd.ImageService.rgb_to_bytes', return_value=b'\xFF\x00')
+    def test_create_solid_color(self, _):
         driver = self._make_driver()
-        assert driver.implementation is not None
-        impl = cast(MagicMock, driver.implementation)
-        impl.rgb_to_bytes.return_value = b'\xFF\x00'
         data = driver.create_solid_color(255, 0, 0)
         # 320*320 pixels * 2 bytes each
         self.assertEqual(len(data), 320 * 320 * 2)
@@ -154,12 +133,10 @@ class TestLCDDriverFrameOps(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             driver.create_solid_color(0, 0, 0)
 
-    @patch('trcc.driver_lcd._scsi_write', return_value=True)
-    def test_send_frame_pads_short_data(self, mock_write):
+    @patch('trcc.device_lcd._scsi_write', return_value=True)
+    @patch('trcc.device_lcd._get_frame_chunks', return_value=[(0x10, 100)])
+    def test_send_frame_pads_short_data(self, mock_chunks, mock_write):
         driver = self._make_driver()
-        assert driver.implementation is not None
-        impl = cast(MagicMock, driver.implementation)
-        impl.get_frame_chunks.return_value = [(0x10, 100)]
         driver.send_frame(b'\x00' * 50)
         # Should pad to 100 bytes — _scsi_write(dev, header, data)
         args = mock_write.call_args
@@ -183,7 +160,7 @@ class TestLCDDriverGetInfo(unittest.TestCase):
         driver.device_path = '/dev/sg0'
         driver.initialized = True
         driver.device_info = _mock_device()
-        driver.implementation = _mock_implementation()
+        driver.implementation = LCDDeviceConfig()
 
         info = driver.get_info()
         self.assertEqual(info['device_path'], '/dev/sg0')
@@ -208,7 +185,7 @@ class TestLCDDriverGetInfo(unittest.TestCase):
 class TestLCDDriverScsiIO(unittest.TestCase):
     """Test _scsi_read and _scsi_write (module-level functions in scsi_device)."""
 
-    @patch('trcc.device_scsi.require_sg_raw')
+    @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
     def test_scsi_read_success(self, mock_run, _):
         from trcc.device_scsi import _scsi_read
@@ -217,7 +194,7 @@ class TestLCDDriverScsiIO(unittest.TestCase):
         self.assertEqual(result, b'\xDE\xAD')
         mock_run.assert_called_once()
 
-    @patch('trcc.device_scsi.require_sg_raw')
+    @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
     def test_scsi_read_failure(self, mock_run, _):
         from trcc.device_scsi import _scsi_read
@@ -226,7 +203,7 @@ class TestLCDDriverScsiIO(unittest.TestCase):
         self.assertEqual(result, b'')
 
     @patch('trcc.device_scsi.os.unlink')
-    @patch('trcc.device_scsi.require_sg_raw')
+    @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
     def test_scsi_write_success(self, mock_run, _, __):
         from trcc.device_scsi import _build_header, _scsi_write
@@ -236,7 +213,7 @@ class TestLCDDriverScsiIO(unittest.TestCase):
         self.assertTrue(result)
 
     @patch('trcc.device_scsi.os.unlink')
-    @patch('trcc.device_scsi.require_sg_raw')
+    @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
     def test_scsi_write_failure(self, mock_run, _, __):
         from trcc.device_scsi import _build_header, _scsi_write
@@ -254,12 +231,12 @@ class TestLCDDriverInitDevice(unittest.TestCase):
         driver = LCDDriver.__new__(LCDDriver)
         driver.device_info = _mock_device()
         driver.device_path = '/dev/sg0'
-        driver.implementation = _mock_implementation()
+        driver.implementation = LCDDeviceConfig()
         driver.initialized = False
         return driver
 
-    @patch('trcc.driver_lcd._scsi_write', return_value=True)
-    @patch('trcc.driver_lcd._scsi_read', return_value=b'')
+    @patch('trcc.device_lcd._scsi_write', return_value=True)
+    @patch('trcc.device_lcd._scsi_read', return_value=b'')
     def test_init_device_calls_poll_then_init(self, mock_read, mock_write):
         driver = self._make_driver()
         driver.init_device()
@@ -267,8 +244,8 @@ class TestLCDDriverInitDevice(unittest.TestCase):
         mock_write.assert_called_once()
         self.assertTrue(driver.initialized)
 
-    @patch('trcc.driver_lcd._scsi_write', return_value=True)
-    @patch('trcc.driver_lcd._scsi_read', return_value=b'')
+    @patch('trcc.device_lcd._scsi_write', return_value=True)
+    @patch('trcc.device_lcd._scsi_read', return_value=b'')
     def test_init_device_skips_if_already_initialized(self, mock_read, mock_write):
         driver = self._make_driver()
         driver.initialized = True
@@ -285,14 +262,12 @@ class TestLCDDriverLoadImage(unittest.TestCase):
         driver = LCDDriver.__new__(LCDDriver)
         driver.device_info = _mock_device()
         driver.device_path = '/dev/sg0'
-        driver.implementation = _mock_implementation()
+        driver.implementation = LCDDeviceConfig()
         driver.initialized = False
         return driver
 
     def test_load_image_converts_to_rgb565(self):
         driver = self._make_driver()
-        impl = cast(MagicMock, driver.implementation)
-        impl.rgb_to_bytes.return_value = b'\xFF\x00'
 
         # Create a small test image
         from PIL import Image
@@ -303,7 +278,7 @@ class TestLCDDriverLoadImage(unittest.TestCase):
 
         try:
             data = driver.load_image(tmp_path)
-            # 320x320 resolution (from mock) * 2 bytes per pixel
+            # 320x320 resolution * 2 bytes per pixel
             self.assertEqual(len(data), 320 * 320 * 2)
         finally:
             import os

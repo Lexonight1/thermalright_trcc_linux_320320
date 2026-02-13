@@ -280,13 +280,13 @@ Device: ALi Corp LCD Display
 
 ---
 
-### `trcc led-diag`
+### `trcc led-debug`
 
 Diagnose an LED device — performs handshake and reports PM byte, style, and segment count.
 
 ```bash
-trcc led-diag             # handshake only
-trcc led-diag --test      # handshake + send test colors
+trcc led-debug             # handshake only
+trcc led-debug --test      # handshake + send test colors
 ```
 
 | Option | Description |

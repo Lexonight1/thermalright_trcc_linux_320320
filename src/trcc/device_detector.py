@@ -27,7 +27,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .paths import find_scsi_devices as _find_sg_entries
+from .data_repository import SysUtils
 
 log = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ class DeviceDetector:
     def find_scsi_device_by_usb_path(usb_path: str) -> Optional[str]:
         """Find SCSI device corresponding to USB path."""
         # Method 1: Scan sysfs directly for sg devices with USBLCD vendor
-        for sg_name in _find_sg_entries():
+        for sg_name in SysUtils.find_scsi_devices():
             sysfs_base = f"/sys/class/scsi_generic/{sg_name}/device"
             if not os.path.exists(sysfs_base):
                 continue
@@ -266,7 +266,7 @@ class DeviceDetector:
         """Find USBLCD devices directly via sysfs (pure Python, no external commands)."""
         devices = []
 
-        for sg_name in _find_sg_entries():
+        for sg_name in SysUtils.find_scsi_devices():
             sg_path = f"/dev/{sg_name}"
             sysfs_base = f"/sys/class/scsi_generic/{sg_name}/device"
 

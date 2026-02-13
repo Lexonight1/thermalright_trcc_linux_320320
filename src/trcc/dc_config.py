@@ -15,13 +15,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .dc_parser import (
+from .core.models import (
     HARDWARE_METRICS,
     METRIC_TO_IDS,
-    DcParser,
     DisplayElement,
     FontConfig,
 )
+from .dc_parser import DcParser
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class DcConfig:
 
     def _to_theme_config(self):
         """Convert to dc_writer.ThemeConfig for write_dc_file()."""
-        from .dc_writer import ThemeConfig
+        from .core.models import ThemeConfig
 
         return ThemeConfig(
             elements=self.elements,

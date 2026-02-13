@@ -214,14 +214,14 @@ class TestThemesEndpoint(unittest.TestCase):
         self.client = TestClient(app)
 
     @patch('trcc.api.ThemeService.discover_local', return_value=[])
-    @patch('trcc.paths.get_theme_dir', return_value='/tmp/themes')
+    @patch('trcc.data_repository.ThemeDir.for_resolution', return_value=MagicMock(__str__=lambda s: '/tmp/themes'))
     def test_list_themes_empty(self, mock_dir, mock_discover):
         resp = self.client.get("/themes?resolution=320x320")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), [])
 
     @patch('trcc.api.ThemeService.discover_local')
-    @patch('trcc.paths.get_theme_dir', return_value='/tmp/themes')
+    @patch('trcc.data_repository.ThemeDir.for_resolution', return_value=MagicMock(__str__=lambda s: '/tmp/themes'))
     def test_list_themes_with_results(self, mock_dir, mock_discover):
         mock_theme = MagicMock()
         mock_theme.name = "Theme001"

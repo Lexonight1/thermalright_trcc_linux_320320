@@ -1,14 +1,14 @@
 """
-Tests for overlay_renderer - System metrics overlay rendering module.
+Tests for OverlayService — overlay rendering (config, mask, metrics → image).
 
 Tests cover:
-- OverlayRenderer initialization
-- Resolution setting
+- Initialization and resolution
 - Format options (time, date, temperature)
 - Background and mask handling
 - Font loading and caching
 - Text rendering with metrics
 - Config application
+- Dynamic scaling
 """
 
 import os
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from PIL import Image
 
-from trcc.overlay_renderer import OverlayRenderer
+from trcc.services.overlay import OverlayService as OverlayRenderer
 
 
 class TestOverlayRendererInit(unittest.TestCase):
@@ -298,7 +298,7 @@ class TestRender(unittest.TestCase):
             }
         })
         metrics = {'cpu_temp': 45}
-        img = renderer.render(metrics)
+        img = renderer.render(metrics=metrics)
         self.assertEqual(img.size, (320, 320))
 
     def test_render_disabled_element_skipped(self):
@@ -328,7 +328,7 @@ class TestRender(unittest.TestCase):
             }
         })
         # Render with empty metrics
-        img = renderer.render({})
+        img = renderer.render(metrics={})
         self.assertEqual(img.size, (320, 320))
 
     def test_render_with_format_options(self):
@@ -346,7 +346,7 @@ class TestRender(unittest.TestCase):
             }
         })
         metrics = {'time': '14:30'}
-        img = renderer.render(metrics)
+        img = renderer.render(metrics=metrics)
         self.assertEqual(img.size, (320, 320))
 
     def test_render_with_per_element_temp_unit(self):
@@ -363,7 +363,7 @@ class TestRender(unittest.TestCase):
             }
         })
         metrics = {'cpu_temp': 45}
-        img = renderer.render(metrics)
+        img = renderer.render(metrics=metrics)
         self.assertEqual(img.size, (320, 320))
 
     def test_render_none_config(self):
@@ -465,7 +465,7 @@ class TestRenderIntegration(unittest.TestCase):
             'time': '14:30',
             'cpu_temp': 45
         }
-        img = renderer.render(metrics)
+        img = renderer.render(metrics=metrics)
 
         # Verify output
         self.assertEqual(img.size, (320, 320))
@@ -664,7 +664,7 @@ class TestResolveFontPath(unittest.TestCase):
             # Create fake font file
             open(os.path.join(tmpdir, 'DejaVuSans.ttf'), 'w').close()
             with patch('subprocess.run', side_effect=FileNotFoundError), \
-                 patch('trcc.overlay_renderer.FONT_SEARCH_DIRS', [tmpdir]):
+                 patch('trcc.font_resolver.FONT_SEARCH_DIRS', [tmpdir]):
                 result = renderer._resolve_font_path('DejaVu Sans')
             # Should find it in our patched search dir
             if result:

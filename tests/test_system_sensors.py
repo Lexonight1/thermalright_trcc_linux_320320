@@ -1,10 +1,10 @@
-"""Tests for sensor_enumerator – hardware sensor discovery and reading."""
+"""Tests for system_sensors – hardware sensor discovery and reading."""
 
 import unittest
 from unittest.mock import MagicMock, patch
 
-from trcc.paths import read_sysfs
-from trcc.sensor_enumerator import (
+from trcc.data_repository import SysUtils
+from trcc.system_sensors import (
     _HWMON_DIVISORS,
     _HWMON_TYPES,
     SensorEnumerator,
@@ -19,10 +19,10 @@ class TestReadSysfs(unittest.TestCase):
         from unittest.mock import mock_open
         m = mock_open(read_data='  42000  \n')
         with patch('builtins.open', m):
-            self.assertEqual(read_sysfs('/fake/path'), '42000')
+            self.assertEqual(SysUtils.read_sysfs('/fake/path'), '42000')
 
     def test_returns_none_on_error(self):
-        self.assertIsNone(read_sysfs('/no/such/file'))
+        self.assertIsNone(SysUtils.read_sysfs('/no/such/file'))
 
 
 # ── SensorInfo ───────────────────────────────────────────────────────────────
@@ -59,8 +59,8 @@ class TestSensorEnumeratorDiscover(unittest.TestCase):
     def _make_enumerator(self):
         return SensorEnumerator()
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', False)
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', False)
+    @patch('trcc.system_sensors.Path')
     def test_discover_hwmon_basic(self, mock_path_cls):
         """Verify hwmon discovery parses driver name and inputs."""
 
@@ -130,7 +130,7 @@ class TestSensorEnumeratorGetters(unittest.TestCase):
 
 class TestSensorEnumeratorReadHwmon(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
     def test_read_all_hwmon(self, mock_read):
         mock_read.return_value = '65000'
 
@@ -143,7 +143,7 @@ class TestSensorEnumeratorReadHwmon(unittest.TestCase):
         readings = enum.read_all()
         self.assertAlmostEqual(readings['hwmon:coretemp:temp1'], 65.0)
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='1500')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='1500')
     def test_read_all_fan(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:it8688:fan1': '/sys/class/hwmon/hwmon3/fan1_input'}
@@ -154,7 +154,7 @@ class TestSensorEnumeratorReadHwmon(unittest.TestCase):
         readings = enum.read_all()
         self.assertAlmostEqual(readings['hwmon:it8688:fan1'], 1500.0)
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value=None)
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None)
     def test_read_all_missing_value(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:x:temp1': '/fake'}
@@ -164,7 +164,7 @@ class TestSensorEnumeratorReadHwmon(unittest.TestCase):
 
 class TestSensorEnumeratorReadOne(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='72500')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='72500')
     def test_read_one_hwmon(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:k10temp:temp1': '/fake'}
@@ -172,7 +172,7 @@ class TestSensorEnumeratorReadOne(unittest.TestCase):
         assert val is not None
         self.assertAlmostEqual(val, 72.5)
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value=None)
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None)
     def test_read_one_missing(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:k10temp:temp1': '/fake'}
@@ -183,8 +183,8 @@ class TestSensorEnumeratorReadOne(unittest.TestCase):
 
 class TestSensorEnumeratorReadRapl(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.time')
     def test_rapl_power_calculation(self, mock_time, mock_read):
         enum = SensorEnumerator()
         enum._rapl_paths = {'rapl:package-0': '/sys/class/powercap/intel-rapl:0/energy_uj'}
@@ -209,7 +209,7 @@ class TestSensorEnumeratorReadRapl(unittest.TestCase):
 
 class TestSensorEnumeratorReadPsutil(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.system_sensors.psutil')
     def test_reads_cpu_and_memory(self, mock_psutil):
         mock_psutil.cpu_percent.return_value = 42.0
         mock_psutil.cpu_freq.return_value = MagicMock(current=3600.0)
@@ -232,7 +232,7 @@ class TestMapDefaults(unittest.TestCase):
 
     def test_returns_dict(self):
         # Reset class-level cache for clean test
-        from trcc.sensor_enumerator import map_defaults
+        from trcc.system_sensors import map_defaults
         SensorEnumerator._default_map = None
 
         enum = SensorEnumerator()
@@ -291,8 +291,8 @@ class TestDiscoverEndToEnd(unittest.TestCase):
 
 class TestDiscoverHwmon(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_discovers_temp_and_fan(self, mock_path_cls, mock_sysfs):
         from pathlib import PurePosixPath
 
@@ -337,8 +337,8 @@ class TestDiscoverHwmon(unittest.TestCase):
 
 class TestDiscoverRapl(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_discovers_rapl_domain(self, mock_path_cls, mock_sysfs):
         rapl_base = MagicMock()
         rapl_base.exists.return_value = True
@@ -366,8 +366,8 @@ class TestDiscoverRapl(unittest.TestCase):
         self.assertEqual(enum._sensors[0].source, 'rapl')
         self.assertIn('package-0', enum._sensors[0].id)
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_skips_sub_zones(self, mock_path_cls, mock_sysfs):
         rapl_base = MagicMock()
         rapl_base.exists.return_value = True
@@ -390,7 +390,7 @@ class TestReadAllEdgeCases(unittest.TestCase):
     def test_unknown_prefix_returns_raw(self):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:test:custom1': '/fake/custom1_input'}
-        with patch('trcc.sensor_enumerator.read_sysfs', return_value='123'):
+        with patch('trcc.data_repository.SysUtils.read_sysfs', return_value='123'):
             readings = enum.read_all()
         # 'custom1' doesn't start with temp/fan/in/power/freq → raw value
         self.assertEqual(readings['hwmon:test:custom1'], 123.0)
@@ -398,7 +398,7 @@ class TestReadAllEdgeCases(unittest.TestCase):
     def test_hwmon_value_error(self):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:test:temp1': '/fake/temp1_input'}
-        with patch('trcc.sensor_enumerator.read_sysfs', return_value='not-a-number'):
+        with patch('trcc.data_repository.SysUtils.read_sysfs', return_value='not-a-number'):
             readings = enum.read_all()
         self.assertNotIn('hwmon:test:temp1', readings)
 
@@ -417,7 +417,7 @@ class TestReadOneEdgeCases(unittest.TestCase):
     def test_hwmon_value_error_returns_none(self):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:test:temp1': '/fake/path'}
-        with patch('trcc.sensor_enumerator.read_sysfs', return_value='bad'):
+        with patch('trcc.data_repository.SysUtils.read_sysfs', return_value='bad'):
             result = enum.read_one('hwmon:test:temp1')
         self.assertIsNone(result)
 
@@ -426,8 +426,8 @@ class TestReadOneEdgeCases(unittest.TestCase):
 
 class TestReadComputed(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_disk_delta(self, mock_time, mock_psutil):
         mock_time.monotonic.return_value = 101.0
         mock_psutil.disk_io_counters.return_value = MagicMock(
@@ -448,8 +448,8 @@ class TestReadComputed(unittest.TestCase):
         self.assertAlmostEqual(readings['computed:disk_read'], 10.0, delta=0.1)
         self.assertIn('computed:disk_activity', readings)
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_network_delta(self, mock_time, mock_psutil):
         mock_time.monotonic.return_value = 101.0
         mock_psutil.disk_io_counters.return_value = None
@@ -471,7 +471,7 @@ class TestReadComputed(unittest.TestCase):
 class TestMapDefaultsFull(unittest.TestCase):
 
     def test_fan_sensor_mapping(self):
-        from trcc.sensor_enumerator import map_defaults
+        from trcc.system_sensors import map_defaults
         SensorEnumerator._default_map = None
 
         enum = SensorEnumerator()
@@ -485,7 +485,7 @@ class TestMapDefaultsFull(unittest.TestCase):
         SensorEnumerator._default_map = None
 
     def test_cached_second_call(self):
-        from trcc.sensor_enumerator import map_defaults
+        from trcc.system_sensors import map_defaults
         SensorEnumerator._default_map = None
 
         enum = SensorEnumerator()
@@ -500,14 +500,14 @@ class TestMapDefaultsFull(unittest.TestCase):
 
 class TestDiscoverNvidia(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', False)
+    @patch('trcc.system_sensors.NVML_AVAILABLE', False)
     def test_noop_without_nvml(self):
         enum = SensorEnumerator()
         enum._discover_nvidia()
         self.assertEqual(enum._sensors, [])
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_discovers_gpu_sensors(self, mock_nvml):
         mock_nvml.nvmlDeviceGetCount.return_value = 1
         handle = MagicMock()
@@ -525,8 +525,8 @@ class TestDiscoverNvidia(unittest.TestCase):
         self.assertEqual(len(ids), 9)
         self.assertIs(enum._nvidia_handles[0], handle)
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_gpu_name_bytes(self, mock_nvml):
         """GPU name returned as bytes gets decoded."""
         mock_nvml.nvmlDeviceGetCount.return_value = 1
@@ -538,8 +538,8 @@ class TestDiscoverNvidia(unittest.TestCase):
         enum._discover_nvidia()
         self.assertTrue(any('RTX 3080' in s.name for s in enum._sensors))
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_multi_gpu_labels(self, mock_nvml):
         """Multiple GPUs get 'GPU N (name)' labels."""
         mock_nvml.nvmlDeviceGetCount.return_value = 2
@@ -552,16 +552,16 @@ class TestDiscoverNvidia(unittest.TestCase):
         self.assertTrue(any('GPU 0' in n for n in names))
         self.assertTrue(any('GPU 1' in n for n in names))
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_get_count_exception(self, mock_nvml):
         mock_nvml.nvmlDeviceGetCount.side_effect = RuntimeError
         enum = SensorEnumerator()
         enum._discover_nvidia()
         self.assertEqual(enum._sensors, [])
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_handle_exception_skips_gpu(self, mock_nvml):
         mock_nvml.nvmlDeviceGetCount.return_value = 1
         mock_nvml.nvmlDeviceGetHandleByIndex.side_effect = RuntimeError
@@ -574,15 +574,15 @@ class TestDiscoverNvidia(unittest.TestCase):
 
 class TestReadNvidia(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', False)
+    @patch('trcc.system_sensors.NVML_AVAILABLE', False)
     def test_noop_without_nvml(self):
         enum = SensorEnumerator()
         readings = {}
         enum._read_nvidia(readings)
         self.assertEqual(readings, {})
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_reads_all_metrics(self, mock_nvml):
         handle = MagicMock()
         mock_nvml.NVML_TEMPERATURE_GPU = 0
@@ -612,8 +612,8 @@ class TestReadNvidia(unittest.TestCase):
         # VRAM: 8 GiB
         self.assertAlmostEqual(readings['nvidia:0:vram_used'], 8192.0, delta=1)
 
-    @patch('trcc.sensor_enumerator.NVML_AVAILABLE', True)
-    @patch('trcc.sensor_enumerator.pynvml')
+    @patch('trcc.system_sensors.NVML_AVAILABLE', True)
+    @patch('trcc.system_sensors.pynvml')
     def test_individual_metric_exceptions(self, mock_nvml):
         """Each metric has its own try/except — failures don't cascade."""
         handle = MagicMock()
@@ -641,8 +641,8 @@ class TestReadNvidia(unittest.TestCase):
 
 class TestReadRaplEdge(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value=None)
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None)
+    @patch('trcc.system_sensors.time')
     def test_none_value_skipped(self, mock_time, _):
         mock_time.monotonic.return_value = 100.0
         enum = SensorEnumerator()
@@ -651,8 +651,8 @@ class TestReadRaplEdge(unittest.TestCase):
         enum._read_rapl(readings)
         self.assertEqual(readings, {})
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='not-a-number')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='not-a-number')
+    @patch('trcc.system_sensors.time')
     def test_value_error_skipped(self, mock_time, _):
         mock_time.monotonic.return_value = 100.0
         enum = SensorEnumerator()
@@ -661,8 +661,8 @@ class TestReadRaplEdge(unittest.TestCase):
         enum._read_rapl(readings)
         self.assertEqual(readings, {})
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='20000000')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='20000000')
+    @patch('trcc.system_sensors.time')
     def test_negative_power_ignored(self, mock_time, _):
         """Counter wrap produces negative delta — should be ignored."""
         mock_time.monotonic.return_value = 101.0
@@ -679,7 +679,7 @@ class TestReadRaplEdge(unittest.TestCase):
 
 class TestReadPsutilEdge(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.system_sensors.psutil')
     def test_cpu_percent_exception(self, mock_psutil):
         mock_psutil.cpu_percent.side_effect = RuntimeError
         mock_psutil.cpu_freq.return_value = MagicMock(current=3600)
@@ -692,7 +692,7 @@ class TestReadPsutilEdge(unittest.TestCase):
         self.assertNotIn('psutil:cpu_percent', readings)
         self.assertIn('psutil:cpu_freq', readings)
 
-    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.system_sensors.psutil')
     def test_cpu_freq_none(self, mock_psutil):
         mock_psutil.cpu_percent.return_value = 10.0
         mock_psutil.cpu_freq.return_value = None
@@ -705,7 +705,7 @@ class TestReadPsutilEdge(unittest.TestCase):
         self.assertNotIn('psutil:cpu_freq', readings)
         self.assertIn('psutil:cpu_percent', readings)
 
-    @patch('trcc.sensor_enumerator.psutil')
+    @patch('trcc.system_sensors.psutil')
     def test_virtual_memory_exception(self, mock_psutil):
         mock_psutil.cpu_percent.return_value = 10.0
         mock_psutil.cpu_freq.return_value = MagicMock(current=3600)
@@ -722,8 +722,8 @@ class TestReadPsutilEdge(unittest.TestCase):
 
 class TestReadComputedEdge(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_disk_without_busy_time(self, mock_time, mock_psutil):
         """Disk counters without busy_time attr — skip activity."""
         mock_time.monotonic.return_value = 101.0
@@ -743,8 +743,8 @@ class TestReadComputedEdge(unittest.TestCase):
         self.assertIn('computed:disk_read', readings)
         self.assertNotIn('computed:disk_activity', readings)
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_disk_no_prev(self, mock_time, mock_psutil):
         """First disk read — seeds prev but no delta."""
         mock_time.monotonic.return_value = 100.0
@@ -759,8 +759,8 @@ class TestReadComputedEdge(unittest.TestCase):
         self.assertNotIn('computed:disk_read', readings)
         self.assertIsNotNone(enum._disk_prev)
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_net_no_prev(self, mock_time, mock_psutil):
         """First net read — has totals but no rates."""
         mock_time.monotonic.return_value = 100.0
@@ -776,8 +776,8 @@ class TestReadComputedEdge(unittest.TestCase):
         self.assertNotIn('computed:net_up', readings)
         self.assertIsNotNone(enum._net_prev)
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_disk_exception(self, mock_time, mock_psutil):
         mock_time.monotonic.return_value = 100.0
         mock_psutil.disk_io_counters.side_effect = RuntimeError
@@ -787,8 +787,8 @@ class TestReadComputedEdge(unittest.TestCase):
         enum._read_computed(readings)
         self.assertNotIn('computed:disk_read', readings)
 
-    @patch('trcc.sensor_enumerator.psutil')
-    @patch('trcc.sensor_enumerator.time')
+    @patch('trcc.system_sensors.psutil')
+    @patch('trcc.system_sensors.time')
     def test_net_exception(self, mock_time, mock_psutil):
         mock_time.monotonic.return_value = 100.0
         mock_psutil.disk_io_counters.return_value = None
@@ -803,7 +803,7 @@ class TestReadComputedEdge(unittest.TestCase):
 
 class TestDiscoverHwmonEdge(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.system_sensors.Path')
     def test_hwmon_base_not_exists(self, mock_path_cls):
         base = MagicMock()
         base.exists.return_value = False
@@ -812,8 +812,8 @@ class TestDiscoverHwmonEdge(unittest.TestCase):
         enum._discover_hwmon()
         self.assertEqual(enum._sensors, [])
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_duplicate_driver_disambiguation(self, mock_path_cls, mock_sysfs):
         """Two hwmon dirs with same driver get .1 suffix on second."""
         from pathlib import PurePosixPath
@@ -855,8 +855,8 @@ class TestDiscoverHwmonEdge(unittest.TestCase):
         self.assertTrue(any('spd5118:' in sid for sid in ids))
         self.assertTrue(any('spd5118.1:' in sid for sid in ids))
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_unknown_prefix_skipped(self, mock_path_cls, mock_sysfs):
         """An input file that doesn't match any known prefix is skipped."""
         from pathlib import PurePosixPath
@@ -890,7 +890,7 @@ class TestDiscoverHwmonEdge(unittest.TestCase):
 
 class TestDiscoverRaplEdge(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.system_sensors.Path')
     def test_rapl_base_not_exists(self, mock_path_cls):
         base = MagicMock()
         base.exists.return_value = False
@@ -899,8 +899,8 @@ class TestDiscoverRaplEdge(unittest.TestCase):
         enum._discover_rapl()
         self.assertEqual(enum._sensors, [])
 
-    @patch('trcc.sensor_enumerator.read_sysfs')
-    @patch('trcc.sensor_enumerator.Path')
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
+    @patch('trcc.system_sensors.Path')
     def test_energy_path_not_exists(self, mock_path_cls, mock_sysfs):
         rapl_base = MagicMock()
         rapl_base.exists.return_value = True
@@ -932,7 +932,7 @@ class TestMapDefaultsGpuAndTemp(unittest.TestCase):
         SensorEnumerator._default_map = None
         enum = SensorEnumerator()
         enum._sensors = sensors
-        from trcc.sensor_enumerator import map_defaults
+        from trcc.system_sensors import map_defaults
         result = map_defaults(enum)
         SensorEnumerator._default_map = None
         return result
@@ -1011,7 +1011,7 @@ class TestNvmlImport(unittest.TestCase):
 
     def test_nvml_available_flag_exists(self):
         """Module-level NVML_AVAILABLE flag is a boolean."""
-        from trcc.sensor_enumerator import NVML_AVAILABLE
+        from trcc.system_sensors import NVML_AVAILABLE
         self.assertIsInstance(NVML_AVAILABLE, bool)
 
 
@@ -1019,7 +1019,7 @@ class TestNvmlImport(unittest.TestCase):
 
 class TestReadOneDivisor(unittest.TestCase):
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='12500')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='12500')
     def test_in_prefix(self, _):
         """'in' prefix divides by 1000 (millivolts → volts)."""
         enum = SensorEnumerator()
@@ -1027,14 +1027,14 @@ class TestReadOneDivisor(unittest.TestCase):
         val = enum.read_one('hwmon:nct:in0')
         self.assertAlmostEqual(val, 12.5)
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='250000')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='250000')
     def test_power_prefix(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:test:power1': '/fake/power1_input'}
         val = enum.read_one('hwmon:test:power1')
         self.assertAlmostEqual(val, 0.25)  # µW → W
 
-    @patch('trcc.sensor_enumerator.read_sysfs', return_value='3600000000')
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='3600000000')
     def test_freq_prefix(self, _):
         enum = SensorEnumerator()
         enum._hwmon_paths = {'hwmon:test:freq1': '/fake/freq1_input'}

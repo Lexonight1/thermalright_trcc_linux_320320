@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "2.0.1"
+__version__ = "3.0.0"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -66,3 +66,9 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #          constants.py (single source of truth), PM=FBL default instead of
 #          hardcoded 320x320. Fix PyQt6 version in trcc report. CI: add ffmpeg,
 #          auto-publish to PyPI on tag push. Delete dead shim files.
+# 3.0.0  - Hexagonal architecture: services layer (7 services), CLI Typer,
+#          REST API adapter, FontResolver extraction, pure media decoders,
+#          overlay_renderer merged into services/overlay, dead code removed
+#          (theme_io, constants, device_base). Module renames: paths→data_repository,
+#          sensor_enumerator→system_sensors, sysinfo_config→system_config,
+#          cloud_downloader→theme_cloud, driver_lcd→device_lcd. 2081 tests.

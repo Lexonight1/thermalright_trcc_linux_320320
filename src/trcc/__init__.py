@@ -30,10 +30,10 @@ __author__ = "TRCC Linux Contributors"
 from trcc.dc_config import DcConfig
 from trcc.dc_parser import dc_to_overlay_config, parse_dc_file
 from trcc.device_detector import detect_devices, get_device_path
-from trcc.driver_lcd import LCDDriver
+from trcc.device_lcd import LCDDriver
 
 # Animation
-from trcc.media_player import GIFAnimator, GIFThemeLoader, VideoPlayer
+from trcc.media_player import VideoDecoder
 from trcc.system_info import format_metric, get_all_metrics
 
 __all__ = [
@@ -51,7 +51,5 @@ __all__ = [
     "parse_dc_file",
     "dc_to_overlay_config",
     # Animation
-    "GIFAnimator",
-    "GIFThemeLoader",
-    "VideoPlayer",
+    "VideoDecoder",
 ]

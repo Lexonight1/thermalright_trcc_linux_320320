@@ -9,8 +9,8 @@ subprocess calls at their correct paths.
 import unittest
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
-from trcc.constants import DATE_FORMATS, TIME_FORMATS, WEEKDAYS
-from trcc.paths import read_sysfs
+from trcc.core.models import DATE_FORMATS, TIME_FORMATS, WEEKDAYS
+from trcc.data_repository import SysUtils
 from trcc.system_info import (
     SystemInfo,
     find_hwmon_by_name,
@@ -65,18 +65,18 @@ class TestReadSysfs(unittest.TestCase):
     def test_returns_stripped_content(self):
         m = mock_open(read_data="  hello world  \n")
         with patch('builtins.open', m):
-            self.assertEqual(read_sysfs('/fake'), 'hello world')
+            self.assertEqual(SysUtils.read_sysfs('/fake'), 'hello world')
 
     def test_returns_none_on_error(self):
-        self.assertIsNone(read_sysfs('/nonexistent/path/xyz'))
+        self.assertIsNone(SysUtils.read_sysfs('/nonexistent/path/xyz'))
 
 
 # ── find_hwmon_by_name ───────────────────────────────────────────────────────
 
 class TestFindHwmon(unittest.TestCase):
 
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_sysfs')
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.data_repository.SysUtils.read_sysfs')
     def test_finds_matching_hwmon(self, mock_read, mock_exists):
         def side_effect(path):
             if 'hwmon2/name' in path:
@@ -88,15 +88,15 @@ class TestFindHwmon(unittest.TestCase):
         assert result is not None
         self.assertIn('hwmon2', result)
 
-    @patch('trcc.system_info.os.path.exists', return_value=False)
+    @patch('trcc.services.system.os.path.exists', return_value=False)
     def test_returns_none_no_hwmon_dir(self, _):
         self.assertIsNone(find_hwmon_by_name('coretemp'))
 
 
 class TestFindHwmonNoMatch(unittest.TestCase):
 
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.read_sysfs', return_value='nct6775')
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='nct6775')
     def test_returns_none_when_no_match(self, *_):
         result = find_hwmon_by_name('nonexistent_driver_xyz')
         self.assertIsNone(result)
@@ -117,7 +117,7 @@ class TestGetCpuTemperature(unittest.TestCase):
     def test_fallback_to_sensors(self):
         """When enumerator returns None, falls back to subprocess sensors."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': 'temp1_input: 52.0\n', 'returncode': 0
             })()
@@ -128,7 +128,7 @@ class TestGetCpuTemperature(unittest.TestCase):
     def test_fallback_sensors_exception_returns_none(self):
         """When enumerator returns None and sensors subprocess fails."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=Exception("no sensors")):
+        with patch('trcc.services.system.subprocess.run', side_effect=Exception("no sensors")):
             self.assertIsNone(si.cpu_temperature)
 
     def test_backward_compat_alias(self):
@@ -152,7 +152,7 @@ class TestGetCpuUsage(unittest.TestCase):
     def test_fallback_loadavg(self):
         """Fallback to /proc/loadavg when enumerator returns None."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.read_sysfs',
+        with patch('trcc.data_repository.SysUtils.read_sysfs',
                    return_value='2.50 1.00 0.50 1/234 5678'):
             usage = si.cpu_usage
             self.assertIsNotNone(usage)
@@ -160,7 +160,7 @@ class TestGetCpuUsage(unittest.TestCase):
 
     def test_fallback_loadavg_exception_returns_none(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.read_sysfs', return_value=None):
+        with patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None):
             self.assertIsNone(si.cpu_usage)
 
     def test_backward_compat_alias(self):
@@ -337,7 +337,7 @@ class TestGetMemoryTemperature(unittest.TestCase):
             "ddr5_dimm-virtual-0\n"
             "  temp1_input: 38.500\n"
         )
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': sensors_output, 'returncode': 0
             })()
@@ -347,7 +347,7 @@ class TestGetMemoryTemperature(unittest.TestCase):
 
     def test_returns_none_when_unavailable(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError):
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError):
             self.assertIsNone(si.memory_temperature)
 
     def test_backward_compat_alias(self):
@@ -362,7 +362,7 @@ class TestGetMemoryClock(unittest.TestCase):
 
     def test_dmidecode_configured_speed(self):
         si = _make_si()
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': 'Memory Device\n  Configured Memory Speed: 3200 MT/s\n',
                 'returncode': 0
@@ -372,7 +372,7 @@ class TestGetMemoryClock(unittest.TestCase):
 
     def test_dmidecode_speed_fallback(self):
         si = _make_si()
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': 'Memory Device\n  Speed: 2400 MHz\n',
                 'returncode': 0
@@ -380,8 +380,8 @@ class TestGetMemoryClock(unittest.TestCase):
             clock = si.memory_clock
             self.assertAlmostEqual(clock, 2400.0)
 
-    @patch('trcc.system_info.os.path.exists', return_value=False)
-    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.services.system.os.path.exists', return_value=False)
+    @patch('trcc.services.system.subprocess.run')
     def test_lshw_fallback(self, mock_run, _):
         si = _make_si()
         mock_run.side_effect = [
@@ -394,24 +394,24 @@ class TestGetMemoryClock(unittest.TestCase):
         clock = si.memory_clock
         self.assertAlmostEqual(clock, 4800.0)
 
-    @patch('trcc.system_info.read_sysfs', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
-    @patch('trcc.system_info.os.listdir', return_value=['mc0'])
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
+    @patch('trcc.services.system.os.listdir', return_value=['mc0'])
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError)
     def test_edac_fallback(self, *_):
         si = _make_si()
         clock = si.memory_clock
         self.assertAlmostEqual(clock, 5600.0)
 
-    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
-    @patch('trcc.system_info.os.path.exists', return_value=False)
+    @patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.services.system.os.path.exists', return_value=False)
     def test_returns_none_when_unavailable(self, *_):
         si = _make_si()
         self.assertIsNone(si.memory_clock)
 
-    @patch('trcc.system_info.os.listdir', side_effect=PermissionError)
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.services.system.os.listdir', side_effect=PermissionError)
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError)
     def test_edac_listdir_fails(self, *_):
         si = _make_si()
         self.assertIsNone(si.memory_clock)
@@ -469,7 +469,7 @@ class TestGetDiskTemperature(unittest.TestCase):
     def test_smartctl_fallback(self):
         """When enumerator returns None, falls back to smartctl."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': ('ID# ATTRIBUTE_NAME  VALUE WORST THRESH TYPE\n'
                            '194 Temperature_Celsius  35  40  0  Old_age\n'),
@@ -481,7 +481,7 @@ class TestGetDiskTemperature(unittest.TestCase):
 
     def test_returns_none_when_unavailable(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError):
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError):
             self.assertIsNone(si.disk_temperature)
 
     def test_backward_compat_alias(self):
@@ -617,7 +617,7 @@ class TestFormatMetric(unittest.TestCase):
         self.assertEqual(format_metric('mem_available', 4096.0), '4.0GB')
 
     # Date / time / weekday (use frozen datetime)
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_0(self, mock_dt):
         from datetime import datetime as real_dt
         fake_now = real_dt(2026, 2, 6, 14, 30, 0)
@@ -625,7 +625,7 @@ class TestFormatMetric(unittest.TestCase):
         result = format_metric('date', 0, date_format=0)
         self.assertEqual(result, '2026/02/06')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_time_format_0(self, mock_dt):
         from datetime import datetime as real_dt
         fake_now = real_dt(2026, 2, 6, 14, 5, 0)
@@ -633,7 +633,7 @@ class TestFormatMetric(unittest.TestCase):
         result = format_metric('time', 0, time_format=0)
         self.assertEqual(result, '14:05')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_weekday(self, mock_dt):
         from datetime import datetime as real_dt
         fake_now = real_dt(2026, 2, 6, 0, 0, 0)  # Friday
@@ -656,7 +656,7 @@ class TestFormatMetric(unittest.TestCase):
     def test_date_month_prefix(self):
         self.assertEqual(format_metric('date_month', 2), '02')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_1(self, mock_dt):
         """date_format=1 is identical to 0: yyyy/MM/dd."""
         from datetime import datetime as real_dt
@@ -665,7 +665,7 @@ class TestFormatMetric(unittest.TestCase):
         result = format_metric('date', 0, date_format=1)
         self.assertEqual(result, '2026/02/06')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_time_format_1(self, mock_dt):
         """time_format=1 uses %-I (no leading zero on hour)."""
         from datetime import datetime as real_dt
@@ -680,39 +680,39 @@ class TestFormatMetric(unittest.TestCase):
 class TestFormatMetricExtra(unittest.TestCase):
     """Cover date_format 2/3/4, time_format 2, and invalid format fallbacks."""
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_2_dd_mm_yyyy(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
         self.assertEqual(format_metric('date', 0, date_format=2), '15/03/2026')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_3_mm_dd(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
         self.assertEqual(format_metric('date', 0, date_format=3), '03/15')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_4_dd_mm(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
         self.assertEqual(format_metric('date', 0, date_format=4), '15/03')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_date_format_invalid_falls_back(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 0, 0, 0)
         # Invalid format key falls back to format 0
         self.assertEqual(format_metric('date', 0, date_format=99), '2026/03/15')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_time_format_2(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 9, 5, 0)
         result = format_metric('time', 0, time_format=2)
         self.assertEqual(result, '09:05')
 
-    @patch('trcc.system_info.datetime')
+    @patch('trcc.services.system.datetime')
     def test_time_format_invalid_falls_back(self, mock_dt):
         from datetime import datetime as real_dt
         mock_dt.now.return_value = real_dt(2026, 3, 15, 14, 30, 0)
@@ -783,8 +783,8 @@ class TestGetAllMetrics(unittest.TestCase):
         """When enumerator has no readings, only date/time/weekday present."""
         si = _make_si(defaults={}, readings={})
         # Patch all fallbacks to return None
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError), \
-             patch('trcc.system_info.read_sysfs', return_value=None), \
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError), \
+             patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None), \
              patch('builtins.open', side_effect=FileNotFoundError):
             m = si.all_metrics
             self.assertIn('date', m)
@@ -849,7 +849,7 @@ class TestCpuTempFallbacks(unittest.TestCase):
     def test_lm_sensors_tctl(self):
         """Fallback to sensors -u with Tctl match."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': 'k10temp-isa-0000\n  Tctl:\n    tctl_input: 63.500\n',
                 'returncode': 0
@@ -861,7 +861,7 @@ class TestCpuTempFallbacks(unittest.TestCase):
     def test_sensors_fails_returns_none(self):
         """sensors subprocess fails -> None."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=Exception("no sensors")):
+        with patch('trcc.services.system.subprocess.run', side_effect=Exception("no sensors")):
             self.assertIsNone(si.cpu_temperature)
 
 
@@ -872,7 +872,7 @@ class TestCpuUsageFallbacks(unittest.TestCase):
     def test_loadavg_fallback(self):
         """Fallback to /proc/loadavg."""
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.read_sysfs',
+        with patch('trcc.data_repository.SysUtils.read_sysfs',
                    return_value='2.50 1.00 0.50 1/234 5678'):
             usage = si.cpu_usage
             self.assertIsNotNone(usage)
@@ -880,7 +880,7 @@ class TestCpuUsageFallbacks(unittest.TestCase):
 
     def test_both_fail_returns_none(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.read_sysfs', return_value=None):
+        with patch('trcc.data_repository.SysUtils.read_sysfs', return_value=None):
             self.assertIsNone(si.cpu_usage)
 
 
@@ -915,7 +915,7 @@ class TestMemoryTempSensors(unittest.TestCase):
             "ddr5_dimm-virtual-0\n"
             "  temp1_input: 38.500\n"
         )
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': sensors_output, 'returncode': 0
             })()
@@ -925,7 +925,7 @@ class TestMemoryTempSensors(unittest.TestCase):
 
     def test_sensors_raises_returns_none(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError):
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError):
             self.assertIsNone(si.memory_temperature)
 
 
@@ -933,8 +933,8 @@ class TestMemoryTempSensors(unittest.TestCase):
 
 class TestMemoryClockFallbacks(unittest.TestCase):
 
-    @patch('trcc.system_info.os.path.exists', return_value=False)
-    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.services.system.os.path.exists', return_value=False)
+    @patch('trcc.services.system.subprocess.run')
     def test_lshw_fallback(self, mock_run, _):
         si = _make_si()
         mock_run.side_effect = [
@@ -947,10 +947,10 @@ class TestMemoryClockFallbacks(unittest.TestCase):
         clock = si.memory_clock
         self.assertAlmostEqual(clock, 4800.0)
 
-    @patch('trcc.system_info.read_sysfs', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
-    @patch('trcc.system_info.os.listdir', return_value=['mc0'])
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='Type: DDR5\nFrequency: 5600 MHz\n')
+    @patch('trcc.services.system.os.listdir', return_value=['mc0'])
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError)
     def test_edac_fallback(self, *_):
         si = _make_si()
         clock = si.memory_clock
@@ -963,7 +963,7 @@ class TestDiskTempFallbacks(unittest.TestCase):
 
     def test_smartctl_fallback(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run') as mock_run:
+        with patch('trcc.services.system.subprocess.run') as mock_run:
             mock_run.return_value = type('R', (), {
                 'stdout': ('ID# ATTRIBUTE_NAME  VALUE WORST THRESH TYPE\n'
                            '194 Temperature_Celsius  35  40  0  Old_age\n'),
@@ -975,7 +975,7 @@ class TestDiskTempFallbacks(unittest.TestCase):
 
     def test_smartctl_fails_returns_none(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError):
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError):
             self.assertIsNone(si.disk_temperature)
 
 
@@ -999,7 +999,7 @@ class TestMemoryTempEdgeCases(unittest.TestCase):
 
     def test_sensors_exception_returns_none(self):
         si = _make_si(defaults={}, readings={})
-        with patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError):
+        with patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError):
             self.assertIsNone(si.memory_temperature)
 
 
@@ -1008,17 +1008,16 @@ class TestMemoryTempEdgeCases(unittest.TestCase):
 class TestSystemInfoClass(unittest.TestCase):
     """Test the OOP class API directly (not via backward-compat aliases)."""
 
-    def test_instance_lazy_enumerator(self):
+    def test_instance_has_enumerator(self):
         si = SystemInfo()
-        self.assertIsNone(si._enumerator)
+        self.assertIsNotNone(si._enumerator)
         self.assertIsNone(si._defaults)
 
     def test_independent_instances(self):
         """Each instance has its own enumerator reference."""
         a = SystemInfo()
         b = SystemInfo()
-        a._enumerator = MagicMock()
-        self.assertIsNone(b._enumerator)
+        self.assertIsNot(a._enumerator, b._enumerator)
 
     def test_cpu_temperature_property(self):
         si = _make_si(
@@ -1067,7 +1066,7 @@ class TestSystemInfoClass(unittest.TestCase):
 
 class TestMemoryClock(unittest.TestCase):
 
-    @patch('trcc.system_info.subprocess.run')
+    @patch('trcc.services.system.subprocess.run')
     def test_dmidecode_configured_speed(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -1076,10 +1075,10 @@ class TestMemoryClock(unittest.TestCase):
         result = si.memory_clock
         self.assertAlmostEqual(result, 5600.0)
 
-    @patch('trcc.system_info.os.path.exists', return_value=True)
-    @patch('trcc.system_info.os.listdir', return_value=['mc0'])
-    @patch('trcc.system_info.read_sysfs', return_value='rank0: 4800 MHz')
-    @patch('trcc.system_info.subprocess.run', side_effect=FileNotFoundError)
+    @patch('trcc.services.system.os.path.exists', return_value=True)
+    @patch('trcc.services.system.os.listdir', return_value=['mc0'])
+    @patch('trcc.data_repository.SysUtils.read_sysfs', return_value='rank0: 4800 MHz')
+    @patch('trcc.services.system.subprocess.run', side_effect=FileNotFoundError)
     def test_edac_fallback(self, *_):
         si = _make_si()
         result = si.memory_clock

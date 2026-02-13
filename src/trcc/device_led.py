@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
-from .device_base import HandshakeResult
+from .core.models import HandshakeResult
 from .device_hid import (
     DEFAULT_TIMEOUT_MS,
     EP_READ_01,

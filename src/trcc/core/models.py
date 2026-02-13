@@ -7,9 +7,9 @@ These models can be used by any GUI framework (Tkinter, PyQt6, etc.)
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from ..paths import ThemeDir
+from ..data_repository import ThemeDir
 
 # =============================================================================
 # Browser Item Dataclasses (replace raw dicts in theme/mask panels)
@@ -181,6 +181,63 @@ class DeviceInfo:
         return f"{self.resolution[0]}x{self.resolution[1]}"
 
 
+@dataclass
+class HandshakeResult:
+    """Common output from any device handshake.
+
+    Every protocol (SCSI, HID, LED, Bulk) produces at least these fields.
+    Protocol-specific subclasses (HidHandshakeInfo, LedHandshakeInfo) add extras.
+    """
+
+    resolution: Optional[Tuple[int, int]] = None
+    model_id: int = 0
+    serial: str = ""
+    raw_response: bytes = field(default=b"", repr=False)
+
+
+# Implementation key → display name (SCSI LCD devices)
+IMPL_NAMES: dict[str, str] = {
+    "thermalright_lcd_v1": "Thermalright LCD v1 (USBLCD)",
+    "ali_corp_lcd_v1": "ALi Corp LCD v1 (USBLCD)",
+    "generic": "Generic LCD",
+}
+
+
+@dataclass
+class LCDDeviceConfig:
+    """SCSI LCD device config — resolution, pixel format, protocol constants.
+
+    Pure data: no I/O, no business logic. Business logic lives in
+    ImageService (rgb_to_bytes, byte_order) and DeviceService (detect_resolution).
+    """
+    name: str = "Generic LCD"
+    width: int = 320
+    height: int = 320
+    pixel_format: str = "RGB565"
+    fbl: Optional[int] = None
+    resolution_detected: bool = False
+    poll_command: Tuple[int, int] = (0xF5, 0xE100)
+    init_command: Tuple[int, int] = (0x1F5, 0xE100)
+    init_per_frame: bool = False
+    init_delay: float = 0.0
+    frame_delay: float = 0.0
+
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        return (self.width, self.height)
+
+    @staticmethod
+    def from_key(impl_key: str) -> 'LCDDeviceConfig':
+        """Factory: create config from implementation key."""
+        name = IMPL_NAMES.get(impl_key, "Generic LCD")
+        return LCDDeviceConfig(name=name)
+
+    @staticmethod
+    def list_all() -> list[dict[str, str]]:
+        """List all available implementations."""
+        return [{"name": key, "class": dn} for key, dn in IMPL_NAMES.items()]
+
+
 class PlaybackState(Enum):
     """Video playback state."""
     STOPPED = auto()
@@ -331,4 +388,209 @@ class LEDState:
             self.segment_on = [True] * self.segment_count
         if not self.zones and self.zone_count > 1:
             self.zones = [LEDZoneState() for _ in range(self.zone_count)]
+
+
+# =============================================================================
+# DC File Format DTOs (config1.dc overlay configuration)
+# =============================================================================
+
+@dataclass
+class FontConfig:
+    """Font configuration from .dc file."""
+    name: str
+    size: float
+    style: int      # 0=Regular, 1=Bold, 2=Italic
+    unit: int       # GraphicsUnit
+    charset: int
+    color_argb: tuple  # (alpha, red, green, blue)
+
+
+@dataclass
+class ElementConfig:
+    """Element position and font config."""
+    x: int
+    y: int
+    font: Optional[FontConfig] = None
+    enabled: bool = True
+
+
+@dataclass
+class DisplayElement:
+    """
+    Display element from UCXiTongXianShiSub (time, date, weekday, hardware info, custom text).
+
+    myMode values:
+        0 = Hardware info (CPU/GPU metrics)
+        1 = Time
+        2 = Weekday (SUN, MON, TUE, etc.)
+        3 = Date
+        4 = Custom text
+
+    myModeSub values (format variants):
+        For mode 1 (Time):
+            0 = HH:mm (24-hour)
+            1 = hh:mm AM/PM (12-hour)
+            2 = HH:mm (same as 0)
+        For mode 3 (Date):
+            0 = yyyy/MM/dd
+            1 = yyyy/MM/dd (same as 0)
+            2 = dd/MM/yyyy
+            3 = MM/dd
+            4 = dd/MM
+    """
+    mode: int           # Display type (0=hardware, 1=time, 2=weekday, 3=date, 4=custom)
+    mode_sub: int       # Format variant
+    x: int              # X position
+    y: int              # Y position
+    main_count: int = 0     # For hardware info - sensor category
+    sub_count: int = 0      # For hardware info - specific sensor
+    font_name: str = "Microsoft YaHei"
+    font_size: float = 24.0
+    font_style: int = 0  # 0=Regular, 1=Bold, 2=Italic
+    font_unit: int = 3   # GraphicsUnit.Point
+    font_charset: int = 134  # GB2312 (Windows default: new Font("微软雅黑", 36f, 0, 3, 134))
+    color_argb: tuple = (255, 255, 255, 255)  # ARGB
+    text: str = ""      # Custom text content
+
+    @property
+    def mode_name(self) -> str:
+        """Get human-readable mode name."""
+        names = {0: 'hardware', 1: 'time', 2: 'weekday', 3: 'date', 4: 'custom'}
+        return names.get(self.mode, f'unknown_{self.mode}')
+
+    @property
+    def color_hex(self) -> str:
+        """Get color as hex string."""
+        _, r, g, b = self.color_argb
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+
+# Hardware sensor ↔ metric name mapping (single source of truth).
+# Used by dc_parser, dc_writer, dc_config, uc_sensor_picker.
+HARDWARE_METRICS: Dict[Tuple[int, int], str] = {
+    (0, 1): 'cpu_temp',
+    (0, 2): 'cpu_percent',
+    (0, 3): 'cpu_freq',
+    (0, 4): 'cpu_power',
+    (1, 1): 'gpu_temp',
+    (1, 2): 'gpu_usage',
+    (1, 3): 'gpu_clock',
+    (1, 4): 'gpu_power',
+    (2, 1): 'mem_percent',
+    (2, 2): 'mem_clock',
+    (3, 1): 'disk_activity',
+}
+
+METRIC_TO_IDS: Dict[str, Tuple[int, int]] = {v: k for k, v in HARDWARE_METRICS.items()}
+
+
+# =============================================================================
+# Theme Config DTOs (dc_writer save/export format)
+# =============================================================================
+
+@dataclass
+class ThemeConfig:
+    """Complete theme configuration for saving."""
+    # Display elements (UCXiTongXianShiSubArray)
+    elements: List[DisplayElement] = field(default_factory=list)
+
+    # System info global enable
+    system_info_enabled: bool = True
+
+    # Display options
+    background_display: bool = True    # myBjxs
+    transparent_display: bool = False  # myTpxs
+    rotation: int = 0                  # directionB (0/90/180/270)
+    ui_mode: int = 0                   # myUIMode
+    display_mode: int = 0              # myMode
+
+    # Overlay settings
+    overlay_enabled: bool = True       # myYcbk
+    overlay_x: int = 0                 # JpX
+    overlay_y: int = 0                 # JpY
+    overlay_w: int = 320               # JpW
+    overlay_h: int = 320               # JpH
+
+    # Mask settings
+    mask_enabled: bool = False         # myMbxs
+    mask_x: int = 0                    # XvalMB
+    mask_y: int = 0                    # YvalMB
+
+
+@dataclass
+class CarouselConfig:
+    """Carousel/slideshow configuration."""
+    current_theme: int = 0             # myTheme - index of current theme
+    enabled: bool = False              # isLunbo
+    interval_seconds: int = 3          # myLunBoTimer (minimum 3)
+    count: int = 0                     # lunBoCount
+    theme_indices: List[int] = field(default_factory=lambda: [-1, -1, -1, -1, -1, -1])
+    lcd_rotation: int = 1              # myLddVal (1-4)
+
+
+# =============================================================================
+# Sensor DTOs
+# =============================================================================
+
+@dataclass
+class SensorInfo:
+    """Describes a single hardware sensor."""
+    id: str             # Unique ID: "hwmon:coretemp:temp1"
+    name: str           # Human-readable: "CPU Package"
+    category: str       # "temperature", "fan", "clock", "usage", "power", "voltage", "other"
+    unit: str           # "°C", "RPM", "MHz", "%", "W", "V", "MB/s", "KB/s", "MB"
+    source: str         # "hwmon", "nvidia", "psutil", "rapl", "computed"
+
+
+# =============================================================================
+# Domain Constants (FBL/resolution mapping, display formats)
+# =============================================================================
+
+# Time formats matching Windows TRCC (UCXiTongXianShiSub.cs)
+TIME_FORMATS: Dict[int, str] = {
+    0: "%H:%M",       # 24-hour (14:58)
+    1: "%-I:%M %p",   # 12-hour with AM/PM, no leading zero (2:58 PM)
+    2: "%H:%M",       # 24-hour (same as mode 0 in Windows)
+}
+
+# Date formats matching Windows TRCC
+DATE_FORMATS: Dict[int, str] = {
+    0: "%Y/%m/%d",    # 2026/01/30
+    1: "%Y/%m/%d",    # 2026/01/30 (same as mode 0 in Windows)
+    2: "%d/%m/%Y",    # 30/01/2026
+    3: "%m/%d",       # 01/30
+    4: "%d/%m",       # 30/01
+}
+
+# Weekday names matching Windows TRCC (English)
+# Python weekday(): Monday=0, Sunday=6
+WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+# Chinese weekday names (for Language == 1)
+WEEKDAYS_CN = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+
+# FBL → Resolution mapping (from FormCZTV.cs lines 811-821)
+# FBL (Frame Buffer Layout) byte determines LCD resolution.
+FBL_TO_RESOLUTION: dict[int, tuple[int, int]] = {
+    36:  (240, 240),
+    37:  (240, 240),
+    50:  (240, 320),
+    51:  (320, 240),
+    54:  (360, 360),
+    64:  (640, 480),
+    72:  (480, 480),
+    100: (320, 320),
+    101: (320, 320),
+    102: (320, 320),
+    114: (1600, 720),
+    128: (1280, 480),
+    192: (1920, 462),
+    224: (854, 480),
+}
+
+# Reverse lookup: resolution → PM/FBL (first match wins)
+RESOLUTION_TO_PM: dict[tuple[int, int], int] = {
+    res: fbl for fbl, res in FBL_TO_RESOLUTION.items()
+    if fbl not in (37, 101, 102, 224)
+}
 

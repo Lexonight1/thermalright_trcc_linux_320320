@@ -1,4 +1,4 @@
-"""Tests for sysinfo_config – dashboard panel configuration persistence."""
+"""Tests for system_config – dashboard panel configuration persistence."""
 
 import json
 import os
@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from trcc.sysinfo_config import (
+from trcc.system_config import (
     CATEGORY_COLORS,
     CATEGORY_IMAGES,
     PanelConfig,
@@ -82,7 +82,7 @@ class TestSaveLoad(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.config_path = Path(self.tmpdir) / 'sysinfo_config.json'
+        self.config_path = Path(self.tmpdir) / 'system_config.json'
 
     def tearDown(self):
         if self.config_path.exists():
@@ -169,7 +169,7 @@ class TestAutoMap(unittest.TestCase):
             'cpu_freq': 'psutil:cpu_freq',
             'cpu_power': 'hwmon:power:power1',
         }
-        with patch('trcc.sensor_enumerator.map_defaults', return_value=mock_defaults):
+        with patch('trcc.system_sensors.map_defaults', return_value=mock_defaults):
             cfg.auto_map(enumerator=None)
 
         self.assertEqual(cfg.panels[0].sensors[0].sensor_id, 'hwmon:coretemp:temp1')
@@ -186,7 +186,7 @@ class TestAutoMap(unittest.TestCase):
             ]),
         ]
         mock_defaults = {'cpu_temp': 'hwmon:coretemp:temp1', 'cpu_percent': 'auto'}
-        with patch('trcc.sensor_enumerator.map_defaults', return_value=mock_defaults):
+        with patch('trcc.system_sensors.map_defaults', return_value=mock_defaults):
             cfg.auto_map(enumerator=None)
 
         # First sensor preserved (already had an ID)

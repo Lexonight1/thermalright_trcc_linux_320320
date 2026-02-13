@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 
-from trcc.paths import is_safe_archive_member
+from trcc.data_repository import DataManager
 
 from ..core.models import MaskItem
 from .base import BaseThumbnail, DownloadableThemeBrowser
@@ -172,7 +172,7 @@ class UCThemeMask(DownloadableThemeBrowser):
                     with zipfile.ZipFile(io.BytesIO(data)) as zf:
                         mask_dir.mkdir(parents=True, exist_ok=True)
                         for info in zf.infolist():
-                            if not is_safe_archive_member(info.filename):
+                            if not DataManager.is_safe_archive_member(info.filename):
                                 continue
                             zf.extract(info, mask_dir)
                         log.info("Extracted mask %s", mask_id)

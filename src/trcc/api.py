@@ -189,8 +189,8 @@ def list_themes(resolution: str = "320x320") -> list[ThemeResponse]:
 
     from pathlib import Path
 
-    from trcc.paths import get_theme_dir
-    theme_dir = Path(get_theme_dir(w, h))
+    from trcc.data_repository import ThemeDir
+    theme_dir = Path(str(ThemeDir.for_resolution(w, h)))
     themes = ThemeService.discover_local(theme_dir, (w, h))
     return [
         ThemeResponse(

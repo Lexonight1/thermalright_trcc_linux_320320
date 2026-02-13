@@ -253,12 +253,13 @@ class TestOverlayService(unittest.TestCase):
     def test_set_resolution(self):
         svc = OverlayService(320, 320)
         svc.set_resolution(480, 480)
-        self.assertEqual(svc._width, 480)
-        self.assertEqual(svc._height, 480)
+        self.assertEqual(svc.width, 480)
+        self.assertEqual(svc.height, 480)
 
-    def test_render_disabled_returns_background(self):
+    def test_render_no_config_returns_background(self):
+        """With no config/mask set, render returns background as-is (fast path)."""
         svc = OverlayService()
-        img = Image.new('RGB', (10, 10), (255, 0, 0))
+        img = Image.new('RGB', (320, 320), (255, 0, 0))
         svc.set_background(img)
         result = svc.render()
         self.assertIs(result, img)
