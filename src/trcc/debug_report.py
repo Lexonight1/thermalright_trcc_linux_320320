@@ -145,7 +145,6 @@ class DebugReport:
         for mod_name, pkg_name in [
             ("usb.core", "pyusb"),
             ("hid", "hidapi"),
-            ("PyQt6.QtWidgets", "PyQt6"),
         ]:
             try:
                 mod = __import__(mod_name)
@@ -153,6 +152,12 @@ class DebugReport:
                 sec.lines.append(f"  {pkg_name}: {ver}")
             except ImportError:
                 sec.lines.append(f"  {pkg_name}: not installed")
+        # PyQt6 stores version in QtCore, not on the top-level module
+        try:
+            from PyQt6.QtCore import PYQT_VERSION_STR
+            sec.lines.append(f"  PyQt6: {PYQT_VERSION_STR}")
+        except ImportError:
+            sec.lines.append("  PyQt6: not installed")
 
     def _devices(self) -> None:
         sec = self._add("Detected devices")

@@ -140,6 +140,9 @@ class OverlayRenderer:
         if image is None:
             self.background = None
             return
+        if not self.width or not self.height:
+            self.background = image
+            return
         # Skip resize if already correct size (video frames are pre-sized)
         if image.size == (self.width, self.height):
             self.background = image  # Use directly, no copy needed for video

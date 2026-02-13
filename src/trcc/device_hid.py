@@ -28,6 +28,7 @@ from typing import Any, Optional, Set
 import usb.core
 import usb.util
 
+from .constants import FBL_TO_RESOLUTION
 from .device_base import HandshakeResult
 
 # hidapi is optional ([hid] extra)
@@ -101,32 +102,10 @@ USB_CONFIGURATION = 1
 USB_INTERFACE = 0
 
 
-# =========================================================================
-# FBL → Resolution mapping (from FormCZTV.cs lines 811-821)
-# =========================================================================
-# FBL byte determines LCD resolution.  For Type 3, FBL = resp[0]-1.
-# For Type 2, FBL is derived from the PM byte via pm_to_fbl().
-
-FBL_TO_RESOLUTION: dict = {
-    36:  (240, 240),
-    37:  (240, 240),
-    50:  (240, 320),
-    54:  (360, 360),
-    64:  (640, 480),
-    72:  (480, 480),
-    100: (320, 320),
-    101: (320, 320),
-    102: (320, 320),
-    114: (1600, 720),
-    128: (1280, 480),
-    192: (1920, 462),
-    # FBL 224 is overloaded — depends on PM, defaults to 854x480
-    224: (854, 480),
-}
-
-# PM byte → FBL byte for Type 2 / mode-2 devices (FormCZTV.cs lines 682-821)
-# Format: PM value → FBL value
-_PM_TO_FBL_TYPE2: dict = {
+# PM byte → FBL byte for Type 2 devices where PM ≠ FBL.
+# (FormCZTV.cs lines 682-821)
+# For all other PM values, PM=FBL (same convention as SCSI poll bytes).
+_PM_TO_FBL_OVERRIDES: dict = {
     5:   50,    # 240x320
     7:   64,    # 640x480
     9:   224,   # 854x480
@@ -217,14 +196,15 @@ def fbl_to_resolution(fbl: int, pm: int = 0) -> tuple:
 def pm_to_fbl(pm: int, sub: int = 0) -> int:
     """Map PM byte to FBL byte for Type 2 devices.
 
-    Uses the mode-2 mapping from FormCZTV.cs.
+    Default: PM=FBL (same convention as SCSI poll bytes).
+    Only overrides for the few PM values where PM ≠ FBL.
     Special case: PM=1 + SUB=48 → FBL=114, PM=1 + SUB=49 → FBL=192.
     """
     if pm == 1 and sub == 48:
         return 114
     if pm == 1 and sub == 49:
         return 192
-    return _PM_TO_FBL_TYPE2.get(pm, 100)  # Default to FBL=100 (320x320)
+    return _PM_TO_FBL_OVERRIDES.get(pm, pm)
 
 
 # =========================================================================

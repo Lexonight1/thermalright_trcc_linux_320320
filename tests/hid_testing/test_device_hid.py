@@ -235,8 +235,8 @@ class TestType2DeviceInfo:
         """Type 2 resolves FBL from PM byte via pm_to_fbl()."""
         resp = _make_type2_valid_response()
         info = HidDeviceType2.parse_device_info(resp)
-        # PM=resp[5]=0x03 is not in _PM_TO_FBL_TYPE2, so defaults to FBL=100
-        assert info.fbl == 100
+        # PM=resp[5]=0x03, default PM=FBL, FBL=3 not in table → (320, 320)
+        assert info.fbl == 3
         assert info.resolution == (320, 320)
 
 

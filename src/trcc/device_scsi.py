@@ -18,6 +18,7 @@ import tempfile
 import time
 from typing import Dict, List, Set
 
+from .constants import RESOLUTION_TO_PM as _RESOLUTION_TO_PM
 from .device_base import HandshakeResult
 from .paths import require_sg_raw
 
@@ -32,21 +33,6 @@ _BOOT_WAIT_SECONDS = 3.0
 _BOOT_MAX_RETRIES = 5
 # Brief pause after init before first frame (lets controller settle)
 _POST_INIT_DELAY = 0.1
-
-# SCSI poll byte[0] = resolution code, which USBLCD.exe writes to shared
-# memory as the PM value.  Resolution → PM mapping (from USBLCD.exe):
-#   '$' = 0x24 = 36  → 240×240 (FW SE 2.0")
-#   '2' = 0x32 = 50  → 240×320 (FW standard 2.4")
-#   '3' = 0x33 = 51  → 320×240 (FW standard 2.4", rotated)
-#   'd' = 0x64 = 100 → 320×320 (FW Pro 2.73")
-#   'e' = 0x65 = 101 → 480×480
-_RESOLUTION_TO_PM: dict[tuple[int, int], int] = {
-    (240, 240): 36,
-    (240, 320): 50,
-    (320, 240): 51,
-    (320, 320): 100,
-    (480, 480): 101,
-}
 
 # =========================================================================
 # Low-level SCSI helpers (Mode 3 protocol, from USBLCD.exe 20480-20540)
