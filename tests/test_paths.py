@@ -44,19 +44,19 @@ class TestPathHelpers(unittest.TestCase):
 
     def test_get_theme_dir(self):
         path = get_theme_dir(320, 320)
-        self.assertTrue(path.endswith('Theme320320'))
+        self.assertTrue(path.endswith('theme320320'))
 
     def test_get_theme_dir_other_resolution(self):
         path = get_theme_dir(480, 480)
-        self.assertTrue(path.endswith('Theme480480'))
+        self.assertTrue(path.endswith('theme480480'))
 
     def test_get_web_dir(self):
         path = get_web_dir(320, 320)
-        self.assertTrue(path.endswith(os.path.join('Web', '320320')))
+        self.assertTrue(path.endswith(os.path.join('web', '320320')))
 
     def test_get_web_masks_dir(self):
         path = get_web_masks_dir(320, 320)
-        self.assertTrue(path.endswith(os.path.join('Web', 'zt320320')))
+        self.assertTrue(path.endswith(os.path.join('web', 'zt320320')))
 
 
 class TestHasActualThemes(unittest.TestCase):
@@ -239,7 +239,7 @@ class TestResolutionInstalled(unittest.TestCase):
 
     def _create_theme_dir(self, width, height):
         """Create a fake theme directory with a subfolder + PNG so _has_actual_themes passes."""
-        theme_dir = os.path.join(self.user_data, f'Theme{width}{height}', 'DefaultTheme')
+        theme_dir = os.path.join(self.user_data, f'theme{width}{height}', 'DefaultTheme')
         os.makedirs(theme_dir, exist_ok=True)
         Path(theme_dir, '00.png').touch()
 
@@ -438,7 +438,7 @@ class TestEnsureThemesExtracted(unittest.TestCase):
     def test_already_present(self):
         """Returns True when themes already exist."""
         with tempfile.TemporaryDirectory() as d:
-            theme_dir = os.path.join(d, 'Theme320320')
+            theme_dir = os.path.join(d, 'theme320320')
             sub = os.path.join(theme_dir, '000a')
             os.makedirs(sub)
             Path(sub, '00.png').touch()
@@ -457,9 +457,9 @@ class TestEnsureThemesExtracted(unittest.TestCase):
     def test_extracts_from_archive(self):
         """Calls extract_7z when archive exists but themes don't."""
         with tempfile.TemporaryDirectory() as d:
-            user_theme_dir = os.path.join(d, 'user', 'Theme320320')
+            user_theme_dir = os.path.join(d, 'user', 'theme320320')
             # Place archive in pkg DATA_DIR
-            archive = os.path.join(d, 'Theme320320.7z')
+            archive = os.path.join(d, 'theme320320.7z')
             Path(archive).touch()
             with patch('trcc.paths.DATA_DIR', d), \
                  patch('trcc.paths.USER_DATA_DIR', os.path.join(d, 'user')), \
@@ -475,7 +475,7 @@ class TestEnsureWebExtracted(unittest.TestCase):
 
     def test_already_present(self):
         with tempfile.TemporaryDirectory() as d:
-            web_dir = os.path.join(d, 'Web', '320320')
+            web_dir = os.path.join(d, 'web', '320320')
             os.makedirs(web_dir)
             Path(web_dir, 'preview.png').touch()
             with patch('trcc.paths.DATA_DIR', d), \
@@ -491,8 +491,8 @@ class TestEnsureWebExtracted(unittest.TestCase):
 
     def test_extracts_from_archive(self):
         with tempfile.TemporaryDirectory() as d:
-            user_web_dir = os.path.join(d, 'user', 'Web', '320320')
-            archive_dir = os.path.join(d, 'Web')
+            user_web_dir = os.path.join(d, 'user', 'web', '320320')
+            archive_dir = os.path.join(d, 'web')
             os.makedirs(archive_dir)
             archive = os.path.join(archive_dir, '320320.7z')
             Path(archive).touch()
@@ -509,7 +509,7 @@ class TestEnsureWebMasksExtracted(unittest.TestCase):
 
     def test_already_present(self):
         with tempfile.TemporaryDirectory() as d:
-            masks_dir = os.path.join(d, 'Web', 'zt320320')
+            masks_dir = os.path.join(d, 'web', 'zt320320')
             sub = os.path.join(masks_dir, '000a')
             os.makedirs(sub)
             Path(sub, '00.png').touch()  # has_themes needs a .png

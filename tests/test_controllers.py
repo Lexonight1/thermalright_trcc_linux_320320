@@ -691,7 +691,7 @@ class TestFormCZTVThemeOps(unittest.TestCase):
         ok, msg = self.ctrl.save_theme('MyTheme', Path(self.tmp))
         self.assertTrue(ok)
         self.assertIn('Custom_MyTheme', msg)
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_MyTheme'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_MyTheme'
         self.assertTrue(theme_path.exists())
 
     def test_save_theme_already_custom(self):
@@ -700,13 +700,13 @@ class TestFormCZTVThemeOps(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('Custom_Existing', msg)
         self.assertFalse(
-            (Path(self.tmp) / 'Theme320320' / 'Custom_Custom_Existing').exists())
+            (Path(self.tmp) / 'theme320320' / 'Custom_Custom_Existing').exists())
 
     def test_save_theme_generates_thumbnail(self):
         self.ctrl._display.current_image = _make_test_image()
         ok, _ = self.ctrl.save_theme('Thumb', Path(self.tmp))
         self.assertTrue(ok)
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_Thumb'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_Thumb'
         self.assertTrue((theme_path / 'Theme.png').exists())
 
     def test_export_config_no_theme(self):
@@ -920,7 +920,7 @@ class TestFormCZTVInitialize(unittest.TestCase):
 
     def test_initialize(self):
         data_dir = Path(self.tmp)
-        (data_dir / 'Theme320320').mkdir()
+        (data_dir / 'theme320320').mkdir()
 
         with patch.object(self.ctrl.themes, 'set_directories') as mock_dirs, \
              patch.object(self.ctrl.themes, 'load_local_themes') as mock_load, \
@@ -1088,7 +1088,7 @@ class TestReferenceThemeSaveLoad(unittest.TestCase):
         ok, msg = self.ctrl.save_theme('JsonSave', Path(self.tmp))
         self.assertTrue(ok)
 
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_JsonSave'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_JsonSave'
         self.assertTrue((theme_path / 'config.json').exists())
         self.assertTrue((theme_path / 'Theme.png').exists())
         self.assertTrue((theme_path / '00.png').exists())
@@ -1113,7 +1113,7 @@ class TestReferenceThemeSaveLoad(unittest.TestCase):
             ok, msg = self.ctrl.save_theme('VidRef', Path(self.tmp))
 
         self.assertTrue(ok)
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_VidRef'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_VidRef'
         with open(str(theme_path / 'config.json')) as f:
             config = json.load(f)
         self.assertEqual(config['background'], '/videos/clip.mp4')
@@ -1133,7 +1133,7 @@ class TestReferenceThemeSaveLoad(unittest.TestCase):
             ok, msg = self.ctrl.save_theme('MaskRef', Path(self.tmp))
 
         self.assertTrue(ok)
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_MaskRef'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_MaskRef'
         with open(str(theme_path / 'config.json')) as f:
             config = json.load(f)
         self.assertEqual(config['mask'], str(source_dir))
@@ -1146,7 +1146,7 @@ class TestReferenceThemeSaveLoad(unittest.TestCase):
 
         ok, msg = self.ctrl.save_theme('NoMask', Path(self.tmp))
         self.assertTrue(ok)
-        theme_path = Path(self.tmp) / 'Theme320320' / 'Custom_NoMask'
+        theme_path = Path(self.tmp) / 'theme320320' / 'Custom_NoMask'
         with open(str(theme_path / 'config.json')) as f:
             config = json.load(f)
         self.assertIsNone(config['mask'])
@@ -1159,7 +1159,7 @@ class TestReferenceThemeSaveLoad(unittest.TestCase):
 
         ok, _ = self.ctrl.save_theme('PathUpdate', Path(self.tmp))
         self.assertTrue(ok)
-        expected = Path(self.tmp) / 'Theme320320' / 'Custom_PathUpdate'
+        expected = Path(self.tmp) / 'theme320320' / 'Custom_PathUpdate'
         self.assertEqual(self.ctrl.current_theme_path, expected)
 
 
@@ -1177,7 +1177,7 @@ class TestCreateController(unittest.TestCase):
     def test_create_with_data_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)
-            (data_dir / 'Theme320320').mkdir()
+            (data_dir / 'theme320320').mkdir()
 
             with patch('trcc.services.display.ensure_all_data'), \
                  patch('trcc.conf.save_resolution'):
@@ -1199,7 +1199,7 @@ class TestAutostartDeviceRestore(unittest.TestCase):
 
     def test_initialize_preselects_device(self):
         data_dir = Path(self.tmp)
-        (data_dir / 'Theme320320').mkdir()
+        (data_dir / 'theme320320').mkdir()
 
         fake_device = DeviceInfo(
             name='LCD', path='/dev/sg0', resolution=(320, 320),
@@ -1222,7 +1222,7 @@ class TestAutostartDeviceRestore(unittest.TestCase):
 
     def test_callback_after_preselection_not_called(self):
         data_dir = Path(self.tmp)
-        (data_dir / 'Theme320320').mkdir()
+        (data_dir / 'theme320320').mkdir()
 
         fake_device = DeviceInfo(
             name='LCD', path='/dev/sg0', resolution=(320, 320),
@@ -1262,7 +1262,7 @@ class TestAutostartDeviceRestore(unittest.TestCase):
 
     def test_theme_selected_callback_fires_on_retrigger(self):
         data_dir = Path(self.tmp)
-        theme_dir = data_dir / 'Theme320320' / 'TestTheme'
+        theme_dir = data_dir / 'theme320320' / 'TestTheme'
         theme_dir.mkdir(parents=True)
         img = Image.new('RGB', (10, 10), color=(255, 0, 0))
         img.save(str(theme_dir / '00.png'))

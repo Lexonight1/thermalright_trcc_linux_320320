@@ -346,15 +346,19 @@ trcc serve --token mysecret             # require auth token
 
 ### `trcc download`
 
-Download cloud theme packs.
+Download theme packs for all supported LCD resolutions.
 
 ```bash
-trcc download              # list available packs
-trcc download --list       # same as above
-trcc download themes-320   # download 320x320 theme pack
-trcc download themes-320 --force   # re-download even if exists
-trcc download themes-320 --info    # show pack details
+trcc download                        # list available packs
+trcc download --list                 # same as above
+trcc download themes-320x320        # download 320x320 theme pack
+trcc download themes-320             # shorthand for 320x320 (square)
+trcc download themes-240x320        # non-square resolution
+trcc download themes-320x320 --force # re-download even if exists
+trcc download themes-320x320 --info  # show pack details
 ```
+
+Pack names follow the format `themes-{W}x{H}`. Square resolutions have a shorthand alias (e.g., `themes-320` → `themes-320x320`).
 
 | Option | Description |
 |--------|-------------|

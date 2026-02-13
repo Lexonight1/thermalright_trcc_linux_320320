@@ -222,7 +222,7 @@ def _cmd_doctor() -> int:
 
 @app.command("download")
 def _cmd_download(
-    pack: Annotated[Optional[str], typer.Argument(help="Theme pack name (e.g., themes-320)")] = None,
+    pack: Annotated[Optional[str], typer.Argument(help="Theme pack name (e.g., themes-320x320 or themes-480)")] = None,
     show_list: Annotated[bool, typer.Option("--list", "-l", help="List available packs")] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force reinstall")] = False,
     show_info: Annotated[bool, typer.Option("--info", "-i", help="Show pack info")] = False,

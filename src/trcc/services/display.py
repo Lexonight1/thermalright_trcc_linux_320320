@@ -466,7 +466,7 @@ class DisplayService:
         )
         if ok:
             safe_name = f'Custom_{name}' if not name.startswith('Custom_') else name
-            self.current_theme_path = data_dir / f'Theme{self.lcd_width}{self.lcd_height}' / safe_name
+            self.current_theme_path = data_dir / f'theme{self.lcd_width}{self.lcd_height}' / safe_name
         return ok, msg
 
     def _get_overlay_config(self) -> dict:

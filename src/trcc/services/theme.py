@@ -282,7 +282,7 @@ class ThemeService:
 
         w, h = lcd_size
         safe_name = f'Custom_{name}' if not name.startswith('Custom_') else name
-        theme_path = data_dir / f'Theme{w}{h}' / safe_name
+        theme_path = data_dir / f'theme{w}{h}' / safe_name
 
         try:
             theme_path.mkdir(parents=True, exist_ok=True)
@@ -356,7 +356,7 @@ class ThemeService:
 
             w, h = lcd_size
             name = import_path.stem
-            theme_path = data_dir / f'Theme{w}{h}' / name
+            theme_path = data_dir / f'theme{w}{h}' / name
             import_theme(str(import_path), str(theme_path))
             theme = ThemeInfo.from_directory(theme_path)
             return True, theme

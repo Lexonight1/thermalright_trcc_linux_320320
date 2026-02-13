@@ -132,7 +132,7 @@ class ThemeDir:
         Checks package data dir first, then user data dir (~/.trcc/data/).
         Returns whichever has actual theme content.
         """
-        name = f'Theme{width}{height}'
+        name = f'theme{width}{height}'
         pkg_dir = os.path.join(DATA_DIR, name)
         if ThemeDir.has_themes(pkg_dir):
             return cls(pkg_dir)
@@ -207,7 +207,7 @@ def _find_data_dir() -> str:
     for candidate in candidates:
         if os.path.isdir(candidate):
             for item in os.listdir(candidate):
-                if item.startswith('Theme'):
+                if item.startswith('theme'):
                     theme_path = os.path.join(candidate, item)
                     if ThemeDir.has_themes(theme_path):
                         log.debug("Data dir: %s (found themes in %s)", candidate, item)
@@ -380,13 +380,13 @@ class DataManager:
     @staticmethod
     def _fetch_web_archive(archive_name: str) -> Optional[str]:
         """Locate or download a Web .7z archive."""
-        pkg = os.path.join(DATA_DIR, 'Web', archive_name)
+        pkg = os.path.join(DATA_DIR, 'web', archive_name)
         if os.path.isfile(pkg):
             return pkg
-        user = os.path.join(USER_DATA_DIR, 'Web', archive_name)
+        user = os.path.join(USER_DATA_DIR, 'web', archive_name)
         if os.path.isfile(user):
             return user
-        url = DataManager.GITHUB_BASE_URL + 'Web/' + archive_name
+        url = DataManager.GITHUB_BASE_URL + 'web/' + archive_name
         if DataManager.download_archive(url, user):
             return user
         return None
@@ -403,7 +403,7 @@ class DataManager:
     @staticmethod
     def ensure_themes(width: int, height: int) -> bool:
         """Extract default themes from .7z archive if not already present."""
-        name = f'Theme{width}{height}'
+        name = f'theme{width}{height}'
         return DataManager._fetch_and_extract(
             label=f"Themes {width}x{height}",
             pkg_dir=os.path.join(DATA_DIR, name),
@@ -419,8 +419,8 @@ class DataManager:
         res_key = f'{width}{height}'
         return DataManager._fetch_and_extract(
             label=f"Web previews {width}x{height}",
-            pkg_dir=os.path.join(DATA_DIR, 'Web', res_key),
-            user_dir=os.path.join(USER_DATA_DIR, 'Web', res_key),
+            pkg_dir=os.path.join(DATA_DIR, 'web', res_key),
+            user_dir=os.path.join(USER_DATA_DIR, 'web', res_key),
             archive_name=f'{res_key}.7z',
             check_fn=DataManager._has_any_content,
             fetch_fn=DataManager._fetch_web_archive,
@@ -432,8 +432,8 @@ class DataManager:
         res_key = f'zt{width}{height}'
         return DataManager._fetch_and_extract(
             label=f"Mask themes {width}x{height}",
-            pkg_dir=os.path.join(DATA_DIR, 'Web', res_key),
-            user_dir=os.path.join(USER_DATA_DIR, 'Web', res_key),
+            pkg_dir=os.path.join(DATA_DIR, 'web', res_key),
+            user_dir=os.path.join(USER_DATA_DIR, 'web', res_key),
             archive_name=f'{res_key}.7z',
             check_fn=ThemeDir.has_themes,
             fetch_fn=DataManager._fetch_web_archive,
@@ -465,7 +465,7 @@ class DataManager:
         if key not in load_config().get("installed_resolutions", []):
             log.debug("Resolution %s: not in installed_resolutions", key)
             return False
-        name = f"Theme{width}{height}"
+        name = f"theme{width}{height}"
         pkg = os.path.join(DATA_DIR, name)
         user = os.path.join(USER_DATA_DIR, name)
         if ThemeDir.has_themes(pkg):
@@ -501,10 +501,10 @@ class DataManager:
     def get_web_dir(width: int, height: int) -> str:
         """Get cloud theme Web directory for a resolution."""
         res_key = f'{width}{height}'
-        pkg_dir = os.path.join(DATA_DIR, 'Web', res_key)
+        pkg_dir = os.path.join(DATA_DIR, 'web', res_key)
         if os.path.isdir(pkg_dir) and os.listdir(pkg_dir):
             return pkg_dir
-        user_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+        user_dir = os.path.join(USER_DATA_DIR, 'web', res_key)
         if os.path.isdir(user_dir) and os.listdir(user_dir):
             return user_dir
         return pkg_dir
@@ -513,10 +513,10 @@ class DataManager:
     def get_web_masks_dir(width: int, height: int) -> str:
         """Get cloud masks directory for a resolution."""
         res_key = f'zt{width}{height}'
-        pkg_dir = os.path.join(DATA_DIR, 'Web', res_key)
+        pkg_dir = os.path.join(DATA_DIR, 'web', res_key)
         if ThemeDir.has_themes(pkg_dir):
             return pkg_dir
-        user_dir = os.path.join(USER_DATA_DIR, 'Web', res_key)
+        user_dir = os.path.join(USER_DATA_DIR, 'web', res_key)
         if ThemeDir.has_themes(user_dir):
             return user_dir
         return pkg_dir
