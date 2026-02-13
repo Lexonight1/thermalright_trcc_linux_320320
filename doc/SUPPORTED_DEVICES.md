@@ -8,9 +8,9 @@ These devices have been tested on real hardware and are confirmed working with T
 
 | Product | Connection | Screen |
 |---------|-----------|--------|
-| Frozen Warframe series (SE, PRO, Ultra) | SCSI (0402:3922) | 320x320 |
+| Frozen Warframe series (360, SE, PRO, Ultra) | SCSI (0402:3922) | 320x320 |
 | Thermalright LCD Display | SCSI (87CD:70DB) | 320x320 |
-| GrandVision 360 AIO | SCSI (87AD:70DB) | 320x320 |
+| GrandVision 360 AIO | Bulk (87AD:70DB) | 480x480 |
 | Winbond LCD Display | SCSI (0416:5406) | 320x320 |
 
 ---
@@ -97,8 +97,8 @@ All devices connect through one of these USB VID:PIDs:
 | VID:PID | Protocol | Display | Products |
 |---------|----------|---------|----------|
 | 87CD:70DB | SCSI | Full LCD | Older LCD screens |
-| 87AD:70DB | SCSI | Full LCD | GrandVision 360 AIO |
-| 0402:3922 | SCSI | Full LCD | Frozen Warframe series (SE/PRO/Ultra) |
+| 87AD:70DB | Bulk | Full LCD | GrandVision 360 AIO, Mjolnir Vision 360 |
+| 0402:3922 | SCSI | Full LCD | Frozen Warframe series (360/SE/PRO/Ultra) |
 | 0416:5406 | SCSI | Full LCD | Winbond LCD variant |
 | 0416:52E2 | HID | Full LCD | Vision/Warframe (newer HW) |
 | 0418:52E3 | HID | Full LCD | ALi Corp LCD variant |

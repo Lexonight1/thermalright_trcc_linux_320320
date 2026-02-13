@@ -2,7 +2,7 @@
 
 import struct
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from trcc.core.models import IMPL_NAMES, LCDDeviceConfig
 from trcc.services.image import ImageService
@@ -144,65 +144,59 @@ class TestConcreteDevices(unittest.TestCase):
 
 
 class TestDetectResolution(unittest.TestCase):
-    """Resolution auto-detection via DeviceService."""
+    """Resolution auto-detection via DeviceService (SCSI poll byte[0] → fbl_to_resolution)."""
 
-    def test_no_fbl_module_returns_false(self):
-        """When fbl_detector is unavailable, returns False."""
+    def test_detect_success_480x480(self):
+        """Poll response byte[0]=72 → FBL 72 → 480x480."""
         from trcc.services.device import DeviceService
         cfg = LCDDeviceConfig()
-        with patch.dict('sys.modules', {
-            'trcc.fbl_detector': None,
-            'fbl_detector': None,
-        }):
+        poll_response = bytes([72]) + b'\x00' * 0xE0FF
+        with patch('trcc.device_scsi._scsi_read', return_value=poll_response):
             result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
-            self.assertFalse(result)
-
-    def test_detect_success(self):
-        """Successful detection updates width/height/fbl."""
-        from trcc.services.device import DeviceService
-        cfg = LCDDeviceConfig()
-        mock_info = MagicMock()
-        mock_info.width = 480
-        mock_info.height = 480
-        mock_info.fbl = 'FBL_480'
-        mock_info.resolution_name = '480x480'
-
-        mock_module = MagicMock()
-        mock_module.detect_display_resolution.return_value = mock_info
-
-        with patch.dict('sys.modules', {'trcc.fbl_detector': mock_module}):
-            with patch('builtins.__import__', side_effect=lambda name, *a, **kw:
-                       mock_module if 'fbl_detector' in name else __import__(name, *a, **kw)):
-                result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
-
-        # If import patching didn't work (fbl_detector not actually importable),
-        # set fields directly to verify test logic
-        if not result:
-            cfg.width = 480
-            cfg.height = 480
-            cfg.fbl = 'FBL_480'
-            cfg.resolution_detected = True
-
+        self.assertTrue(result)
         self.assertEqual(cfg.width, 480)
         self.assertEqual(cfg.height, 480)
-        self.assertEqual(cfg.fbl, 'FBL_480')
+        self.assertEqual(cfg.fbl, 72)
+        self.assertTrue(cfg.resolution_detected)
 
-    def test_detect_returns_none(self):
-        """Detection returning None keeps defaults."""
+    def test_detect_success_320x320(self):
+        """Poll response byte[0]=100 → FBL 100 → 320x320."""
         from trcc.services.device import DeviceService
         cfg = LCDDeviceConfig()
-        original_w, original_h = cfg.width, cfg.height
+        poll_response = bytes([100]) + b'\x00' * 0xE0FF
+        with patch('trcc.device_scsi._scsi_read', return_value=poll_response):
+            result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
+        self.assertTrue(result)
+        self.assertEqual(cfg.width, 320)
+        self.assertEqual(cfg.height, 320)
+        self.assertEqual(cfg.fbl, 100)
 
-        mock_module = MagicMock()
-        mock_module.detect_display_resolution.return_value = None
+    def test_detect_success_240x240(self):
+        """Poll response byte[0]=36 → FBL 36 → 240x240."""
+        from trcc.services.device import DeviceService
+        cfg = LCDDeviceConfig()
+        poll_response = bytes([36]) + b'\x00' * 0xE0FF
+        with patch('trcc.device_scsi._scsi_read', return_value=poll_response):
+            result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
+        self.assertTrue(result)
+        self.assertEqual(cfg.width, 240)
+        self.assertEqual(cfg.height, 240)
 
-        with patch.dict('sys.modules', {'trcc.fbl_detector': mock_module}):
-            with patch('builtins.__import__', side_effect=lambda name, *a, **kw:
-                       mock_module if 'fbl_detector' in name else __import__(name, *a, **kw)):
-                DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
+    def test_detect_empty_response(self):
+        """Empty poll response → returns False."""
+        from trcc.services.device import DeviceService
+        cfg = LCDDeviceConfig()
+        with patch('trcc.device_scsi._scsi_read', return_value=b''):
+            result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
+        self.assertFalse(result)
 
-        self.assertEqual(cfg.width, original_w)
-        self.assertEqual(cfg.height, original_h)
+    def test_detect_scsi_error(self):
+        """SCSI read exception → returns False."""
+        from trcc.services.device import DeviceService
+        cfg = LCDDeviceConfig()
+        with patch('trcc.device_scsi._scsi_read', side_effect=OSError("sg_raw fail")):
+            result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0')
+        self.assertFalse(result)
 
     def test_fbl_defaults_to_none(self):
         cfg = LCDDeviceConfig()
@@ -211,40 +205,22 @@ class TestDetectResolution(unittest.TestCase):
 
 class TestDetectResolutionEdge(unittest.TestCase):
 
-    def test_import_fails_verbose(self):
-        """fbl_detector not importable, verbose=True -> returns False."""
+    def test_detect_verbose_success(self):
+        """Verbose mode logs resolution on success."""
         from trcc.services.device import DeviceService
         cfg = LCDDeviceConfig()
-        with patch('builtins.__import__', side_effect=ImportError("no fbl")):
+        poll_response = bytes([72]) + b'\x00' * 0xE0FF
+        with patch('trcc.device_scsi._scsi_read', return_value=poll_response):
             result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0', verbose=True)
-        self.assertFalse(result)
+        self.assertTrue(result)
+        self.assertEqual(cfg.width, 480)
+        self.assertEqual(cfg.height, 480)
 
-    def test_detection_succeeds(self):
-        """detect_display_resolution returns info -> sets width/height/fbl."""
+    def test_detect_verbose_failure(self):
+        """Verbose mode logs warning on failure."""
         from trcc.services.device import DeviceService
         cfg = LCDDeviceConfig()
-        display_info = MagicMock(width=480, height=480, fbl=0x42, resolution_name='480x480')
-        mock_mod = MagicMock()
-        mock_mod.detect_display_resolution.return_value = display_info
-        with patch.dict('sys.modules', {
-            'trcc.services.device.fbl_detector': mock_mod,
-            'fbl_detector': mock_mod,
-        }):
-            result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0', verbose=True)
-        if result:
-            self.assertEqual(cfg.width, 480)
-            self.assertTrue(cfg.resolution_detected)
-
-    def test_detection_fails_verbose(self):
-        """detect_display_resolution returns None, verbose=True -> prints failure."""
-        from trcc.services.device import DeviceService
-        cfg = LCDDeviceConfig()
-        mock_mod = MagicMock()
-        mock_mod.detect_display_resolution.return_value = None
-        with patch.dict('sys.modules', {
-            'trcc.services.device.fbl_detector': mock_mod,
-            'fbl_detector': mock_mod,
-        }):
+        with patch('trcc.device_scsi._scsi_read', side_effect=OSError("fail")):
             result = DeviceService.detect_lcd_resolution(cfg, '/dev/sg0', verbose=True)
         self.assertFalse(result)
         self.assertEqual(cfg.width, 320)  # default unchanged

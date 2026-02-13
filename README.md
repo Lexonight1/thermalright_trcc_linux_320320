@@ -35,9 +35,13 @@ Run `lsusb` to find your USB ID (`xxxx:xxxx` after `ID`), then match it below.
 | USB ID | Devices |
 |--------|---------|
 | `87CD:70DB` | FROZEN HORIZON PRO, FROZEN MAGIC PRO, FROZEN VISION V2, CORE VISION, ELITE VISION, AK120, AX120, PA120 DIGITAL, Wonder Vision |
-| `87AD:70DB` | GrandVision 360 AIO, Mjolnir Vision 360 |
 | `0416:5406` | LC1, LC2, LC3, LC5 (AIO pump heads) |
-| `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME SE |
+| `0402:3922` | FROZEN WARFRAME, FROZEN WARFRAME 360, FROZEN WARFRAME SE |
+
+**Bulk USB devices** — raw USB protocol:
+| USB ID | Devices |
+|--------|---------|
+| `87AD:70DB` | GrandVision 360 AIO, Mjolnir Vision 360 |
 
 **HID LCD devices** — auto-detected, needs hardware testers:
 | USB ID | Devices |
@@ -157,9 +161,10 @@ environment.systemPackages = with pkgs; [
 services.udev.extraRules = ''
   # SCSI LCD devices
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0666"
-  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87ad", ATTRS{idProduct}=="70db", MODE="0666"
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0666"
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0666"
+  # Bulk USB devices
+  SUBSYSTEM=="usb", ATTR{idVendor}=="87ad", ATTR{idProduct}=="70db", MODE="0666"
   # HID LCD/LED devices
   SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5302", MODE="0666"
   SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5303", MODE="0666"

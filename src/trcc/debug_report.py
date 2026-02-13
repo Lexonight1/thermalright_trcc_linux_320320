@@ -252,8 +252,9 @@ class DebugReport:
     # ------------------------------------------------------------------
 
     def _handshake_hid_lcd(self, dev, sec: _Section) -> None:
+        from trcc.core.models import fbl_to_resolution, pm_to_fbl
         from trcc.device_factory import HidProtocol
-        from trcc.device_hid import HidHandshakeInfo, fbl_to_resolution, pm_to_fbl
+        from trcc.device_hid import HidHandshakeInfo
 
         protocol = HidProtocol(vid=dev.vid, pid=dev.pid, device_type=dev.device_type)
         try:

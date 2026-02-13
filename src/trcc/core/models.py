@@ -594,3 +594,50 @@ RESOLUTION_TO_PM: dict[tuple[int, int], int] = {
     if fbl not in (37, 101, 102, 224)
 }
 
+# PM byte → FBL byte for Type 2 devices where PM ≠ FBL.
+# (FormCZTV.cs lines 682-821)
+# For all other PM values, PM=FBL (same convention as SCSI poll bytes).
+_PM_TO_FBL_OVERRIDES: dict[int, int] = {
+    5:   50,    # 240x320
+    7:   64,    # 640x480
+    9:   224,   # 854x480
+    10:  224,   # 960x540 (special: actual res depends on PM)
+    11:  224,   # 854x480
+    12:  224,   # 800x480 (special)
+    32:  100,   # 320x320
+    64:  114,   # 1600x720
+    65:  192,   # 1920x462
+}
+
+
+def fbl_to_resolution(fbl: int, pm: int = 0) -> tuple[int, int]:
+    """Map FBL byte to (width, height).
+
+    Used by all protocols: SCSI (poll byte[0] = FBL directly),
+    HID (PM → pm_to_fbl → FBL), and Bulk (PM → pm_to_fbl → FBL).
+
+    For FBL 224, the PM byte disambiguates the actual resolution.
+    Returns (320, 320) as default if FBL is unknown.
+    """
+    if fbl == 224:
+        if pm == 10:
+            return (960, 540)
+        elif pm == 12:
+            return (800, 480)
+        return (854, 480)
+    return FBL_TO_RESOLUTION.get(fbl, (320, 320))
+
+
+def pm_to_fbl(pm: int, sub: int = 0) -> int:
+    """Map PM byte to FBL byte.
+
+    Default: PM=FBL (same convention as SCSI poll bytes).
+    Only overrides for the few PM values where PM ≠ FBL.
+    Special case: PM=1 + SUB=48 → FBL=114, PM=1 + SUB=49 → FBL=192.
+    """
+    if pm == 1 and sub == 48:
+        return 114
+    if pm == 1 and sub == 49:
+        return 192
+    return _PM_TO_FBL_OVERRIDES.get(pm, pm)
+

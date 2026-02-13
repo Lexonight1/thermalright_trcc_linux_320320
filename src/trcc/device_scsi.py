@@ -19,7 +19,7 @@ import time
 from typing import Dict, List, Set
 
 from .core.models import RESOLUTION_TO_PM as _RESOLUTION_TO_PM
-from .core.models import HandshakeResult
+from .core.models import HandshakeResult, fbl_to_resolution
 from .data_repository import SysUtils
 
 log = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def _scsi_write(dev: str, header: bytes, data: bytes) -> bool:
         os.unlink(tmp_path)
 
 
-def _init_device(dev: str):
+def _init_device(dev: str) -> int:
     """Poll + init handshake (must be called before first frame send).
 
     Matches USBLCD.exe initialization sequence:
@@ -110,10 +110,15 @@ def _init_device(dev: str):
     2. If bytes[4:8] == 0xA1A2A3A4, device is still booting → wait 3s, re-poll
     3. Init (cmd=0x1F5) → write 0xE100 zeros
     4. Brief delay to let display controller settle before first frame
+
+    Returns:
+        FBL byte (poll response byte[0]).  This IS the FBL directly —
+        the ASCII value maps to a resolution via fbl_to_resolution().
     """
     poll_header = _build_header(0xF5, 0xE100)
 
     # Step 1: Poll with boot state check
+    response = b''
     for attempt in range(_BOOT_MAX_RETRIES):
         response = _scsi_read(dev, poll_header[:16], 0xE100)
         if len(response) >= 8 and response[4:8] == _BOOT_SIGNATURE:
@@ -123,12 +128,18 @@ def _init_device(dev: str):
         else:
             break
 
+    # Extract FBL from poll response byte[0]
+    fbl = response[0] if response else 100  # default FBL 100 = 320x320
+    log.debug("SCSI poll byte[0] = %d (FBL)", fbl)
+
     # Step 2: Init
     init_header = _build_header(0x1F5, 0xE100)
     _scsi_write(dev, init_header, b'\x00' * 0xE100)
 
     # Step 3: Brief delay to let display controller settle
     time.sleep(_POST_INIT_DELAY)
+
+    return fbl
 
 
 def _send_frame(dev: str, rgb565_data: bytes, width: int = 320, height: int = 320):
@@ -160,12 +171,16 @@ class ScsiDevice:
         self._initialized = False
 
     def handshake(self) -> HandshakeResult:
-        """Poll + init the SCSI device (same as _init_device)."""
-        _init_device(self.device_path)
+        """Poll + init the SCSI device.
+
+        Reads FBL from poll response byte[0] and resolves
+        the actual LCD resolution via fbl_to_resolution().
+        """
+        fbl = _init_device(self.device_path)
+        resolution = fbl_to_resolution(fbl)
+        self.width, self.height = resolution
         self._initialized = True
-        return HandshakeResult(
-            resolution=(self.width, self.height),
-        )
+        return HandshakeResult(resolution=resolution)
 
     def send_frame(self, rgb565_data: bytes) -> bool:
         """Send one RGB565 frame."""
@@ -208,15 +223,9 @@ def find_lcd_devices() -> List[Dict]:
             if not dev.scsi_device:
                 continue
 
-            # Detect resolution via LCDDriver if possible
+            # Default resolution — actual resolution detected on handshake
+            # via _init_device() → poll byte[0] → fbl_to_resolution().
             resolution = (320, 320)
-            try:
-                from .device_lcd import LCDDriver
-                driver = LCDDriver(device_path=dev.scsi_device, auto_detect_resolution=True)
-                if driver.implementation:
-                    resolution = driver.implementation.resolution
-            except Exception:
-                pass
 
             # SCSI poll byte[0] = resolution code = PM (matches USBLCD.exe).
             # Use it to resolve variant-specific button image.

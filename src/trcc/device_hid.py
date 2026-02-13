@@ -28,7 +28,11 @@ from typing import Any, Optional, Set
 import usb.core
 import usb.util
 
-from .core.models import FBL_TO_RESOLUTION, HandshakeResult
+from .core.models import (
+    HandshakeResult,
+    fbl_to_resolution,
+    pm_to_fbl,
+)
 
 # hidapi is optional ([hid] extra)
 try:
@@ -101,20 +105,8 @@ USB_CONFIGURATION = 1
 USB_INTERFACE = 0
 
 
-# PM byte → FBL byte for Type 2 devices where PM ≠ FBL.
-# (FormCZTV.cs lines 682-821)
-# For all other PM values, PM=FBL (same convention as SCSI poll bytes).
-_PM_TO_FBL_OVERRIDES: dict = {
-    5:   50,    # 240x320
-    7:   64,    # 640x480
-    9:   224,   # 854x480
-    10:  224,   # 960x540 (special: actual res depends on PM)
-    11:  224,   # 854x480
-    12:  224,   # 800x480 (special)
-    32:  100,   # 320x320
-    64:  114,   # 1600x720
-    65:  192,   # 1920x462
-}
+
+# _PM_TO_FBL_OVERRIDES, fbl_to_resolution, pm_to_fbl imported from core.models
 
 # Unified device → button image map (from UCDevice.cs ADDUserButton).
 # Outer key: HID PM byte (0-255) or SCSI VID (>255).
@@ -174,36 +166,6 @@ def get_button_image(key: int, sub: int = 0) -> Optional[str]:
     if sub in sub_map:
         return sub_map[sub]
     return sub_map.get(None)
-
-
-def fbl_to_resolution(fbl: int, pm: int = 0) -> tuple:
-    """Map FBL byte to (width, height).
-
-    For FBL 224, the PM byte disambiguates the actual resolution.
-
-    Returns (320, 320) as default if FBL is unknown.
-    """
-    if fbl == 224:
-        if pm == 10:
-            return (960, 540)
-        elif pm == 12:
-            return (800, 480)
-        return (854, 480)
-    return FBL_TO_RESOLUTION.get(fbl, (320, 320))
-
-
-def pm_to_fbl(pm: int, sub: int = 0) -> int:
-    """Map PM byte to FBL byte for Type 2 devices.
-
-    Default: PM=FBL (same convention as SCSI poll bytes).
-    Only overrides for the few PM values where PM ≠ FBL.
-    Special case: PM=1 + SUB=48 → FBL=114, PM=1 + SUB=49 → FBL=192.
-    """
-    if pm == 1 and sub == 48:
-        return 114
-    if pm == 1 and sub == 49:
-        return 192
-    return _PM_TO_FBL_OVERRIDES.get(pm, pm)
 
 
 # =========================================================================

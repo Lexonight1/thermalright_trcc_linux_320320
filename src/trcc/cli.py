@@ -28,6 +28,7 @@ app = typer.Typer(
     help="Thermalright LCD Control Center for Linux",
     add_completion=False,
     pretty_exceptions_enable=False,
+    context_settings={"help_option_names": ["--help", "-h"]},
 )
 
 _verbose = 0
@@ -146,7 +147,7 @@ def _cmd_video(
         "--device", "-d", help="Device path",
     )] = None,
     no_loop: Annotated[bool, typer.Option(
-        "--no-loop", help="Play once without looping",
+        "--no-loop", "-n", help="Play once without looping",
     )] = False,
     duration: Annotated[int, typer.Option(
         "--duration", "-t", help="Stop after N seconds (0=unlimited)",
@@ -203,7 +204,7 @@ def _cmd_mask(
         "--device", "-d", help="Device path",
     )] = None,
     clear: Annotated[bool, typer.Option(
-        "--clear", help="Clear mask (send solid black)",
+        "--clear", "-c", help="Clear mask (send solid black)",
     )] = False,
 ) -> int:
     """Load mask overlay and send to LCD."""
@@ -354,7 +355,7 @@ def _cmd_reset(
 @app.command("setup-udev")
 def _cmd_setup_udev(
     dry_run: Annotated[bool, typer.Option(
-        "--dry-run", help="Print rules without installing",
+        "--dry-run", "-n", help="Print rules without installing",
     )] = False,
 ) -> int:
     """Install udev rules for LCD device access."""
@@ -388,7 +389,7 @@ def _cmd_hid_debug() -> int:
 @app.command("led-debug")
 def _cmd_led_debug(
     test_colors: Annotated[bool, typer.Option(
-        "--test", help="Send test colors after handshake",
+        "--test", "-t", help="Send test colors after handshake",
     )] = False,
 ) -> int:
     """Diagnose LED device (handshake, PM byte)."""
@@ -397,9 +398,9 @@ def _cmd_led_debug(
 
 @app.command("hr10-tempd")
 def _cmd_hr10_tempd(
-    brightness: Annotated[int, typer.Option(help="LED brightness 0-100")] = 100,
-    drive: Annotated[str, typer.Option(help="NVMe model substring to match")] = "9100",
-    unit: Annotated[str, typer.Option(help="Temperature unit: C or F")] = "C",
+    brightness: Annotated[int, typer.Option("-b", help="LED brightness 0-100")] = 100,
+    drive: Annotated[str, typer.Option("-dr", help="NVMe model substring to match")] = "9100",
+    unit: Annotated[str, typer.Option("-u", help="Temperature unit: C or F")] = "C",
 ) -> int:
     """Display NVMe temperature on HR10 (daemon)."""
     return DiagCommands.hr10_tempd(
@@ -433,9 +434,9 @@ def _cmd_download(
 
 @app.command("serve")
 def _cmd_serve(
-    host: Annotated[str, typer.Option(help="Bind address (use 0.0.0.0 for LAN)")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="Listen port")] = 8080,
-    token: Annotated[Optional[str], typer.Option(help="API token for auth")] = None,
+    host: Annotated[str, typer.Option("--host", "-H", help="Bind address (use 0.0.0.0 for LAN)")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", "-p", help="Listen port")] = 8080,
+    token: Annotated[Optional[str], typer.Option("--token", "-t", help="API token for auth")] = None,
 ) -> int:
     """Start REST API server (requires trcc-linux[api])."""
     try:
@@ -1706,13 +1707,11 @@ class DiagCommands:
     @staticmethod
     def _hid_debug_lcd(dev) -> None:
         """HID handshake diagnostic for LCD devices (Type 2/3)."""
+        from trcc.core.models import FBL_TO_RESOLUTION, fbl_to_resolution, pm_to_fbl
         from trcc.device_factory import HidProtocol
         from trcc.device_hid import (
-            FBL_TO_RESOLUTION,
             HidHandshakeInfo,
-            fbl_to_resolution,
             get_button_image,
-            pm_to_fbl,
         )
 
         protocol = HidProtocol(

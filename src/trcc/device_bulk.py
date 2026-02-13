@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import struct
 
-from .core.models import HandshakeResult
+from .core.models import HandshakeResult, fbl_to_resolution, pm_to_fbl
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +31,23 @@ _HANDSHAKE_PAYLOAD = bytes([
     0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
     0, 0, 0, 0,
 ])
+
+# PM values with explicit resolution overrides for bulk devices.
+# All others default to FBL=72 → 480x480.
+_BULK_KNOWN_PMS = {7, 9, 10, 11, 12, 32, 64, 65}
+
+
+def _bulk_resolution(pm: int, sub: int = 0) -> tuple[int, int]:
+    """Map bulk device PM+SUB to (width, height).
+
+    Uses the shared pm_to_fbl() + fbl_to_resolution() pipeline for
+    known PM values.  Everything else defaults to 480x480 (FBL=72).
+    """
+    if pm in _BULK_KNOWN_PMS or (pm == 1 and sub in (48, 49)):
+        fbl = pm_to_fbl(pm, sub)
+        return fbl_to_resolution(fbl, pm)
+    return (480, 480)
+
 
 _HANDSHAKE_READ_SIZE = 1024
 _HANDSHAKE_TIMEOUT_MS = 1000
@@ -133,10 +150,10 @@ class BulkDevice:
         self.pm = resp[24]
         self.sub_type = resp[36]
 
-        # Derive resolution from PM (same mapping as SCSI poll byte)
-        res_map = {36: (240, 240), 50: (240, 320), 51: (320, 240),
-                   100: (320, 320), 101: (480, 480)}
-        resolution = res_map.get(self.pm)
+        # Derive resolution from PM+SUB (from FormCZTVInit in FormCZTV.cs).
+        # Bulk devices (87AD:70DB) get FBL=72 hardcoded by USBLCDNEW.exe,
+        # then PM overrides FBL for certain device models.
+        resolution = _bulk_resolution(self.pm, self.sub_type)
         if resolution:
             self.width, self.height = resolution
 

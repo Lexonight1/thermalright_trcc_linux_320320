@@ -252,7 +252,7 @@ trcc setup-udev
 
 If the problem persists, manually blacklist UAS:
 ```bash
-echo "options usb-storage quirks=87cd:70db:u,87ad:70db:u,0416:5406:u,0402:3922:u" | sudo tee /etc/modprobe.d/trcc-lcd.conf
+echo "options usb-storage quirks=87cd:70db:u,0416:5406:u,0402:3922:u" | sudo tee /etc/modprobe.d/trcc-lcd.conf
 sudo dracut --force       # Fedora/RHEL
 # or
 sudo update-initramfs -u  # Debian/Ubuntu
@@ -306,9 +306,10 @@ NixOS manages udev rules declaratively. Add rules to `/etc/nixos/configuration.n
 services.udev.extraRules = ''
   # SCSI LCD devices
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87cd", ATTRS{idProduct}=="70db", MODE="0666"
-  SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="87ad", ATTRS{idProduct}=="70db", MODE="0666"
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5406", MODE="0666"
   SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="0402", ATTRS{idProduct}=="3922", MODE="0666"
+  # Bulk USB devices
+  SUBSYSTEM=="usb", ATTR{idVendor}=="87ad", ATTR{idProduct}=="70db", MODE="0666"
   # HID LCD/LED devices
   SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5302", MODE="0666"
   SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0418", ATTRS{idProduct}=="5303", MODE="0666"

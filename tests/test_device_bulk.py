@@ -159,9 +159,10 @@ class TestBulkDeviceHandshake(unittest.TestCase):
         bd._ep_in = MagicMock()
         return bd
 
-    def test_handshake_pm100_resolution_320x320(self):
+    def test_handshake_pm1_grandvision_480x480(self):
+        """PM=1 (GrandVision) → default FBL=72 → 480x480."""
         bd = self._setup_device()
-        resp = _make_handshake_response(pm=100, sub=0)
+        resp = _make_handshake_response(pm=1, sub=0)
         bd._ep_in.read.return_value = resp
 
         result = bd.handshake()
@@ -169,52 +170,125 @@ class TestBulkDeviceHandshake(unittest.TestCase):
         bd._ep_out.write.assert_called_once_with(_HANDSHAKE_PAYLOAD, timeout=_HANDSHAKE_TIMEOUT_MS)
         bd._ep_in.read.assert_called_once_with(_HANDSHAKE_READ_SIZE, timeout=_HANDSHAKE_TIMEOUT_MS)
         self.assertIsInstance(result, HandshakeResult)
-        self.assertEqual(result.resolution, (320, 320))
-        self.assertEqual(result.model_id, 100)
-        self.assertEqual(bd.pm, 100)
+        self.assertEqual(result.resolution, (480, 480))
+        self.assertEqual(result.model_id, 1)
+        self.assertEqual(bd.pm, 1)
         self.assertEqual(bd.sub_type, 0)
-        self.assertEqual(bd.width, 320)
-        self.assertEqual(bd.height, 320)
+        self.assertEqual(bd.width, 480)
+        self.assertEqual(bd.height, 480)
 
-    def test_handshake_pm36_resolution_240x240(self):
+    def test_handshake_pm5_mjolnir_480x480(self):
+        """PM=5 (Mjolnir Vision) → default FBL=72 → 480x480."""
         bd = self._setup_device()
-        resp = _make_handshake_response(pm=36)
-        bd._ep_in.read.return_value = resp
-
-        result = bd.handshake()
-
-        self.assertEqual(result.resolution, (240, 240))
-        self.assertEqual(bd.pm, 36)
-
-    def test_handshake_pm50_resolution_240x320(self):
-        bd = self._setup_device()
-        resp = _make_handshake_response(pm=50)
-        bd._ep_in.read.return_value = resp
-
-        result = bd.handshake()
-
-        self.assertEqual(result.resolution, (240, 320))
-
-    def test_handshake_pm101_resolution_480x480(self):
-        bd = self._setup_device()
-        resp = _make_handshake_response(pm=101)
+        resp = _make_handshake_response(pm=5)
         bd._ep_in.read.return_value = resp
 
         result = bd.handshake()
 
         self.assertEqual(result.resolution, (480, 480))
+        self.assertEqual(bd.pm, 5)
 
-    def test_handshake_unknown_pm(self):
-        """Unknown PM value → resolution is None."""
+    def test_handshake_pm7_640x480(self):
+        """PM=7 → FBL override to 64 → 640x480."""
         bd = self._setup_device()
-        resp = _make_handshake_response(pm=99)  # not in res_map
+        resp = _make_handshake_response(pm=7)
         bd._ep_in.read.return_value = resp
 
         result = bd.handshake()
 
-        self.assertIsNone(result.resolution)
+        self.assertEqual(result.resolution, (640, 480))
+
+    def test_handshake_pm32_320x320(self):
+        """PM=32 → FBL override to 100 → 320x320."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=32)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (320, 320))
+
+    def test_handshake_pm64_1600x720(self):
+        """PM=64 → FBL override to 114 → 1600x720."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=64)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (1600, 720))
+
+    def test_handshake_pm1_sub48_1600x720(self):
+        """PM=1 + SUB=48 → FBL override to 114 → 1600x720."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=1, sub=48)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (1600, 720))
+
+    def test_handshake_pm65_1920x462(self):
+        """PM=65 → FBL override to 192 → 1920x462."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=65)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (1920, 462))
+
+    def test_handshake_pm1_sub49_1920x462(self):
+        """PM=1 + SUB=49 → FBL override to 192 → 1920x462."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=1, sub=49)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (1920, 462))
+
+    def test_handshake_pm9_854x480(self):
+        """PM=9 → FBL override to 224 → 854x480."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=9)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (854, 480))
+
+    def test_handshake_pm10_960x540(self):
+        """PM=10 → 960x540."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=10)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (960, 540))
+
+    def test_handshake_pm12_800x480(self):
+        """PM=12 → 800x480."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=12)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (800, 480))
+
+    def test_handshake_default_pm_480x480(self):
+        """Any unrecognized PM defaults to 480x480 (FBL=72)."""
+        bd = self._setup_device()
+        resp = _make_handshake_response(pm=99)
+        bd._ep_in.read.return_value = resp
+
+        result = bd.handshake()
+
+        self.assertEqual(result.resolution, (480, 480))
         self.assertEqual(bd.pm, 99)
-        self.assertEqual(bd.width, 0)
+        self.assertEqual(bd.width, 480)
 
     def test_handshake_sub_type_extracted(self):
         bd = self._setup_device()

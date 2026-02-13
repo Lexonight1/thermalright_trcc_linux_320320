@@ -183,35 +183,37 @@ class DeviceService:
     @staticmethod
     def detect_lcd_resolution(config: LCDDeviceConfig, device_path: str,
                               verbose: bool = False) -> bool:
-        """Auto-detect SCSI LCD resolution by querying FBL from device.
+        """Auto-detect SCSI LCD resolution via poll byte[0] → fbl_to_resolution().
 
         Mutates config.width/height/fbl/resolution_detected on success.
+        Resolution is now detected in ScsiDevice.handshake() directly,
+        so this is only needed for pre-handshake discovery.
         """
+        from ..core.models import fbl_to_resolution
+        from ..device_scsi import _build_header, _scsi_read
+
         try:
-            from ..fbl_detector import detect_display_resolution  # type: ignore[import-not-found]
-        except ImportError:
-            try:
-                from fbl_detector import detect_display_resolution  # type: ignore[import-not-found]
-            except ImportError:
+            poll_header = _build_header(0xF5, 0xE100)
+            response = _scsi_read(device_path, poll_header[:16], 0xE100)
+            if not response:
                 if verbose:
-                    log.warning("fbl_detector module not available")
+                    log.warning("Empty poll response from %s", device_path)
                 return False
 
-        display_info = detect_display_resolution(device_path, verbose=verbose)
-        if display_info:
-            config.width = display_info.width
-            config.height = display_info.height
-            config.fbl = display_info.fbl
+            fbl = response[0]
+            width, height = fbl_to_resolution(fbl)
+            config.width = width
+            config.height = height
+            config.fbl = fbl
             config.resolution_detected = True
             if verbose:
-                log.info("Auto-detected resolution: %s (FBL=%s)",
-                         display_info.resolution_name, config.fbl)
+                log.info("Auto-detected resolution: %dx%d (FBL=%d)",
+                         width, height, fbl)
             return True
-
-        if verbose:
-            log.warning("Failed to auto-detect resolution, using default %dx%d",
-                        config.width, config.height)
-        return False
+        except Exception as e:
+            if verbose:
+                log.warning("Failed to auto-detect resolution: %s", e)
+            return False
 
     # ── Protocol info ────────────────────────────────────────────────
 
