@@ -16,9 +16,9 @@ Windows layout (from UCThemeSetting.resx):
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPalette
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPalette
+from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QFrame,
@@ -124,8 +124,8 @@ class OverlayElementWidget(QWidget):
     - label3: unit (°C, %, MHz, etc.)
     """
 
-    clicked = pyqtSignal(int)           # index
-    double_clicked = pyqtSignal(int)    # index (delete)
+    clicked = Signal(int)           # index
+    double_clicked = Signal(int)    # index (delete)
 
     # Metric key map: (main_count, sub_count) → system_info metric name
     _METRIC_MAP = {
@@ -305,11 +305,11 @@ class OverlayGridPanel(QFrame):
     Has on/off toggle and "add" button at next available slot.
     """
 
-    element_selected = pyqtSignal(int, dict)   # index, config
-    element_deleted = pyqtSignal(int)           # index
-    add_requested = pyqtSignal()
-    elements_changed = pyqtSignal()             # any add/delete/reorder
-    toggle_changed = pyqtSignal(bool)           # overlay on/off
+    element_selected = Signal(int, dict)   # index, config
+    element_deleted = Signal(int)           # index
+    add_requested = Signal()
+    elements_changed = Signal()             # any add/delete/reorder
+    toggle_changed = Signal(bool)           # overlay on/off
 
     MAX_ELEMENTS = 42
 
@@ -599,10 +599,10 @@ class OverlayGridPanel(QFrame):
 class ColorPickerPanel(QFrame):
     """Color and position editor (matches UCXiTongXianShiColor 230x374)."""
 
-    color_changed = pyqtSignal(int, int, int)
-    position_changed = pyqtSignal(int, int)
-    font_changed = pyqtSignal(str, int)
-    eyedropper_requested = pyqtSignal()  # launch eyedropper color picker
+    color_changed = Signal(int, int, int)
+    position_changed = Signal(int, int)
+    font_changed = Signal(str, int)
+    eyedropper_requested = Signal()  # launch eyedropper color picker
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -761,9 +761,9 @@ class ColorPickerPanel(QFrame):
 
     def _pick_font(self):
         """Open font dialog (matches Windows FontDialog in UCXiTongXianShiColor)."""
-        from PyQt6.QtWidgets import QFontDialog
+        from PySide6.QtWidgets import QFontDialog
         current = QFont(self._current_font_name, self._current_font_size)
-        font, ok = QFontDialog.getFont(current, self, "Pick Font")
+        ok, font = QFontDialog.getFont(current, self, "Pick Font")
         if ok:
             self._current_font_name = font.family()
             self._current_font_size = font.pointSize()
@@ -783,7 +783,7 @@ class ColorPickerPanel(QFrame):
 class AddElementPanel(QFrame):
     """Add new overlay element panel (matches UCXiTongXianShiAdd 230x430)."""
 
-    element_added = pyqtSignal(dict)  # full config dict
+    element_added = Signal(dict)  # full config dict
 
     ELEMENT_TYPES = [
         ("Hardware Data", MODE_HARDWARE),
@@ -889,8 +889,8 @@ class DataTablePanel(QFrame):
     - Custom  (mode 4): textBox1 — custom text input
     """
 
-    format_changed = pyqtSignal(int, int)  # mode, mode_sub
-    text_changed = pyqtSignal(str)
+    format_changed = Signal(int, int)  # mode, mode_sub
+    text_changed = Signal(str)
 
     # Date format images in cycle order (mode_sub 1→2→3→4→1)
     _DATE_IMAGES = {1: 'PYMD.png', 2: 'PDMY.png', 3: 'PMD.png', 4: 'PDM.png'}
@@ -1031,8 +1031,8 @@ class DisplayModePanel(QFrame):
     Controls are invisible click targets over baked-in text.
     """
 
-    mode_changed = pyqtSignal(str, bool)
-    action_requested = pyqtSignal(str)
+    mode_changed = Signal(str, bool)
+    action_requested = Signal(str)
 
     def __init__(self, mode_id, actions: list[str] | None = None, parent=None):
         super().__init__(parent)
@@ -1118,8 +1118,8 @@ class ScreenCastPanel(DisplayModePanel):
     Matches Windows UCTouPingXianShi layout within 351x100.
     """
 
-    screencast_params_changed = pyqtSignal(int, int, int, int)  # x, y, w, h
-    border_toggled = pyqtSignal(bool)
+    screencast_params_changed = Signal(int, int, int, int)  # x, y, w, h
+    border_toggled = Signal(bool)
 
     # Positions from Windows UCTouPingXianShi.cs
     _TEXTBOX_X = (110, 40, 56, 16)
@@ -1151,7 +1151,7 @@ class ScreenCastPanel(DisplayModePanel):
         (1920, 462): 77.0 / 320.0,
     }
 
-    capture_requested = pyqtSignal()  # launch screen capture
+    capture_requested = Signal()  # launch screen capture
 
     def __init__(self, parent=None):
         super().__init__("screencast", [], parent)
@@ -1199,7 +1199,7 @@ class ScreenCastPanel(DisplayModePanel):
         entry.setAlignment(Qt.AlignmentFlag.AlignRight)
         entry.setStyleSheet(self._ENTRY_STYLE)
         # Numeric-only: accept 0-9999
-        from PyQt6.QtGui import QIntValidator
+        from PySide6.QtGui import QIntValidator
         entry.setValidator(QIntValidator(0, 9999, entry))
         return entry
 
@@ -1335,12 +1335,12 @@ class UCThemeSetting(BasePanel):
     CMD_OVERLAY_CHANGED = 128
     CMD_EYEDROPPER = 112  # Matches Windows cmd for FormGetColor
 
-    overlay_changed = pyqtSignal(dict)
-    background_changed = pyqtSignal(bool)
-    screencast_changed = pyqtSignal(bool)
-    screencast_params_changed = pyqtSignal(int, int, int, int)  # x, y, w, h
-    eyedropper_requested = pyqtSignal()  # launch eyedropper color picker
-    capture_requested = pyqtSignal()     # launch screen capture
+    overlay_changed = Signal(dict)
+    background_changed = Signal(bool)
+    screencast_changed = Signal(bool)
+    screencast_params_changed = Signal(int, int, int, int)  # x, y, w, h
+    eyedropper_requested = Signal()  # launch eyedropper color picker
+    capture_requested = Signal()     # launch screen capture
 
     def __init__(self, parent=None):
         super().__init__(parent, width=Sizes.SETTING_W, height=Sizes.SETTING_H)

@@ -1,13 +1,13 @@
 """
 Tests for LED controller and model layer.
 
-Covers LEDMode enum, LEDZoneState, LEDState, LEDModel (state mutations,
+Covers LEDMode enum, LEDZoneState, LEDState, LEDService (state mutations,
 tick dispatch, all 6 effect algorithms, callbacks), LEDController (delegation,
 protocol wiring, tick with send), and LEDDeviceController (initialize, save/load
 config, cleanup).
 
 Architecture mirrors Windows FormLED.cs:
-  - LEDModel holds state + computes per-segment colors each tick
+  - LEDService holds state + computes per-segment colors each tick
   - LEDController owns model, manages protocol send + view callbacks
   - LEDDeviceController coordinates device init, config persistence, cleanup
 """
@@ -45,10 +45,10 @@ class FakeDeviceInfo:
 from trcc.core.controllers import LEDController, LEDDeviceController  # noqa: E402
 from trcc.core.models import (  # noqa: E402
     LEDMode,
-    LEDModel,
     LEDState,
     LEDZoneState,
 )
+from trcc.services.led import LEDService  # noqa: E402
 
 # =========================================================================
 # Fixtures
@@ -61,9 +61,9 @@ def led_state():
 
 
 @pytest.fixture
-def led_model():
-    """Fresh LEDModel with default state."""
-    return LEDModel()
+def led_svc():
+    """Fresh LEDService with default state."""
+    return LEDService()
 
 
 @pytest.fixture
@@ -197,257 +197,259 @@ class TestLEDState:
 
 
 # =========================================================================
-# Tests: LEDModel — state mutations
+# Tests: LEDService — state mutations
 # =========================================================================
 
-class TestLEDModelStateMutations:
+class TestLEDServiceStateMutations:
     """Test set_mode, set_color, set_brightness, toggles, zone methods."""
 
-    def test_set_mode(self, led_model):
-        led_model.set_mode(LEDMode.RAINBOW)
-        assert led_model.state.mode is LEDMode.RAINBOW
+    def test_set_mode(self, led_svc):
+        led_svc.set_mode(LEDMode.RAINBOW)
+        assert led_svc.state.mode is LEDMode.RAINBOW
 
-    def test_set_mode_resets_timer(self, led_model):
-        led_model.state.rgb_timer = 42
-        led_model.set_mode(LEDMode.BREATHING)
-        assert led_model.state.rgb_timer == 0
+    def test_set_mode_resets_timer(self, led_svc):
+        led_svc.state.rgb_timer = 42
+        led_svc.set_mode(LEDMode.BREATHING)
+        assert led_svc.state.rgb_timer == 0
 
-    def test_set_color(self, led_model):
-        led_model.set_color(10, 20, 30)
-        assert led_model.state.color == (10, 20, 30)
+    def test_set_color(self, led_svc):
+        led_svc.set_color(10, 20, 30)
+        assert led_svc.state.color == (10, 20, 30)
 
-    def test_set_brightness_normal(self, led_model):
-        led_model.set_brightness(75)
-        assert led_model.state.brightness == 75
+    def test_set_brightness_normal(self, led_svc):
+        led_svc.set_brightness(75)
+        assert led_svc.state.brightness == 75
 
-    def test_set_brightness_clamps_high(self, led_model):
-        led_model.set_brightness(200)
-        assert led_model.state.brightness == 100
+    def test_set_brightness_clamps_high(self, led_svc):
+        led_svc.set_brightness(200)
+        assert led_svc.state.brightness == 100
 
-    def test_set_brightness_clamps_low(self, led_model):
-        led_model.set_brightness(-10)
-        assert led_model.state.brightness == 0
+    def test_set_brightness_clamps_low(self, led_svc):
+        led_svc.set_brightness(-10)
+        assert led_svc.state.brightness == 0
 
-    def test_toggle_global_off(self, led_model):
-        led_model.toggle_global(False)
-        assert led_model.state.global_on is False
+    def test_toggle_global_off(self, led_svc):
+        led_svc.toggle_global(False)
+        assert led_svc.state.global_on is False
 
-    def test_toggle_global_on(self, led_model):
-        led_model.state.global_on = False
-        led_model.toggle_global(True)
-        assert led_model.state.global_on is True
+    def test_toggle_global_on(self, led_svc):
+        led_svc.state.global_on = False
+        led_svc.toggle_global(True)
+        assert led_svc.state.global_on is True
 
-    def test_toggle_segment(self, led_model):
-        led_model.toggle_segment(3, False)
-        assert led_model.state.segment_on[3] is False
+    def test_toggle_segment(self, led_svc):
+        led_svc.toggle_segment(3, False)
+        assert led_svc.state.segment_on[3] is False
         # Others unchanged
-        assert led_model.state.segment_on[0] is True
+        assert led_svc.state.segment_on[0] is True
 
-    def test_toggle_segment_out_of_range(self, led_model):
+    def test_toggle_segment_out_of_range(self, led_svc):
         """Out-of-range index does not raise."""
-        led_model.toggle_segment(999, False)
-        led_model.toggle_segment(-1, False)
+        led_svc.toggle_segment(999, False)
+        led_svc.toggle_segment(-1, False)
         # No exception, state unchanged
-        assert all(s is True for s in led_model.state.segment_on)
+        assert all(s is True for s in led_svc.state.segment_on)
 
     def test_set_zone_mode(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_mode(0, LEDMode.COLORFUL)
         assert model.state.zones[0].mode is LEDMode.COLORFUL
 
     def test_set_zone_mode_out_of_range(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_mode(5, LEDMode.STATIC)  # No exception
 
     def test_set_zone_color(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_color(1, 0, 128, 255)
         assert model.state.zones[1].color == (0, 128, 255)
 
     def test_set_zone_color_out_of_range(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_color(99, 0, 0, 0)  # No exception
 
     def test_set_zone_brightness(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_brightness(0, 50)
         assert model.state.zones[0].brightness == 50
 
     def test_set_zone_brightness_clamps(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_brightness(0, 999)
         assert model.state.zones[0].brightness == 100
         model.set_zone_brightness(0, -5)
         assert model.state.zones[0].brightness == 0
 
     def test_set_zone_brightness_out_of_range(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        model = LEDService(state=LEDState(zone_count=2))
         model.set_zone_brightness(99, 50)  # No exception
 
-    def test_update_metrics(self, led_model):
+    def test_update_metrics(self, led_svc):
         metrics = {"cpu_temp": 65, "gpu_load": 80}
-        led_model.update_metrics(metrics)
-        assert led_model._metrics == metrics
+        led_svc.update_metrics(metrics)
+        assert led_svc._metrics == metrics
 
 
 # =========================================================================
-# Tests: LEDModel — callbacks
+# Tests: LEDService — callbacks
 # =========================================================================
 
-class TestLEDModelCallbacks:
-    """Verify on_state_changed and on_colors_updated fire correctly."""
+class TestLEDControllerCallbacks:
+    """Verify LEDController fires on_state_changed on state mutations."""
 
-    def test_on_state_changed_fires_on_set_mode(self, led_model):
+    def test_on_state_changed_fires_on_set_mode(self, led_controller):
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.set_mode(LEDMode.BREATHING)
-        cb.assert_called_once_with(led_model.state)
+        led_controller.on_state_changed = cb
+        led_controller.set_mode(LEDMode.BREATHING)
+        cb.assert_called_once_with(led_controller.state)
 
-    def test_on_state_changed_fires_on_set_color(self, led_model):
+    def test_on_state_changed_fires_on_set_color(self, led_controller):
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.set_color(1, 2, 3)
+        led_controller.on_state_changed = cb
+        led_controller.set_color(1, 2, 3)
         cb.assert_called_once()
 
-    def test_on_state_changed_fires_on_set_brightness(self, led_model):
+    def test_on_state_changed_fires_on_set_brightness(self, led_controller):
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.set_brightness(42)
+        led_controller.on_state_changed = cb
+        led_controller.set_brightness(42)
         cb.assert_called_once()
 
-    def test_on_state_changed_fires_on_toggle_global(self, led_model):
+    def test_on_state_changed_fires_on_toggle_global(self, led_controller):
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.toggle_global(False)
+        led_controller.on_state_changed = cb
+        led_controller.toggle_global(False)
         cb.assert_called_once()
 
-    def test_on_state_changed_fires_on_toggle_segment(self, led_model):
+    def test_on_state_changed_fires_on_toggle_segment(self, led_controller):
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.toggle_segment(0, False)
+        led_controller.on_state_changed = cb
+        led_controller.toggle_segment(0, False)
         cb.assert_called_once()
 
-    def test_no_callback_when_none(self, led_model):
+    def test_no_callback_when_none(self, led_controller):
         """No crash when callback is None."""
-        led_model.on_state_changed = None
-        led_model.set_mode(LEDMode.STATIC)  # No exception
+        led_controller.on_state_changed = None
+        led_controller.set_mode(LEDMode.STATIC)  # No exception
 
-    def test_on_colors_updated_fires_on_tick(self, led_model):
+    def test_on_preview_update_fires_on_tick(self, led_controller):
         cb = MagicMock()
-        led_model.on_colors_updated = cb
-        led_model.tick()
+        led_controller.on_preview_update = cb
+        led_controller.tick()
         cb.assert_called_once()
         # Argument is a list of color tuples
         colors = cb.call_args[0][0]
-        assert len(colors) == led_model.state.segment_count
+        assert len(colors) == led_controller.state.segment_count
 
     def test_on_state_changed_fires_on_zone_mode(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        ctrl = LEDController(LEDService(state=LEDState(zone_count=2)))
         cb = MagicMock()
-        model.on_state_changed = cb
-        model.set_zone_mode(0, LEDMode.RAINBOW)
+        ctrl.on_state_changed = cb
+        ctrl.set_zone_mode(0, LEDMode.RAINBOW)
         cb.assert_called_once()
 
     def test_on_state_changed_fires_on_zone_color(self):
-        model = LEDModel(state=LEDState(zone_count=2))
+        ctrl = LEDController(LEDService(state=LEDState(zone_count=2)))
         cb = MagicMock()
-        model.on_state_changed = cb
-        model.set_zone_color(0, 10, 20, 30)
+        ctrl.on_state_changed = cb
+        ctrl.set_zone_color(0, 10, 20, 30)
         cb.assert_called_once()
 
 
 # =========================================================================
-# Tests: LEDModel — configure_for_style
+# Tests: LEDService — configure_for_style
 # =========================================================================
 
-class TestLEDModelConfigureForStyle:
+class TestLEDServiceConfigureForStyle:
     """Test configure_for_style() sets LED/segment counts from registry."""
 
     @patch("trcc.device_led.LED_STYLES", {
         1: MagicMock(style_id=1, led_count=30, segment_count=10, zone_count=1),
         2: MagicMock(style_id=2, led_count=84, segment_count=18, zone_count=4),
     })
-    def test_configure_style_1(self, led_model):
-        led_model.configure_for_style(1)
-        assert led_model.state.style == 1
-        assert led_model.state.led_count == 30
-        assert led_model.state.segment_count == 10
-        assert led_model.state.zone_count == 1
-        assert len(led_model.state.segment_on) == 10
-        assert led_model.state.zones == []
+    def test_configure_style_1(self, led_svc):
+        led_svc.configure_for_style(1)
+        assert led_svc.state.style == 1
+        assert led_svc.state.led_count == 30
+        assert led_svc.state.segment_count == 10
+        assert led_svc.state.zone_count == 1
+        assert len(led_svc.state.segment_on) == 10
+        assert led_svc.state.zones == []
 
     @patch("trcc.device_led.LED_STYLES", {
         2: MagicMock(style_id=2, led_count=84, segment_count=18, zone_count=4),
     })
-    def test_configure_multi_zone_style(self, led_model):
-        led_model.configure_for_style(2)
-        assert led_model.state.zone_count == 4
-        assert len(led_model.state.zones) == 4
+    def test_configure_multi_zone_style(self, led_svc):
+        led_svc.configure_for_style(2)
+        assert led_svc.state.zone_count == 4
+        assert len(led_svc.state.zones) == 4
 
     @patch("trcc.device_led.LED_STYLES", {})
-    def test_configure_unknown_style(self, led_model):
+    def test_configure_unknown_style(self, led_svc):
         """Unknown style_id does nothing (LED_STYLES.get returns None)."""
-        original_count = led_model.state.segment_count
-        led_model.configure_for_style(999)
-        assert led_model.state.segment_count == original_count
+        original_count = led_svc.state.segment_count
+        led_svc.configure_for_style(999)
+        assert led_svc.state.segment_count == original_count
 
     @patch("trcc.device_led.LED_STYLES", {
         1: MagicMock(style_id=1, led_count=30, segment_count=10, zone_count=1),
     })
-    def test_configure_fires_callback(self, led_model):
+    def test_configure_fires_callback_via_controller(self):
+        """Controller fires on_state_changed when configure_for_style is called."""
+        ctrl = LEDController()
         cb = MagicMock()
-        led_model.on_state_changed = cb
-        led_model.configure_for_style(1)
+        ctrl.on_state_changed = cb
+        ctrl.configure_for_style(1)
         cb.assert_called_once()
 
 
 # =========================================================================
-# Tests: LEDModel — tick dispatch
+# Tests: LEDService — tick dispatch
 # =========================================================================
 
-class TestLEDModelTickDispatch:
+class TestLEDServiceTickDispatch:
     """Test that tick() dispatches to the correct mode algorithm."""
 
-    def test_tick_static(self, led_model):
-        led_model.set_mode(LEDMode.STATIC)
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
-        assert all(c == led_model.state.color for c in colors)
+    def test_tick_static(self, led_svc):
+        led_svc.set_mode(LEDMode.STATIC)
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
+        assert all(c == led_svc.state.color for c in colors)
 
-    def test_tick_breathing(self, led_model):
-        led_model.set_mode(LEDMode.BREATHING)
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
+    def test_tick_breathing(self, led_svc):
+        led_svc.set_mode(LEDMode.BREATHING)
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
 
-    def test_tick_colorful(self, led_model):
-        led_model.set_mode(LEDMode.COLORFUL)
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
+    def test_tick_colorful(self, led_svc):
+        led_svc.set_mode(LEDMode.COLORFUL)
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
 
     @patch("trcc.device_led.get_rgb_table")
-    def test_tick_rainbow(self, mock_table, led_model):
+    def test_tick_rainbow(self, mock_table, led_svc):
         # Provide a minimal table
         mock_table.return_value = [(i, i, i) for i in range(768)]
-        led_model.set_mode(LEDMode.RAINBOW)
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
+        led_svc.set_mode(LEDMode.RAINBOW)
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
 
     @patch("trcc.device_led.color_for_value", return_value=(0, 255, 255))
-    def test_tick_temp_linked(self, mock_cfv, led_model):
-        led_model.set_mode(LEDMode.TEMP_LINKED)
-        led_model.update_metrics({"cpu_temp": 25})
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
+    def test_tick_temp_linked(self, mock_cfv, led_svc):
+        led_svc.set_mode(LEDMode.TEMP_LINKED)
+        led_svc.update_metrics({"cpu_temp": 25})
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
 
     @patch("trcc.device_led.color_for_value", return_value=(255, 255, 0))
-    def test_tick_load_linked(self, mock_cfv, led_model):
-        led_model.set_mode(LEDMode.LOAD_LINKED)
-        led_model.update_metrics({"cpu_load": 60})
-        colors = led_model.tick()
-        assert len(colors) == led_model.state.segment_count
+    def test_tick_load_linked(self, mock_cfv, led_svc):
+        led_svc.set_mode(LEDMode.LOAD_LINKED)
+        led_svc.update_metrics({"cpu_load": 60})
+        colors = led_svc.tick()
+        assert len(colors) == led_svc.state.segment_count
 
-    def test_tick_returns_list_of_tuples(self, led_model):
-        colors = led_model.tick()
+    def test_tick_returns_list_of_tuples(self, led_svc):
+        colors = led_svc.tick()
         assert isinstance(colors, list)
         for c in colors:
             assert isinstance(c, tuple)
@@ -455,234 +457,234 @@ class TestLEDModelTickDispatch:
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_static
+# Tests: LEDService — _tick_static
 # =========================================================================
 
 class TestTickStatic:
     """DSCL_Timer: all segments = user color."""
 
-    def test_all_segments_same_color(self, led_model):
-        led_model.set_color(100, 200, 50)
-        colors = led_model._tick_single_mode(
-            LEDMode.STATIC, led_model.state.color, led_model.state.segment_count)
+    def test_all_segments_same_color(self, led_svc):
+        led_svc.set_color(100, 200, 50)
+        colors = led_svc._tick_single_mode(
+            LEDMode.STATIC, led_svc.state.color, led_svc.state.segment_count)
         assert all(c == (100, 200, 50) for c in colors)
 
-    def test_segment_count_matches(self, led_model):
-        colors = led_model._tick_single_mode(
-            LEDMode.STATIC, led_model.state.color, led_model.state.segment_count)
-        assert len(colors) == led_model.state.segment_count
+    def test_segment_count_matches(self, led_svc):
+        colors = led_svc._tick_single_mode(
+            LEDMode.STATIC, led_svc.state.color, led_svc.state.segment_count)
+        assert len(colors) == led_svc.state.segment_count
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_breathing
+# Tests: LEDService — _tick_breathing
 # =========================================================================
 
 class TestTickBreathing:
     """DSHX_Timer: pulse brightness, period=66."""
 
-    def test_advances_timer(self, led_model):
-        led_model.state.mode = LEDMode.BREATHING
-        led_model.state.rgb_timer = 0
-        led_model._tick_breathing_for(led_model.state.color, led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 1
+    def test_advances_timer(self, led_svc):
+        led_svc.state.mode = LEDMode.BREATHING
+        led_svc.state.rgb_timer = 0
+        led_svc._tick_breathing_for(led_svc.state.color, led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 1
 
-    def test_timer_wraps_at_66(self, led_model):
-        led_model.state.rgb_timer = 65
-        led_model._tick_breathing_for(led_model.state.color, led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 0
+    def test_timer_wraps_at_66(self, led_svc):
+        led_svc.state.rgb_timer = 65
+        led_svc._tick_breathing_for(led_svc.state.color, led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 0
 
-    def test_at_zero_brightness_is_20_percent_base(self, led_model):
+    def test_at_zero_brightness_is_20_percent_base(self, led_svc):
         """At timer=0, factor=0 so anim is 0; output = 20% of color."""
-        led_model.set_color(255, 0, 0)
-        led_model.state.rgb_timer = 0
-        colors = led_model._tick_breathing_for(led_model.state.color, led_model.state.segment_count)
+        led_svc.set_color(255, 0, 0)
+        led_svc.state.rgb_timer = 0
+        colors = led_svc._tick_breathing_for(led_svc.state.color, led_svc.state.segment_count)
         r, g, b = colors[0]
         # int(255 * 0 * 0.8 + 255 * 0.2) = int(51.0) = 51
         assert r == 51
 
-    def test_at_midpoint_brightness_is_full(self, led_model):
+    def test_at_midpoint_brightness_is_full(self, led_svc):
         """At timer=33 (half), factor= (66-1-33)/33 ≈ 0.9697 → near full."""
-        led_model.set_color(255, 0, 0)
-        led_model.state.rgb_timer = 32  # factor = 32/33 ≈ 0.97
-        colors = led_model._tick_breathing_for(led_model.state.color, led_model.state.segment_count)
+        led_svc.set_color(255, 0, 0)
+        led_svc.state.rgb_timer = 32  # factor = 32/33 ≈ 0.97
+        colors = led_svc._tick_breathing_for(led_svc.state.color, led_svc.state.segment_count)
         r, g, b = colors[0]
         # 80% animated + 20% base → near 255
         assert r > 200
 
-    def test_uniform_across_segments(self, led_model):
+    def test_uniform_across_segments(self, led_svc):
         """All segments get the same breathing color."""
-        led_model.set_color(100, 100, 100)
-        led_model.state.rgb_timer = 10
-        colors = led_model._tick_breathing_for(led_model.state.color, led_model.state.segment_count)
+        led_svc.set_color(100, 100, 100)
+        led_svc.state.rgb_timer = 10
+        colors = led_svc._tick_breathing_for(led_svc.state.color, led_svc.state.segment_count)
         assert len(set(colors)) == 1  # All identical
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_colorful
+# Tests: LEDService — _tick_colorful
 # =========================================================================
 
 class TestTickColorful:
     """QCJB_Timer: 6-phase gradient, period=168."""
 
-    def test_advances_timer(self, led_model):
-        led_model.state.rgb_timer = 0
-        led_model._tick_colorful_for(led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 1
+    def test_advances_timer(self, led_svc):
+        led_svc.state.rgb_timer = 0
+        led_svc._tick_colorful_for(led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 1
 
-    def test_timer_wraps_at_168(self, led_model):
-        led_model.state.rgb_timer = 167
-        led_model._tick_colorful_for(led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 0
+    def test_timer_wraps_at_168(self, led_svc):
+        led_svc.state.rgb_timer = 167
+        led_svc._tick_colorful_for(led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 0
 
-    def test_phase_0_starts_red(self, led_model):
+    def test_phase_0_starts_red(self, led_svc):
         """Phase 0 offset 0 → (255, 0, 0) = pure red."""
-        led_model.state.rgb_timer = 0
-        colors = led_model._tick_colorful_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 0
+        colors = led_svc._tick_colorful_for(led_svc.state.segment_count)
         assert colors[0] == (255, 0, 0)
 
-    def test_phase_1_yellow_to_green(self, led_model):
+    def test_phase_1_yellow_to_green(self, led_svc):
         """Phase 1 offset 0 → (255, 255, 0) → R starts decreasing."""
-        led_model.state.rgb_timer = 28  # Phase 1 start
-        colors = led_model._tick_colorful_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 28  # Phase 1 start
+        colors = led_svc._tick_colorful_for(led_svc.state.segment_count)
         r, g, b = colors[0]
         assert g == 255
         assert b == 0
 
-    def test_phase_2_green_to_cyan(self, led_model):
+    def test_phase_2_green_to_cyan(self, led_svc):
         """Phase 2 starts at timer=56."""
-        led_model.state.rgb_timer = 56
-        colors = led_model._tick_colorful_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 56
+        colors = led_svc._tick_colorful_for(led_svc.state.segment_count)
         r, g, b = colors[0]
         assert r == 0
         assert g == 255
 
-    def test_full_cycle_returns_to_start(self, led_model):
+    def test_full_cycle_returns_to_start(self, led_svc):
         """After 168 ticks, we're back at phase 0 offset 0."""
-        led_model.state.rgb_timer = 0
+        led_svc.state.rgb_timer = 0
         for _ in range(168):
-            led_model._tick_colorful_for(led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 0
+            led_svc._tick_colorful_for(led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 0
 
-    def test_uniform_across_segments(self, led_model):
+    def test_uniform_across_segments(self, led_svc):
         """All segments get the same colorful color."""
-        led_model.state.rgb_timer = 42
-        colors = led_model._tick_colorful_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 42
+        colors = led_svc._tick_colorful_for(led_svc.state.segment_count)
         assert len(set(colors)) == 1
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_rainbow
+# Tests: LEDService — _tick_rainbow
 # =========================================================================
 
 class TestTickRainbow:
     """CHMS_Timer: 768-entry table, offset per segment."""
 
     @patch("trcc.device_led.get_rgb_table")
-    def test_uses_rgb_table(self, mock_table, led_model):
+    def test_uses_rgb_table(self, mock_table, led_svc):
         table = [(i, 0, 0) for i in range(768)]
         mock_table.return_value = table
-        led_model.state.rgb_timer = 0
-        colors = led_model._tick_rainbow_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 0
+        colors = led_svc._tick_rainbow_for(led_svc.state.segment_count)
         # Each segment gets a different offset
-        assert len(colors) == led_model.state.segment_count
+        assert len(colors) == led_svc.state.segment_count
         mock_table.assert_called()
 
     @patch("trcc.device_led.get_rgb_table")
-    def test_advances_by_4(self, mock_table, led_model):
+    def test_advances_by_4(self, mock_table, led_svc):
         mock_table.return_value = [(0, 0, 0)] * 768
-        led_model.state.rgb_timer = 0
-        led_model._tick_rainbow_for(led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 4
+        led_svc.state.rgb_timer = 0
+        led_svc._tick_rainbow_for(led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 4
 
     @patch("trcc.device_led.get_rgb_table")
-    def test_timer_wraps(self, mock_table, led_model):
+    def test_timer_wraps(self, mock_table, led_svc):
         mock_table.return_value = [(0, 0, 0)] * 768
-        led_model.state.rgb_timer = 764
-        led_model._tick_rainbow_for(led_model.state.segment_count)
-        assert led_model.state.rgb_timer == 0  # (764 + 4) % 768 = 0
+        led_svc.state.rgb_timer = 764
+        led_svc._tick_rainbow_for(led_svc.state.segment_count)
+        assert led_svc.state.rgb_timer == 0  # (764 + 4) % 768 = 0
 
     @patch("trcc.device_led.get_rgb_table")
-    def test_segments_get_different_offsets(self, mock_table, led_model):
+    def test_segments_get_different_offsets(self, mock_table, led_svc):
         """Different segments get different colors from the table."""
         table = [(i, i, i) for i in range(768)]
         mock_table.return_value = table
-        led_model.state.rgb_timer = 0
-        led_model.state.segment_count = 4
-        led_model.state.segment_on = [True] * 4
-        colors = led_model._tick_rainbow_for(led_model.state.segment_count)
+        led_svc.state.rgb_timer = 0
+        led_svc.state.segment_count = 4
+        led_svc.state.segment_on = [True] * 4
+        colors = led_svc._tick_rainbow_for(led_svc.state.segment_count)
         # With 4 segments, offsets should be 0, 192, 384, 576
         assert len(set(colors)) > 1  # Not all the same
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_temp_linked
+# Tests: LEDService — _tick_temp_linked
 # =========================================================================
 
 class TestTickTempLinked:
     """WDLD_Timer: color from CPU/GPU temperature thresholds."""
 
     @patch("trcc.device_led.color_for_value")
-    def test_uses_cpu_temp_by_default(self, mock_cfv, led_model):
+    def test_uses_cpu_temp_by_default(self, mock_cfv, led_svc):
         mock_cfv.return_value = (0, 255, 0)
-        led_model.state.temp_source = "cpu"
-        led_model._metrics = {"cpu_temp": 45}
-        led_model._tick_temp_linked_for(led_model.state.segment_count)
+        led_svc.state.temp_source = "cpu"
+        led_svc._metrics = {"cpu_temp": 45}
+        led_svc._tick_temp_linked_for(led_svc.state.segment_count)
         mock_cfv.assert_called_once()
         # First positional arg is the temp value
         assert mock_cfv.call_args[0][0] == 45
 
     @patch("trcc.device_led.color_for_value")
-    def test_uses_gpu_temp(self, mock_cfv, led_model):
+    def test_uses_gpu_temp(self, mock_cfv, led_svc):
         mock_cfv.return_value = (255, 0, 0)
-        led_model.state.temp_source = "gpu"
-        led_model._metrics = {"gpu_temp": 92}
-        led_model._tick_temp_linked_for(led_model.state.segment_count)
+        led_svc.state.temp_source = "gpu"
+        led_svc._metrics = {"gpu_temp": 92}
+        led_svc._tick_temp_linked_for(led_svc.state.segment_count)
         assert mock_cfv.call_args[0][0] == 92
 
     @patch("trcc.device_led.color_for_value")
-    def test_missing_metric_defaults_to_zero(self, mock_cfv, led_model):
+    def test_missing_metric_defaults_to_zero(self, mock_cfv, led_svc):
         mock_cfv.return_value = (0, 255, 255)
-        led_model._metrics = {}
-        led_model._tick_temp_linked_for(led_model.state.segment_count)
+        led_svc._metrics = {}
+        led_svc._tick_temp_linked_for(led_svc.state.segment_count)
         assert mock_cfv.call_args[0][0] == 0
 
     @patch("trcc.device_led.color_for_value")
-    def test_uniform_color(self, mock_cfv, led_model):
+    def test_uniform_color(self, mock_cfv, led_svc):
         mock_cfv.return_value = (0, 255, 0)
-        led_model._metrics = {"cpu_temp": 40}
-        colors = led_model._tick_temp_linked_for(led_model.state.segment_count)
+        led_svc._metrics = {"cpu_temp": 40}
+        colors = led_svc._tick_temp_linked_for(led_svc.state.segment_count)
         assert all(c == (0, 255, 0) for c in colors)
-        assert len(colors) == led_model.state.segment_count
+        assert len(colors) == led_svc.state.segment_count
 
 
 # =========================================================================
-# Tests: LEDModel — _tick_load_linked
+# Tests: LEDService — _tick_load_linked
 # =========================================================================
 
 class TestTickLoadLinked:
     """FZLD_Timer: color from CPU/GPU load thresholds."""
 
     @patch("trcc.device_led.color_for_value")
-    def test_uses_cpu_load_by_default(self, mock_cfv, led_model):
+    def test_uses_cpu_load_by_default(self, mock_cfv, led_svc):
         mock_cfv.return_value = (255, 255, 0)
-        led_model.state.load_source = "cpu"
-        led_model._metrics = {"cpu_percent": 60}
-        led_model._tick_load_linked_for(led_model.state.segment_count)
+        led_svc.state.load_source = "cpu"
+        led_svc._metrics = {"cpu_percent": 60}
+        led_svc._tick_load_linked_for(led_svc.state.segment_count)
         assert mock_cfv.call_args[0][0] == 60
 
     @patch("trcc.device_led.color_for_value")
-    def test_uses_gpu_load(self, mock_cfv, led_model):
+    def test_uses_gpu_load(self, mock_cfv, led_svc):
         mock_cfv.return_value = (255, 110, 0)
-        led_model.state.load_source = "gpu"
-        led_model._metrics = {"gpu_usage": 85}
-        led_model._tick_load_linked_for(led_model.state.segment_count)
+        led_svc.state.load_source = "gpu"
+        led_svc._metrics = {"gpu_usage": 85}
+        led_svc._tick_load_linked_for(led_svc.state.segment_count)
         assert mock_cfv.call_args[0][0] == 85
 
     @patch("trcc.device_led.color_for_value")
-    def test_missing_metric_defaults_to_zero(self, mock_cfv, led_model):
+    def test_missing_metric_defaults_to_zero(self, mock_cfv, led_svc):
         mock_cfv.return_value = (0, 255, 255)
-        led_model._metrics = {}
-        led_model._tick_load_linked_for(led_model.state.segment_count)
+        led_svc._metrics = {}
+        led_svc._tick_load_linked_for(led_svc.state.segment_count)
         assert mock_cfv.call_args[0][0] == 0
 
 
@@ -695,45 +697,45 @@ class TestLEDControllerDelegation:
 
     def test_set_mode_delegates(self, led_controller):
         led_controller.set_mode(LEDMode.COLORFUL)
-        assert led_controller.model.state.mode is LEDMode.COLORFUL
+        assert led_controller.state.mode is LEDMode.COLORFUL
 
     def test_set_color_delegates(self, led_controller):
         led_controller.set_color(10, 20, 30)
-        assert led_controller.model.state.color == (10, 20, 30)
+        assert led_controller.state.color == (10, 20, 30)
 
     def test_set_brightness_delegates(self, led_controller):
         led_controller.set_brightness(42)
-        assert led_controller.model.state.brightness == 42
+        assert led_controller.state.brightness == 42
 
     def test_toggle_global_delegates(self, led_controller):
         led_controller.toggle_global(False)
-        assert led_controller.model.state.global_on is False
+        assert led_controller.state.global_on is False
 
     def test_toggle_segment_delegates(self, led_controller):
         led_controller.toggle_segment(2, False)
-        assert led_controller.model.state.segment_on[2] is False
+        assert led_controller.state.segment_on[2] is False
 
     def test_set_zone_mode_delegates(self, led_controller):
-        led_controller.model.state = LEDState(zone_count=2)
+        led_controller.svc.state = LEDState(zone_count=2)
         led_controller.set_zone_mode(0, LEDMode.BREATHING)
-        assert led_controller.model.state.zones[0].mode is LEDMode.BREATHING
+        assert led_controller.state.zones[0].mode is LEDMode.BREATHING
 
     def test_set_zone_color_delegates(self, led_controller):
-        led_controller.model.state = LEDState(zone_count=2)
+        led_controller.svc.state = LEDState(zone_count=2)
         led_controller.set_zone_color(1, 5, 10, 15)
-        assert led_controller.model.state.zones[1].color == (5, 10, 15)
+        assert led_controller.state.zones[1].color == (5, 10, 15)
 
     def test_update_metrics_delegates(self, led_controller):
         metrics = {"cpu_temp": 55}
         led_controller.update_metrics(metrics)
-        assert led_controller.model._metrics == metrics
+        assert led_controller.svc._metrics == metrics
 
     @patch("trcc.device_led.LED_STYLES", {
         1: MagicMock(style_id=1, led_count=30, segment_count=10, zone_count=1),
     })
     def test_configure_for_style_delegates(self, led_controller):
         led_controller.configure_for_style(1)
-        assert led_controller.model.state.style == 1
+        assert led_controller.state.style == 1
 
 
 # =========================================================================
@@ -764,9 +766,9 @@ class TestLEDControllerTick:
     """Test tick() — advances model, sends via protocol, fires callbacks."""
 
     def test_tick_calls_model_tick(self, led_controller):
-        led_controller.model.tick = MagicMock(return_value=[(255, 0, 0)] * 10)
+        led_controller.svc.tick = MagicMock(return_value=[(255, 0, 0)] * 10)
         led_controller.tick()
-        led_controller.model.tick.assert_called_once()
+        led_controller.svc.tick.assert_called_once()
 
     def test_tick_sends_via_protocol(self, led_controller):
         proto = MagicMock()
@@ -780,15 +782,15 @@ class TestLEDControllerTick:
         proto = MagicMock()
         proto.send_led_data.return_value = True
         led_controller.set_protocol(proto)
-        led_controller.model.set_color(10, 20, 30)
-        led_controller.model.set_brightness(75)
+        led_controller.svc.set_color(10, 20, 30)
+        led_controller.svc.set_brightness(75)
 
         led_controller.tick()
 
         args, kwargs = proto.send_led_data.call_args
         colors, is_on, global_on, brightness = args
-        assert len(colors) == led_controller.model.state.segment_count
-        assert is_on == led_controller.model.state.segment_on
+        assert len(colors) == led_controller.state.segment_count
+        assert is_on == led_controller.state.segment_on
         assert global_on is True
         assert brightness == 75
 
@@ -844,7 +846,7 @@ class TestLEDControllerViewCallbacks:
         cb = MagicMock()
         led_controller.on_state_changed = cb
         led_controller.set_mode(LEDMode.BREATHING)
-        cb.assert_called_once_with(led_controller.model.state)
+        cb.assert_called_once_with(led_controller.state)
 
     def test_on_preview_update_forwarded(self, led_controller):
         cb = MagicMock()
@@ -872,7 +874,7 @@ class TestLEDControllerViewCallbacks:
 class TestLEDDeviceControllerInitialize:
     """Test initialize() — configures model, creates protocol, loads config."""
 
-    @patch("trcc.core.controllers.LEDController.configure_for_style")
+    @patch("trcc.services.led.LEDService.configure_for_style")
     @patch("trcc.device_factory.DeviceProtocolFactory.get_protocol")
     @patch("trcc.conf.device_config_key", return_value="0:0416_8001")
     @patch("trcc.conf.get_device_config", return_value={})
@@ -962,9 +964,9 @@ class TestLEDDeviceControllerSaveConfig:
         self, mock_save, form_controller
     ):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.mode = LEDMode.BREATHING
-        form_controller.led.model.state.color = (10, 20, 30)
-        form_controller.led.model.state.brightness = 75
+        form_controller.led.state.mode = LEDMode.BREATHING
+        form_controller.led.state.color = (10, 20, 30)
+        form_controller.led.state.brightness = 75
 
         form_controller.save_config()
 
@@ -979,7 +981,7 @@ class TestLEDDeviceControllerSaveConfig:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_includes_global_on(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.global_on = False
+        form_controller.led.state.global_on = False
 
         form_controller.save_config()
 
@@ -989,7 +991,7 @@ class TestLEDDeviceControllerSaveConfig:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_includes_segments(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.segment_on = [True, False, True]
+        form_controller.led.state.segment_on = [True, False, True]
 
         form_controller.save_config()
 
@@ -999,7 +1001,7 @@ class TestLEDDeviceControllerSaveConfig:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_includes_zones(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.zones = [
+        form_controller.led.state.zones = [
             LEDZoneState(mode=LEDMode.BREATHING, color=(0, 255, 0), brightness=50, on=False),
         ]
 
@@ -1015,7 +1017,7 @@ class TestLEDDeviceControllerSaveConfig:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_no_zones_for_single_zone(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.zones = []
+        form_controller.led.state.zones = []
 
         form_controller.save_config()
 
@@ -1036,8 +1038,8 @@ class TestLEDDeviceControllerSaveConfig:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_includes_sources(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.temp_source = "gpu"
-        form_controller.led.model.state.load_source = "gpu"
+        form_controller.led.state.temp_source = "gpu"
+        form_controller.led.state.load_source = "gpu"
 
         form_controller.save_config()
 
@@ -1060,7 +1062,7 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.mode is LEDMode.RAINBOW
+        assert form_controller.led.state.mode is LEDMode.RAINBOW
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_color(self, mock_get_cfg, form_controller):
@@ -1069,7 +1071,7 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.color == (10, 20, 30)
+        assert form_controller.led.state.color == (10, 20, 30)
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_brightness(self, mock_get_cfg, form_controller):
@@ -1078,7 +1080,7 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.brightness == 42
+        assert form_controller.led.state.brightness == 42
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_global_on(self, mock_get_cfg, form_controller):
@@ -1087,7 +1089,7 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.global_on is False
+        assert form_controller.led.state.global_on is False
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_segments(self, mock_get_cfg, form_controller):
@@ -1097,7 +1099,7 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.segment_on[1] is False
+        assert form_controller.led.state.segment_on[1] is False
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_sources(self, mock_get_cfg, form_controller):
@@ -1106,8 +1108,8 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
-        assert form_controller.led.model.state.temp_source == "gpu"
-        assert form_controller.led.model.state.load_source == "gpu"
+        assert form_controller.led.state.temp_source == "gpu"
+        assert form_controller.led.state.load_source == "gpu"
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_restores_zones(self, mock_get_cfg, form_controller):
@@ -1121,22 +1123,22 @@ class TestLEDDeviceControllerLoadConfig:
         }
         form_controller._device_key = "0:0416_8001"
         # Need zones to exist for restore
-        form_controller.led.model.state.zones = [LEDZoneState(), LEDZoneState()]
+        form_controller.led.state.zones = [LEDZoneState(), LEDZoneState()]
         form_controller.load_config()
-        assert form_controller.led.model.state.zones[0].mode is LEDMode.BREATHING
-        assert form_controller.led.model.state.zones[0].color == (0, 255, 0)
-        assert form_controller.led.model.state.zones[0].brightness == 50
-        assert form_controller.led.model.state.zones[0].on is False
-        assert form_controller.led.model.state.zones[1].mode is LEDMode.RAINBOW
+        assert form_controller.led.state.zones[0].mode is LEDMode.BREATHING
+        assert form_controller.led.state.zones[0].color == (0, 255, 0)
+        assert form_controller.led.state.zones[0].brightness == 50
+        assert form_controller.led.state.zones[0].on is False
+        assert form_controller.led.state.zones[1].mode is LEDMode.RAINBOW
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_empty_config(self, mock_get_cfg, form_controller):
         """Empty config leaves state unchanged."""
         mock_get_cfg.return_value = {}
         form_controller._device_key = "0:0416_8001"
-        original_mode = form_controller.led.model.state.mode
+        original_mode = form_controller.led.state.mode
         form_controller.load_config()
-        assert form_controller.led.model.state.mode is original_mode
+        assert form_controller.led.state.mode is original_mode
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_no_led_config_key(self, mock_get_cfg, form_controller):
@@ -1196,8 +1198,8 @@ class TestMultiZoneTick:
 
     @pytest.fixture
     def multi_zone_model(self):
-        """LEDModel configured for 2-zone device with 10 segments."""
-        model = LEDModel()
+        """LEDService configured for 2-zone device with 10 segments."""
+        model = LEDService()
         model.state.zone_count = 2
         model.state.segment_count = 10
         model.state.zones = [
@@ -1218,7 +1220,7 @@ class TestMultiZoneTick:
 
     def test_multi_zone_odd_segments(self):
         """Segments divided unevenly among zones."""
-        model = LEDModel()
+        model = LEDService()
         model.state.zone_count = 3
         model.state.segment_count = 7
         model.state.zones = [
@@ -1255,7 +1257,7 @@ class TestMultiZoneTick:
 
     def test_multi_zone_breathing(self):
         """Multi-zone with breathing mode advances timer."""
-        model = LEDModel()
+        model = LEDService()
         model.state.zone_count = 2
         model.state.segment_count = 6
         model.state.zones = [
@@ -1270,7 +1272,7 @@ class TestMultiZoneTick:
 
     def test_single_zone_skips_multi(self):
         """Single-zone device uses global mode, not multi-zone path."""
-        model = LEDModel()
+        model = LEDService()
         model.state.zone_count = 1
         model.state.segment_count = 5
         model.state.mode = LEDMode.STATIC
@@ -1281,7 +1283,7 @@ class TestMultiZoneTick:
 
     def test_four_zone_device(self):
         """4-zone device (PA120/CZ1 style) splits 18 segments."""
-        model = LEDModel()
+        model = LEDService()
         model.state.zone_count = 4
         model.state.segment_count = 18
         model.state.zones = [
@@ -1312,33 +1314,33 @@ class TestLEDControllerZoneMethods:
 
     def test_set_zone_brightness(self, led_controller):
         """set_zone_brightness delegates to model."""
-        led_controller.model.state.zones = [
+        led_controller.state.zones = [
             LEDZoneState(), LEDZoneState()
         ]
         led_controller.set_zone_brightness(1, 42)
-        assert led_controller.model.state.zones[1].brightness == 42
+        assert led_controller.state.zones[1].brightness == 42
 
     def test_set_zone_brightness_clamps(self, led_controller):
         """set_zone_brightness clamps to 0-100."""
-        led_controller.model.state.zones = [LEDZoneState()]
+        led_controller.state.zones = [LEDZoneState()]
         led_controller.set_zone_brightness(0, 150)
-        assert led_controller.model.state.zones[0].brightness == 100
+        assert led_controller.state.zones[0].brightness == 100
         led_controller.set_zone_brightness(0, -10)
-        assert led_controller.model.state.zones[0].brightness == 0
+        assert led_controller.state.zones[0].brightness == 0
 
     def test_set_clock_format(self, led_controller):
         """set_clock_format sets is_timer_24h on state."""
         led_controller.set_clock_format(False)
-        assert led_controller.model.state.is_timer_24h is False
+        assert led_controller.state.is_timer_24h is False
         led_controller.set_clock_format(True)
-        assert led_controller.model.state.is_timer_24h is True
+        assert led_controller.state.is_timer_24h is True
 
     def test_set_week_start(self, led_controller):
         """set_week_start sets is_week_sunday on state."""
         led_controller.set_week_start(True)
-        assert led_controller.model.state.is_week_sunday is True
+        assert led_controller.state.is_week_sunday is True
         led_controller.set_week_start(False)
-        assert led_controller.model.state.is_week_sunday is False
+        assert led_controller.state.is_week_sunday is False
 
 
 # =========================================================================
@@ -1351,8 +1353,8 @@ class TestLC2ClockPersistence:
     @patch("trcc.conf.save_device_setting")
     def test_save_config_includes_clock_fields(self, mock_save, form_controller):
         form_controller._device_key = "0:0416_8001"
-        form_controller.led.model.state.is_timer_24h = False
-        form_controller.led.model.state.is_week_sunday = True
+        form_controller.led.state.is_timer_24h = False
+        form_controller.led.state.is_week_sunday = True
 
         form_controller.save_config()
 
@@ -1380,8 +1382,8 @@ class TestLC2ClockPersistence:
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
 
-        assert form_controller.led.model.state.is_timer_24h is False
-        assert form_controller.led.model.state.is_week_sunday is True
+        assert form_controller.led.state.is_timer_24h is False
+        assert form_controller.led.state.is_week_sunday is True
 
     @patch("trcc.conf.get_device_config")
     def test_load_config_missing_clock_fields(self, mock_get_cfg, form_controller):
@@ -1390,8 +1392,8 @@ class TestLC2ClockPersistence:
         form_controller._device_key = "0:0416_8001"
         form_controller.load_config()
 
-        assert form_controller.led.model.state.is_timer_24h is True
-        assert form_controller.led.model.state.is_week_sunday is False
+        assert form_controller.led.state.is_timer_24h is True
+        assert form_controller.led.state.is_week_sunday is False
 
 
 # =========================================================================
@@ -1419,42 +1421,42 @@ class TestLEDStateClockFields:
 class TestTickSingleMode:
     """Test _tick_single_mode dispatches correctly."""
 
-    def test_static(self, led_model):
-        colors = led_model._tick_single_mode(
+    def test_static(self, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.STATIC, (10, 20, 30), 5)
         assert colors == [(10, 20, 30)] * 5
 
-    def test_breathing(self, led_model):
-        colors = led_model._tick_single_mode(
+    def test_breathing(self, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.BREATHING, (100, 100, 100), 3)
         assert len(colors) == 3
 
-    def test_colorful(self, led_model):
-        colors = led_model._tick_single_mode(
+    def test_colorful(self, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.COLORFUL, (0, 0, 0), 4)
         assert len(colors) == 4
 
     @patch("trcc.device_led.get_rgb_table",
            return_value=[(i, i, i) for i in range(768)])
-    def test_rainbow(self, mock_table, led_model):
-        colors = led_model._tick_single_mode(
+    def test_rainbow(self, mock_table, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.RAINBOW, (0, 0, 0), 6)
         assert len(colors) == 6
 
     @patch("trcc.device_led.color_for_value", return_value=(0, 255, 255))
-    def test_temp_linked(self, mock_cfv, led_model):
-        colors = led_model._tick_single_mode(
+    def test_temp_linked(self, mock_cfv, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.TEMP_LINKED, (0, 0, 0), 3)
         assert len(colors) == 3
 
     @patch("trcc.device_led.color_for_value", return_value=(255, 0, 0))
-    def test_load_linked(self, mock_cfv, led_model):
-        colors = led_model._tick_single_mode(
+    def test_load_linked(self, mock_cfv, led_svc):
+        colors = led_svc._tick_single_mode(
             LEDMode.LOAD_LINKED, (0, 0, 0), 3)
         assert len(colors) == 3
 
-    def test_unknown_mode_returns_black(self, led_model):
-        colors = led_model._tick_single_mode(99, (255, 255, 255), 4)
+    def test_unknown_mode_returns_black(self, led_svc):
+        colors = led_svc._tick_single_mode(99, (255, 255, 255), 4)
         assert colors == [(0, 0, 0)] * 4
 
 

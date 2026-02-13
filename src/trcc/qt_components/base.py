@@ -16,9 +16,9 @@ import logging
 from pathlib import Path
 
 from PIL import Image
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QIcon, QImage, QPalette, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QIcon, QImage, QPalette, QPixmap
+from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
@@ -41,7 +41,7 @@ class BasePanel(QFrame):
     """
 
     # Signal for delegate pattern (replaces Tkinter invoke_delegate)
-    delegate = pyqtSignal(int, object, object)  # cmd, info, data
+    delegate = Signal(int, object, object)  # cmd, info, data
 
     def __init__(self, parent=None, width=None, height=None):
         super().__init__(parent)
@@ -86,7 +86,7 @@ class ImageLabel(QLabel):
     Matches Tkinter Canvas image pattern but faster.
     """
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, width=320, height=320, parent=None):
         super().__init__(parent)
@@ -126,7 +126,7 @@ class ImageLabel(QLabel):
 class ClickableFrame(QFrame):
     """QFrame that emits clicked signal."""
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def mousePressEvent(self, event):
         self.clicked.emit()
@@ -178,7 +178,7 @@ def pixmap_to_pil(pixmap):
     width = qimage.width()
     height = qimage.height()
     ptr = qimage.bits()
-    ptr.setsize(qimage.sizeInBytes())
+    # PySide6 returns memoryview directly; PyQt6 returned sip.voidptr needing setsize()
     return Image.frombytes('RGB', (width, height), bytes(ptr), 'raw', 'RGB',
                            qimage.bytesPerLine())
 
@@ -326,7 +326,7 @@ class BaseThumbnail(ClickableFrame):
     - _show_placeholder()
     """
 
-    clicked = pyqtSignal(object)
+    clicked = Signal(object)
 
     def __init__(self, item_info, parent=None):
         super().__init__(parent)
@@ -449,7 +449,7 @@ class BaseThemeBrowser(BasePanel):
     - _no_items_message() -> str: Empty state message
     """
 
-    theme_selected = pyqtSignal(object)
+    theme_selected = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent, width=Sizes.PANEL_W, height=Sizes.PANEL_H)
@@ -582,8 +582,8 @@ class DownloadableThemeBrowser(BaseThemeBrowser):
 
     import threading as _threading
 
-    download_started = pyqtSignal(str)        # item_id
-    download_finished = pyqtSignal(str, bool)  # item_id, success
+    download_started = Signal(str)        # item_id
+    download_finished = Signal(str, bool)  # item_id, success
 
     def __init__(self, parent=None):
         self._downloading = False

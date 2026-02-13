@@ -19,7 +19,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Backward-compat aliases (used directly in some tests)
 from trcc.cli import (
     DeviceCommands,
     DiagCommands,
@@ -27,6 +26,7 @@ from trcc.cli import (
     SystemCommands,
     _ensure_extracted,
     _format_device,
+    _get_service,
     _probe_device,
     detect,
     download_themes,
@@ -46,9 +46,33 @@ from trcc.cli import (
     show_info,
     uninstall,
 )
-
-# Alias to avoid pytest collecting it as a test function
 from trcc.cli import test_display as cli_test_display
+from trcc.core.models import DeviceInfo
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_device_info(
+    path='/dev/sg0', name='LCD', vid=0x87CD, pid=0x70DB,
+    protocol='scsi', resolution=(320, 320), **kw,
+) -> DeviceInfo:
+    """Create a DeviceInfo for tests."""
+    return DeviceInfo(
+        name=name, path=path, vid=vid, pid=pid,
+        protocol=protocol, resolution=resolution, **kw,
+    )
+
+
+def _mock_service(device=None, devices=None):
+    """Create a mock DeviceService with optional pre-selected device."""
+    svc = MagicMock()
+    dev = device or _make_device_info()
+    svc.selected = dev
+    svc.devices = devices or [dev]
+    svc.detect.return_value = svc.devices
+    svc.send_pil.return_value = True
+    return svc
 
 
 class TestMainEntryPoint(unittest.TestCase):
@@ -63,9 +87,8 @@ class TestMainEntryPoint(unittest.TestCase):
     def test_version_flag(self):
         """--version prints version and exits."""
         with patch('sys.argv', ['trcc', '--version']):
-            with self.assertRaises(SystemExit) as cm:
-                main()
-            self.assertEqual(cm.exception.code, 0)
+            result = main()
+            self.assertEqual(result, 0)
 
     def test_detect_dispatches(self):
         """'detect' subcommand calls DeviceCommands.detect()."""
@@ -214,16 +237,11 @@ class TestSendColor(unittest.TestCase):
 
     def test_valid_hex_with_hash(self):
         """Hex with leading '#' is stripped."""
-        mock_driver = MagicMock()
-        mock_driver.create_solid_color.return_value = b'\x00' * 100
-        mock_mod = MagicMock()
-        mock_mod.LCDDriver.return_value = mock_driver
-
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-             patch('trcc.conf.get_selected_device', return_value='/dev/sg0'), \
-             patch.object(DeviceCommands, '_ensure_extracted'):
+        svc = _mock_service()
+        with patch.object(DeviceCommands, '_get_service', return_value=svc):
             result = send_color('#ff0000')
         self.assertEqual(result, 0)
+        svc.send_pil.assert_called_once()
 
 
 class TestShowInfo(unittest.TestCase):
@@ -334,27 +352,18 @@ class TestTestDisplay(unittest.TestCase):
 
     def test_display_success(self):
         """Cycles through colors and returns 0."""
-        mock_driver = MagicMock()
-        mock_driver.device_path = '/dev/sg0'
-        mock_driver.create_solid_color.return_value = b'\x00' * 100
-        mock_lcd = MagicMock()
-        mock_lcd.LCDDriver.return_value = mock_driver
-
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_lcd}), \
-             patch('trcc.conf.get_selected_device', return_value='/dev/sg0'), \
-             patch.object(DeviceCommands, '_ensure_extracted'), \
+        svc = _mock_service()
+        with patch.object(DeviceCommands, '_get_service', return_value=svc), \
              patch('time.sleep'):
             result = cli_test_display(device='/dev/sg0', loop=False)
         self.assertEqual(result, 0)
         # 7 colors displayed
-        self.assertEqual(mock_driver.send_frame.call_count, 7)
+        self.assertEqual(svc.send_pil.call_count, 7)
 
     def test_display_error(self):
         """Exception returns 1."""
-        mock_mod = MagicMock()
-        mock_mod.LCDDriver.side_effect = RuntimeError('no device')
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-             patch('trcc.conf.get_selected_device', return_value=None):
+        with patch.object(DeviceCommands, '_get_service',
+                          side_effect=RuntimeError('no device')):
             result = cli_test_display()
         self.assertEqual(result, 1)
 
@@ -369,22 +378,19 @@ class TestSendImage(unittest.TestCase):
         self.assertEqual(result, 1)
 
     def test_send_success(self):
-        mock_driver = MagicMock()
-        mock_driver.device_path = '/dev/sg0'
-        mock_driver.load_image.return_value = b'\x00'
-        mock_mod = MagicMock()
-        mock_mod.LCDDriver.return_value = mock_driver
-
+        svc = _mock_service()
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-            f.write(b'\x89PNG')
+            # Create a tiny valid PNG
+            from PIL import Image
+            img = Image.new('RGB', (10, 10), (255, 0, 0))
+            img.save(f, format='PNG')
             tmp_path = f.name
 
         try:
-            with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-                 patch('trcc.conf.get_selected_device', return_value='/dev/sg0'), \
-                 patch.object(DeviceCommands, '_ensure_extracted'):
+            with patch.object(DeviceCommands, '_get_service', return_value=svc):
                 result = send_image(tmp_path)
             self.assertEqual(result, 0)
+            svc.send_pil.assert_called_once()
         finally:
             os.unlink(tmp_path)
 
@@ -395,24 +401,15 @@ class TestResetDevice(unittest.TestCase):
     """Test reset_device() command."""
 
     def test_reset_success(self):
-        mock_driver = MagicMock()
-        mock_driver.device_path = '/dev/sg0'
-        mock_driver.create_solid_color.return_value = b'\x00'
-        mock_mod = MagicMock()
-        mock_mod.LCDDriver.return_value = mock_driver
-
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-             patch('trcc.conf.get_selected_device', return_value='/dev/sg0'), \
-             patch.object(DeviceCommands, '_ensure_extracted'):
+        svc = _mock_service()
+        with patch.object(DeviceCommands, '_get_service', return_value=svc):
             result = reset_device()
         self.assertEqual(result, 0)
-        mock_driver.send_frame.assert_called_once()
+        svc.send_pil.assert_called_once()
 
     def test_reset_error(self):
-        mock_mod = MagicMock()
-        mock_mod.LCDDriver.side_effect = RuntimeError('fail')
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-             patch('trcc.conf.get_selected_device', return_value=None):
+        with patch.object(DeviceCommands, '_get_service',
+                          side_effect=RuntimeError('fail')):
             result = reset_device()
         self.assertEqual(result, 1)
 
@@ -482,7 +479,7 @@ class TestEnsureExtracted(unittest.TestCase):
 class TestGuiExtra(unittest.TestCase):
 
     def test_gui_import_error(self):
-        """PyQt6 not importable -> returns 1."""
+        """PySide6 not importable -> returns 1."""
         with patch.dict('sys.modules', {
             'trcc.qt_components.qt_app_mvc': None,
         }):
@@ -606,13 +603,9 @@ class TestDownloadExtra(unittest.TestCase):
 class TestTestDisplayExtra(unittest.TestCase):
 
     def test_keyboard_interrupt(self):
-        mock_mod = MagicMock()
-        mock_driver = MagicMock()
-        mock_mod.LCDDriver.return_value = mock_driver
-        mock_mod.LCDDriver.return_value.send_image.side_effect = KeyboardInterrupt
-
-        with patch.dict('sys.modules', {'trcc.driver_lcd': mock_mod}), \
-             patch('trcc.conf.get_selected_device', return_value='/dev/sg0'):
+        svc = _mock_service()
+        svc.send_pil.side_effect = KeyboardInterrupt
+        with patch.object(DeviceCommands, '_get_service', return_value=svc):
             result = cli_test_display()
         self.assertEqual(result, 0)
 
@@ -697,10 +690,10 @@ class TestSendImageEdge(unittest.TestCase):
 
 class TestSendColorEdge(unittest.TestCase):
 
-    @patch('trcc.driver_lcd.LCDDriver', side_effect=RuntimeError("fail"))
-    @patch('trcc.conf.get_selected_device', return_value='/dev/sg0')
-    def test_exception_returns_1(self, _, __):
-        result = send_color('ff0000')
+    def test_exception_returns_1(self):
+        with patch.object(DeviceCommands, '_get_service',
+                          side_effect=RuntimeError("fail")):
+            result = send_color('ff0000')
         self.assertEqual(result, 1)
 
 
@@ -797,26 +790,21 @@ class TestDownloadThemesEdge(unittest.TestCase):
 class TestResume(unittest.TestCase):
     """Test resume() command -- send last-used theme headlessly."""
 
-    def _make_device(self, path='/dev/sg0', name='LCD', vid=0x87CD, pid=0x70DB, protocol='scsi'):
-        dev = MagicMock()
-        dev.scsi_device = path
-        dev.product_name = name
-        dev.vid = vid
-        dev.pid = pid
-        dev.protocol = protocol
-        return dev
-
     def test_no_devices(self):
         """No devices after retries -> returns 1."""
-        with patch('trcc.device_detector.detect_devices', return_value=[]), \
+        svc = MagicMock()
+        svc.detect.return_value = []
+        with patch('trcc.services.DeviceService', return_value=svc), \
              patch('time.sleep'):
             result = resume()
         self.assertEqual(result, 1)
 
     def test_no_saved_theme(self):
         """Device with no saved theme -> returns 1."""
-        dev = self._make_device()
-        with patch('trcc.device_detector.detect_devices', return_value=[dev]), \
+        dev = _make_device_info()
+        svc = MagicMock()
+        svc.detect.return_value = [dev]
+        with patch('trcc.services.DeviceService', return_value=svc), \
              patch('trcc.conf.device_config_key', return_value='0:87cd_70db'), \
              patch('trcc.conf.get_device_config', return_value={}):
             result = resume()
@@ -828,26 +816,25 @@ class TestResume(unittest.TestCase):
             # Create a theme dir with 00.png
             theme_dir = os.path.join(tmp, 'Theme1')
             os.makedirs(theme_dir)
-            # Create a small valid image
             from PIL import Image
             img = Image.new('RGB', (10, 10), color=(255, 0, 0))
             img.save(os.path.join(theme_dir, '00.png'))
 
-            dev = self._make_device()
-            mock_driver = MagicMock()
-            mock_driver.implementation.resolution = (320, 320)
+            dev = _make_device_info()
+            svc = MagicMock()
+            svc.detect.return_value = [dev]
+            svc.send_pil.return_value = True
 
-            with patch('trcc.device_detector.detect_devices', return_value=[dev]), \
+            with patch('trcc.services.DeviceService', return_value=svc), \
                  patch('trcc.conf.device_config_key', return_value='0:87cd_70db'), \
                  patch('trcc.conf.get_device_config', return_value={
                      'theme_path': theme_dir,
                      'brightness_level': 3,
                      'rotation': 0,
-                 }), \
-                 patch('trcc.driver_lcd.LCDDriver', return_value=mock_driver):
+                 }):
                 result = resume()
             self.assertEqual(result, 0)
-            mock_driver.send_frame.assert_called_once()
+            svc.send_pil.assert_called_once()
 
     def test_applies_brightness_and_rotation(self):
         """Resume applies brightness L1 (25%) and rotation 90."""
@@ -858,32 +845,36 @@ class TestResume(unittest.TestCase):
             img = Image.new('RGB', (10, 10), color=(0, 255, 0))
             img.save(os.path.join(theme_dir, '00.png'))
 
-            dev = self._make_device()
-            mock_driver = MagicMock()
-            mock_driver.implementation.resolution = (320, 320)
+            dev = _make_device_info()
+            svc = MagicMock()
+            svc.detect.return_value = [dev]
+            svc.send_pil.return_value = True
 
-            with patch('trcc.device_detector.detect_devices', return_value=[dev]), \
+            with patch('trcc.services.DeviceService', return_value=svc), \
                  patch('trcc.conf.device_config_key', return_value='0:87cd_70db'), \
                  patch('trcc.conf.get_device_config', return_value={
                      'theme_path': theme_dir,
                      'brightness_level': 1,
                      'rotation': 90,
-                 }), \
-                 patch('trcc.driver_lcd.LCDDriver', return_value=mock_driver):
+                 }):
                 result = resume()
             self.assertEqual(result, 0)
 
     def test_skips_hid_devices(self):
         """HID devices are skipped, only SCSI resumed."""
-        hid_dev = self._make_device('/dev/hidraw0', 'LED', protocol='hid')
-        with patch('trcc.device_detector.detect_devices', return_value=[hid_dev]):
+        hid_dev = _make_device_info(path='hid:0416:8001', name='LED', protocol='hid')
+        svc = MagicMock()
+        svc.detect.return_value = [hid_dev]
+        with patch('trcc.services.DeviceService', return_value=svc):
             result = resume()
         self.assertEqual(result, 1)
 
     def test_theme_path_not_found(self):
         """Theme path doesn't exist on disk -> skipped."""
-        dev = self._make_device()
-        with patch('trcc.device_detector.detect_devices', return_value=[dev]), \
+        dev = _make_device_info()
+        svc = MagicMock()
+        svc.detect.return_value = [dev]
+        with patch('trcc.services.DeviceService', return_value=svc), \
              patch('trcc.conf.device_config_key', return_value='0:87cd_70db'), \
              patch('trcc.conf.get_device_config', return_value={
                  'theme_path': '/nonexistent/theme/dir',
@@ -893,7 +884,7 @@ class TestResume(unittest.TestCase):
 
     def test_exception_returns_1(self):
         """Top-level exception -> returns 1."""
-        with patch('trcc.device_detector.detect_devices',
+        with patch('trcc.services.DeviceService',
                    side_effect=RuntimeError('fail')):
             result = resume()
         self.assertEqual(result, 1)
@@ -1115,6 +1106,23 @@ class TestProbeDevice(unittest.TestCase):
             result = _probe_device(dev)
         self.assertEqual(result, {})
 
+    def test_bulk_probe_success(self):
+        """Probe resolves bulk device info via BulkProtocol."""
+        mock_hs = MagicMock()
+        mock_hs.resolution = (480, 480)
+        mock_hs.model_id = 50
+        mock_protocol = MagicMock()
+        mock_protocol.handshake.return_value = mock_hs
+        dev = self._make_dev(
+            vid=0x87AD, pid=0x70DB, implementation="bulk_usblcdnew",
+            protocol="bulk", device_type=4,
+        )
+        with patch('trcc.device_factory.BulkProtocol', return_value=mock_protocol):
+            result = _probe_device(dev)
+        self.assertEqual(result['resolution'], (480, 480))
+        self.assertEqual(result['pm'], 50)
+        mock_protocol.close.assert_called_once()
+
 
 class TestFormatDevice(unittest.TestCase):
     """Tests for _format_device() helper."""
@@ -1272,42 +1280,53 @@ class TestHidDebug(unittest.TestCase):
 class TestLedDiag(unittest.TestCase):
     """Tests for led_diag() command."""
 
-    @patch('trcc.device_hid.PYUSB_AVAILABLE', False)
-    @patch('trcc.device_hid.HIDAPI_AVAILABLE', False)
-    def test_no_backend(self):
-        result = led_diag()
-        self.assertEqual(result, 1)
-
     def test_exception_returns_1(self):
-        with patch('trcc.device_hid.PYUSB_AVAILABLE', side_effect=Exception("fail")):
+        with patch('trcc.device_factory.LedProtocol',
+                   side_effect=Exception("fail")):
             result = led_diag()
         self.assertEqual(result, 1)
 
     def test_handshake_success(self):
         """Successful LED handshake prints device info."""
-        mock_transport = MagicMock()
-        mock_info = MagicMock()
-        mock_info.pm = 3
-        mock_info.sub_type = 0
-        mock_info.model_name = "AX120_DIGITAL"
-        mock_info.style = MagicMock(style_id=1, led_count=30, segment_count=10, zone_count=1)
-        mock_sender = MagicMock()
-        mock_sender.handshake.return_value = mock_info
-        with patch('trcc.device_factory.create_usb_transport', return_value=mock_transport), \
-             patch('trcc.device_led.LedHidSender', return_value=mock_sender):
+        from trcc.device_led import LedDeviceStyle, LedHandshakeInfo
+        style = LedDeviceStyle(1, 30, 10, 1, "AX120_DIGITAL")
+        info = LedHandshakeInfo(
+            pm=3, sub_type=0, style=style,
+            model_name="AX120_DIGITAL", raw_response=bytes(64),
+        )
+        mock_protocol = MagicMock()
+        mock_protocol.handshake.return_value = info
+        with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol):
             result = led_diag(test=False)
         self.assertEqual(result, 0)
-        mock_transport.open.assert_called_once()
-        mock_transport.close.assert_called_once()
+        mock_protocol.close.assert_called_once()
 
-    def test_handshake_runtime_error(self):
-        mock_transport = MagicMock()
-        mock_sender = MagicMock()
-        mock_sender.handshake.side_effect = RuntimeError("timeout")
-        with patch('trcc.device_factory.create_usb_transport', return_value=mock_transport), \
-             patch('trcc.device_led.LedHidSender', return_value=mock_sender):
+    def test_handshake_returns_none(self):
+        """Handshake returns None -> returns 1."""
+        mock_protocol = MagicMock()
+        mock_protocol.handshake.return_value = None
+        mock_protocol.last_error = RuntimeError("timeout")
+        with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol):
             result = led_diag(test=False)
         self.assertEqual(result, 1)
+        mock_protocol.close.assert_called_once()
+
+    def test_test_colors(self):
+        """test=True sends test colors via protocol.send_led_data."""
+        from trcc.device_led import LedDeviceStyle, LedHandshakeInfo
+        style = LedDeviceStyle(1, 30, 10, 1, "AX120_DIGITAL")
+        info = LedHandshakeInfo(
+            pm=3, sub_type=0, style=style,
+            model_name="AX120_DIGITAL", raw_response=bytes(64),
+        )
+        mock_protocol = MagicMock()
+        mock_protocol.handshake.return_value = info
+        with patch('trcc.device_factory.LedProtocol', return_value=mock_protocol), \
+             patch('time.sleep'):
+            result = led_diag(test=True)
+        self.assertEqual(result, 0)
+        # 4 colors + OFF = 5 send_led_data calls
+        self.assertEqual(mock_protocol.send_led_data.call_count, 5)
 
     def test_dispatch_led_diag(self):
         """main() dispatches 'led-diag' to DiagCommands.led_diag()."""
@@ -1411,6 +1430,48 @@ class TestReport(unittest.TestCase):
             result = main()
         self.assertEqual(result, 0)
         mock_fn.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _get_service
+# ---------------------------------------------------------------------------
+
+class TestGetService(unittest.TestCase):
+    """Tests for _get_service() helper."""
+
+    def test_selects_by_path(self):
+        """Explicit device_path selects matching device."""
+        dev = _make_device_info(path='/dev/sg1')
+        svc = MagicMock()
+        svc.devices = [dev]
+        svc.selected = None
+        svc.detect.return_value = [dev]
+        with patch('trcc.services.DeviceService', return_value=svc):
+            _get_service(device_path='/dev/sg1')
+        svc.select.assert_called_once_with(dev)
+
+    def test_falls_back_to_saved(self):
+        """No explicit path -> uses saved selection."""
+        dev = _make_device_info(path='/dev/sg0')
+        svc = MagicMock()
+        svc.devices = [dev]
+        svc.selected = None
+        svc.detect.return_value = [dev]
+        with patch('trcc.services.DeviceService', return_value=svc), \
+             patch('trcc.conf.get_selected_device', return_value='/dev/sg0'):
+            _get_service()
+        svc.select.assert_called_once_with(dev)
+
+    def test_no_match_selects_first(self):
+        """Explicit path not found -> selects first device."""
+        dev = _make_device_info(path='/dev/sg0')
+        svc = MagicMock()
+        svc.devices = [dev]
+        svc.selected = None
+        svc.detect.return_value = [dev]
+        with patch('trcc.services.DeviceService', return_value=svc):
+            _get_service(device_path='/dev/sg99')
+        svc.select.assert_called_once_with(dev)
 
 
 if __name__ == '__main__':

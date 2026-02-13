@@ -145,7 +145,7 @@ class DebugReport:
 
         sec = self._add("Dependencies")
         for import_name, pkg_name in [
-            ("PyQt6", "PyQt6"),
+            ("PySide6", "PySide6"),
             ("usb.core", "pyusb"),
             ("hid", "hidapi"),
         ]:

@@ -19,9 +19,9 @@ import shutil
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QIcon, QIntValidator, QPalette
-from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QIcon, QIntValidator, QPalette
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton
 
 from .assets import Assets, load_pixmap
 from .base import BasePanel, create_image_button
@@ -128,12 +128,12 @@ class UCAbout(BasePanel):
     CMD_LANGUAGE = 32
     CMD_CLOSE = 255
 
-    language_changed = pyqtSignal(str)       # lang suffix
-    close_requested = pyqtSignal()
-    temp_unit_changed = pyqtSignal(str)      # 'C' or 'F'
-    startup_changed = pyqtSignal(bool)       # auto-start enabled
-    hdd_toggle_changed = pyqtSignal(bool)    # HDD info enabled
-    refresh_changed = pyqtSignal(int)        # refresh interval (seconds)
+    language_changed = Signal(str)       # lang suffix
+    close_requested = Signal()
+    temp_unit_changed = Signal(str)      # 'C' or 'F'
+    startup_changed = Signal(bool)       # auto-start enabled
+    hdd_toggle_changed = Signal(bool)    # HDD info enabled
+    refresh_changed = Signal(int)        # refresh interval (seconds)
 
     def __init__(self, lang: str = 'en', parent=None):
         super().__init__(parent, width=Sizes.FORM_W, height=Sizes.FORM_H)

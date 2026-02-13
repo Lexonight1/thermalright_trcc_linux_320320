@@ -7,9 +7,9 @@ Matches Windows TRCC right-side Activity panel.
 
 import logging
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from ..system_info import get_all_metrics
 
@@ -80,7 +80,7 @@ SENSOR_TO_OVERLAY = {
 class SensorItem(QFrame):
     """Single sensor row — clickable to add to overlay."""
 
-    clicked = pyqtSignal(dict)  # sensor config for overlay
+    clicked = Signal(dict)  # sensor config for overlay
 
     def __init__(self, category, key_suffix, label, unit, metric_key, color, parent=None):
         super().__init__(parent)
@@ -166,7 +166,7 @@ class UCActivitySidebar(QWidget):
     Click a sensor to add it to the overlay grid.
     """
 
-    sensor_clicked = pyqtSignal(dict)  # overlay element config
+    sensor_clicked = Signal(dict)  # overlay element config
 
     def __init__(self, parent=None):
         super().__init__(parent)

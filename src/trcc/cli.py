@@ -2,7 +2,7 @@
 """
 TRCC Linux — Command Line Interface.
 
-Entry points for the trcc-linux package.
+Entry points for the trcc-linux package (Typer CLI).
 Organized into four command classes:
   DeviceCommands  — detection, selection, probing
   DisplayCommands — LCD frame operations (test, send, color, resume)
@@ -10,10 +10,259 @@ Organized into four command classes:
   SystemCommands  — setup, install, admin, info, download
 """
 
-import argparse
 import os
 import subprocess
 import sys
+from typing import Annotated, Optional
+
+import typer
+
+# =========================================================================
+# Typer app
+# =========================================================================
+
+app = typer.Typer(
+    help="Thermalright LCD Control Center for Linux",
+    add_completion=False,
+    pretty_exceptions_enable=False,
+)
+
+_verbose = 0
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        from trcc.__version__ import __version__
+        typer.echo(f"trcc {__version__}")
+        raise typer.Exit()
+
+
+@app.callback(invoke_without_command=True)
+def _main_callback(
+    ctx: typer.Context,
+    verbose: Annotated[int, typer.Option(
+        "--verbose", "-v", count=True,
+        help="Increase verbosity (-v, -vv, -vvv)",
+    )] = 0,
+    last_one: Annotated[bool, typer.Option(
+        "--last-one",
+        help="Start minimized to system tray with last-used theme (autostart)",
+    )] = False,
+    testing_hid: Annotated[bool, typer.Option(
+        "--testing-hid", hidden=True,
+        help="No-op (HID devices are now auto-detected)",
+    )] = False,
+    version: Annotated[Optional[bool], typer.Option(
+        "--version", callback=_version_callback, is_eager=True,
+        help="Show version and exit",
+    )] = None,
+) -> None:
+    global _verbose
+    _verbose = verbose
+    if last_one:
+        result = gui(verbose=verbose, start_hidden=True)
+        raise typer.Exit(result or 0)
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+
+
+# =========================================================================
+# Typer command functions (thin wrappers → class methods)
+# =========================================================================
+
+@app.command("gui")
+def _cmd_gui(
+    decorated: Annotated[bool, typer.Option(
+        "--decorated", "-d",
+        help="Use decorated window (normal window with titlebar, can minimize)",
+    )] = False,
+) -> int:
+    """Launch graphical interface."""
+    return gui(verbose=_verbose, decorated=decorated)
+
+
+@app.command("detect")
+def _cmd_detect(
+    all_devices: Annotated[bool, typer.Option(
+        "--all", "-a", help="Show all devices",
+    )] = False,
+) -> int:
+    """Detect LCD device."""
+    return DeviceCommands.detect(show_all=all_devices)
+
+
+@app.command("select")
+def _cmd_select(
+    number: Annotated[int, typer.Argument(help="Device number from 'trcc detect --all'")],
+) -> int:
+    """Select device to control."""
+    return DeviceCommands.select(number)
+
+
+@app.command("test")
+def _cmd_test(
+    device: Annotated[Optional[str], typer.Option(
+        "--device", "-d", help="Device path (e.g., /dev/sg0)",
+    )] = None,
+    loop: Annotated[bool, typer.Option(
+        "--loop", "-l", help="Loop colors continuously",
+    )] = False,
+) -> int:
+    """Test display with color cycle."""
+    return DisplayCommands.test(device=device, loop=loop)
+
+
+@app.command("send")
+def _cmd_send(
+    image: Annotated[str, typer.Argument(help="Image file to send")],
+    device: Annotated[Optional[str], typer.Option(
+        "--device", "-d", help="Device path",
+    )] = None,
+) -> int:
+    """Send image to LCD."""
+    return DisplayCommands.send_image(image, device=device)
+
+
+@app.command("color")
+def _cmd_color(
+    hex_color: Annotated[str, typer.Argument(
+        metavar="HEX", help="Hex color code (e.g., ff0000 for red)",
+    )],
+    device: Annotated[Optional[str], typer.Option(
+        "--device", "-d", help="Device path",
+    )] = None,
+) -> int:
+    """Display solid color."""
+    return DisplayCommands.send_color(hex_color, device=device)
+
+
+@app.command("info")
+def _cmd_info() -> int:
+    """Show system metrics."""
+    return SystemCommands.show_info()
+
+
+@app.command("reset")
+def _cmd_reset(
+    device: Annotated[Optional[str], typer.Option(
+        "--device", "-d", help="Device path (e.g., /dev/sg0)",
+    )] = None,
+) -> int:
+    """Reset/reinitialize LCD device."""
+    return DisplayCommands.reset(device=device)
+
+
+@app.command("setup-udev")
+def _cmd_setup_udev(
+    dry_run: Annotated[bool, typer.Option(
+        "--dry-run", help="Print rules without installing",
+    )] = False,
+) -> int:
+    """Install udev rules for LCD device access."""
+    return SystemCommands.setup_udev(dry_run=dry_run)
+
+
+@app.command("install-desktop")
+def _cmd_install_desktop() -> int:
+    """Install application menu entry and icon."""
+    return SystemCommands.install_desktop()
+
+
+@app.command("resume")
+def _cmd_resume() -> int:
+    """Send last-used theme to each detected device (headless)."""
+    return DisplayCommands.resume()
+
+
+@app.command("uninstall")
+def _cmd_uninstall() -> int:
+    """Remove all TRCC config, udev rules, and autostart files."""
+    return SystemCommands.uninstall()
+
+
+@app.command("hid-debug")
+def _cmd_hid_debug() -> int:
+    """HID handshake diagnostic (hex dump for bug reports)."""
+    return DiagCommands.hid_debug()
+
+
+@app.command("led-diag")
+def _cmd_led_diag(
+    test_colors: Annotated[bool, typer.Option(
+        "--test", help="Send test colors after handshake",
+    )] = False,
+) -> int:
+    """Diagnose LED device (handshake, PM byte)."""
+    return DiagCommands.led_diag(test=test_colors)
+
+
+@app.command("hr10-tempd")
+def _cmd_hr10_tempd(
+    brightness: Annotated[int, typer.Option(help="LED brightness 0-100")] = 100,
+    drive: Annotated[str, typer.Option(help="NVMe model substring to match")] = "9100",
+    unit: Annotated[str, typer.Option(help="Temperature unit: C or F")] = "C",
+) -> int:
+    """Display NVMe temperature on HR10 (daemon)."""
+    return DiagCommands.hr10_tempd(
+        brightness=brightness, drive=drive, unit=unit, verbose=_verbose)
+
+
+@app.command("report")
+def _cmd_report() -> int:
+    """Generate full diagnostic report for bug reports."""
+    return SystemCommands.report()
+
+
+@app.command("doctor")
+def _cmd_doctor() -> int:
+    """Check dependencies, libraries, and permissions."""
+    from trcc.doctor import run_doctor
+    return run_doctor()
+
+
+@app.command("download")
+def _cmd_download(
+    pack: Annotated[Optional[str], typer.Argument(help="Theme pack name (e.g., themes-320)")] = None,
+    show_list: Annotated[bool, typer.Option("--list", "-l", help="List available packs")] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Force reinstall")] = False,
+    show_info: Annotated[bool, typer.Option("--info", "-i", help="Show pack info")] = False,
+) -> int:
+    """Download theme packs."""
+    return SystemCommands.download_themes(
+        pack=pack, show_list=show_list, force=force, show_info=show_info)
+
+
+@app.command("serve")
+def _cmd_serve(
+    host: Annotated[str, typer.Option(help="Bind address (use 0.0.0.0 for LAN)")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Listen port")] = 8080,
+    token: Annotated[Optional[str], typer.Option(help="API token for auth")] = None,
+) -> int:
+    """Start REST API server (requires trcc-linux[api])."""
+    try:
+        import uvicorn  # noqa: I001
+
+        from trcc.api import app as api_app, configure_auth
+        configure_auth(token)
+        uvicorn.run(api_app, host=host, port=port)
+        return 0
+    except ImportError:
+        print("REST API requires: pip install trcc-linux[api]")
+        return 1
+
+
+# =========================================================================
+# Main entry point
+# =========================================================================
+
+def main():
+    """Main CLI entry point (pyproject.toml console_scripts)."""
+    try:
+        result = app(standalone_mode=False)
+        return result if isinstance(result, int) else 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 0
+
 
 # =========================================================================
 # Sudo helpers (module-level — used by SystemCommands)
@@ -22,8 +271,13 @@ import sys
 def _sudo_reexec(subcommand):
     """Re-exec `trcc <subcommand>` as root via sudo with correct PYTHONPATH."""
     trcc_pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Include user site-packages so third-party deps (typer etc.) are available
+    # under sudo, which strips ~/.local/lib from sys.path.
+    import site
+    user_site = site.getusersitepackages()
+    pythonpath = f"{trcc_pkg}:{user_site}" if isinstance(user_site, str) else trcc_pkg
     cmd = [
-        "sudo", "env", f"PYTHONPATH={trcc_pkg}",
+        "sudo", "env", f"PYTHONPATH={pythonpath}",
         sys.executable, "-m", "trcc.cli", subcommand,
     ]
     print("Root required — requesting sudo...")
@@ -37,193 +291,8 @@ def _sudo_run(cmd):
 
 
 # =========================================================================
-# Main entry point + GUI launcher
+# GUI launcher
 # =========================================================================
-
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        prog="trcc",
-        description="Thermalright LCD Control Center for Linux",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    trcc detect           Show active device
-    trcc detect --all     List all devices
-    trcc select 2         Switch to device 2
-    trcc gui              Launch the GUI
-    trcc test             Test display with color cycle
-    trcc send image.png   Send image to LCD
-    trcc color ff0000     Display solid red color
-    trcc info             Show system metrics
-    trcc report           Generate diagnostic report for bug reports
-        """
-    )
-
-    from trcc.__version__ import __version__
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}"
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="count",
-        default=0,
-        help="Increase verbosity (-v, -vv, -vvv)"
-    )
-    parser.add_argument(
-        "--testing-hid",
-        action="store_true",
-        help="No-op (HID devices are now auto-detected when plugged in)"
-    )
-    parser.add_argument(
-        "--last-one",
-        action="store_true",
-        help="Start minimized to system tray with last-used theme (autostart)"
-    )
-
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    # GUI command
-    gui_parser = subparsers.add_parser("gui", help="Launch graphical interface")
-    gui_parser.add_argument(
-        "--decorated", "-d",
-        action="store_true",
-        help="Use decorated window (normal window with titlebar, can minimize)"
-    )
-
-    # Detect command
-    detect_parser = subparsers.add_parser("detect", help="Detect LCD device")
-    detect_parser.add_argument("--all", "-a", action="store_true", help="Show all devices")
-
-    # Select command
-    select_parser = subparsers.add_parser("select", help="Select device to control")
-    select_parser.add_argument("number", type=int, help="Device number from 'trcc detect --all'")
-
-    # Test command
-    test_parser = subparsers.add_parser("test", help="Test display with color cycle")
-    test_parser.add_argument("--device", "-d", help="Device path (e.g., /dev/sg0)")
-    test_parser.add_argument("--loop", "-l", action="store_true", help="Loop colors continuously")
-
-    # Send command
-    send_parser = subparsers.add_parser("send", help="Send image to LCD")
-    send_parser.add_argument("image", help="Image file to send")
-    send_parser.add_argument("--device", "-d", help="Device path")
-
-    # Color command
-    color_parser = subparsers.add_parser("color", help="Display solid color")
-    color_parser.add_argument("hex", help="Hex color code (e.g., ff0000 for red)")
-    color_parser.add_argument("--device", "-d", help="Device path")
-
-    # Info command
-    subparsers.add_parser("info", help="Show system metrics")
-
-    # Reset command
-    reset_parser = subparsers.add_parser("reset", help="Reset/reinitialize LCD device")
-    reset_parser.add_argument("--device", "-d", help="Device path (e.g., /dev/sg0)")
-
-    # Setup udev rules command
-    udev_parser = subparsers.add_parser("setup-udev", help="Install udev rules for LCD device access")
-    udev_parser.add_argument("--dry-run", action="store_true", help="Print rules without installing")
-
-    # Install desktop entry command
-    subparsers.add_parser("install-desktop", help="Install application menu entry and icon")
-
-    # Resume command
-    subparsers.add_parser("resume", help="Send last-used theme to each detected device (headless)")
-
-    # Uninstall command
-    subparsers.add_parser("uninstall", help="Remove all TRCC config, udev rules, and autostart files")
-
-    # HID debug command
-    subparsers.add_parser("hid-debug", help="HID handshake diagnostic (hex dump for bug reports)")
-
-    # LED diagnostic command
-    led_diag_parser = subparsers.add_parser("led-diag", help="Diagnose LED device (handshake, PM byte)")
-    led_diag_parser.add_argument("--test", action="store_true", help="Send test colors after handshake")
-
-    # HR10 temperature daemon
-    tempd_parser = subparsers.add_parser(
-        "hr10-tempd", help="Display NVMe temperature on HR10 (daemon)")
-    tempd_parser.add_argument(
-        "--brightness", type=int, default=100,
-        help="LED brightness 0-100 (default: 100)")
-    tempd_parser.add_argument(
-        "--drive", default="9100",
-        help="NVMe model substring to match (default: 9100)")
-    tempd_parser.add_argument(
-        "--unit", choices=["C", "F"], default="C",
-        help="Temperature unit: C or F (default: C)")
-
-    # Report command (one-liner diagnostic for bug reports)
-    subparsers.add_parser("report", help="Generate full diagnostic report for bug reports")
-
-    # Doctor command (dependency health check)
-    subparsers.add_parser("doctor", help="Check dependencies, libraries, and permissions")
-
-    # Download command (like spacy download)
-    download_parser = subparsers.add_parser("download", help="Download theme packs")
-    download_parser.add_argument("pack", nargs="?", help="Theme pack name (e.g., themes-320)")
-    download_parser.add_argument("--list", "-l", action="store_true", help="List available packs")
-    download_parser.add_argument("--force", "-f", action="store_true", help="Force reinstall")
-    download_parser.add_argument("--info", "-i", action="store_true", help="Show pack info")
-
-    args = parser.parse_args()
-
-    if args.last_one:
-        return gui(verbose=args.verbose, start_hidden=True)
-
-    if args.command is None:
-        parser.print_help()
-        return 0
-
-    # Dispatch to class methods
-    if args.command == "gui":
-        return gui(verbose=args.verbose, decorated=args.decorated)
-    elif args.command == "detect":
-        return DeviceCommands.detect(show_all=args.all)
-    elif args.command == "select":
-        return DeviceCommands.select(args.number)
-    elif args.command == "test":
-        return DisplayCommands.test(device=args.device, loop=args.loop)
-    elif args.command == "send":
-        return DisplayCommands.send_image(args.image, device=args.device)
-    elif args.command == "color":
-        return DisplayCommands.send_color(args.hex, device=args.device)
-    elif args.command == "info":
-        return SystemCommands.show_info()
-    elif args.command == "reset":
-        return DisplayCommands.reset(device=args.device)
-    elif args.command == "setup-udev":
-        return SystemCommands.setup_udev(dry_run=args.dry_run)
-    elif args.command == "install-desktop":
-        return SystemCommands.install_desktop()
-    elif args.command == "resume":
-        return DisplayCommands.resume()
-    elif args.command == "uninstall":
-        return SystemCommands.uninstall()
-    elif args.command == "hid-debug":
-        return DiagCommands.hid_debug()
-    elif args.command == "led-diag":
-        return DiagCommands.led_diag(test=args.test)
-    elif args.command == "hr10-tempd":
-        return DiagCommands.hr10_tempd(
-            brightness=args.brightness,
-            drive=args.drive, unit=args.unit,
-            verbose=args.verbose)
-    elif args.command == "report":
-        return SystemCommands.report()
-    elif args.command == "download":
-        return SystemCommands.download_themes(
-            pack=args.pack, show_list=args.list,
-            force=args.force, show_info=args.info)
-    elif args.command == "doctor":
-        from trcc.doctor import run_doctor
-        return run_doctor()
-
-    return 0
-
 
 def gui(verbose=0, decorated=False, start_hidden=False):
     """Launch the GUI application.
@@ -249,8 +318,8 @@ def gui(verbose=0, decorated=False, start_hidden=False):
         print("[TRCC] Starting LCD Control Center...")
         return run_mvc_app(decorated=decorated, start_hidden=start_hidden)
     except ImportError as e:
-        print(f"Error: PyQt6 not available: {e}")
-        print("Install with: pip install PyQt6")
+        print(f"Error: PySide6 not available: {e}")
+        print("Install with: pip install PySide6")
         return 1
     except Exception as e:
         print(f"Error launching GUI: {e}")
@@ -265,6 +334,39 @@ def gui(verbose=0, decorated=False, start_hidden=False):
 
 class DeviceCommands:
     """Device detection, selection, and probing commands."""
+
+    @staticmethod
+    def _get_service(device_path: Optional[str] = None):
+        """Create a DeviceService, detect devices, and select by path.
+
+        Args:
+            device_path: SCSI path (/dev/sgX) or None to use saved selection.
+
+        Returns:
+            DeviceService with a selected device.
+        """
+        from trcc.services import DeviceService
+
+        svc = DeviceService()
+        svc.detect()
+
+        if device_path:
+            # Select by explicit path
+            match = next((d for d in svc.devices if d.path == device_path), None)
+            if match:
+                svc.select(match)
+            elif svc.devices:
+                svc.select(svc.devices[0])
+        elif not svc.selected:
+            # Fall back to saved selection
+            from trcc.conf import get_selected_device
+            saved = get_selected_device()
+            if saved:
+                match = next((d for d in svc.devices if d.path == saved), None)
+                if match:
+                    svc.select(match)
+
+        return svc
 
     @staticmethod
     def _ensure_extracted(driver):
@@ -329,16 +431,16 @@ class DeviceCommands:
             except Exception:
                 pass
 
-        # Bulk USB devices: probe via bulk_device handshake
+        # Bulk USB devices: probe via BulkProtocol
         elif dev.implementation == 'bulk_usblcdnew':
             try:
-                from trcc.device_bulk import BulkDevice
-                bd = BulkDevice(dev.vid, dev.pid)
-                hs = bd.handshake()
-                if hs.resolution:
+                from trcc.device_factory import BulkProtocol
+                bp = BulkProtocol(dev.vid, dev.pid)
+                hs = bp.handshake()
+                if hs and hs.resolution:
                     result['resolution'] = hs.resolution
                     result['pm'] = hs.model_id
-                bd.close()
+                bp.close()
             except Exception:
                 pass
 
@@ -460,7 +562,15 @@ class DisplayCommands:
         try:
             import time
 
-            driver = DeviceCommands._get_driver(device)
+            from trcc.services import ImageService
+
+            svc = DeviceCommands._get_service(device)
+            if not svc.selected:
+                print("No device found.")
+                return 1
+
+            dev = svc.selected
+            w, h = dev.resolution
 
             colors = [
                 ((255, 0, 0), "Red"),
@@ -472,13 +582,13 @@ class DisplayCommands:
                 ((255, 255, 255), "White"),
             ]
 
-            print(f"Testing display on {driver.device_path}...")
+            print(f"Testing display on {dev.path}...")
 
             while True:
-                for color, name in colors:
+                for (r, g, b), name in colors:
                     print(f"  Displaying: {name}")
-                    frame = driver.create_solid_color(*color)
-                    driver.send_frame(frame)
+                    img = ImageService.solid_color(r, g, b, w, h)
+                    svc.send_pil(img, w, h)
                     time.sleep(1)
 
                 if not loop:
@@ -501,10 +611,21 @@ class DisplayCommands:
                 print(f"Error: File not found: {image_path}")
                 return 1
 
-            driver = DeviceCommands._get_driver(device)
-            frame = driver.load_image(image_path)
-            driver.send_frame(frame)
-            print(f"Sent {image_path} to {driver.device_path}")
+            from PIL import Image
+
+            from trcc.services import ImageService
+
+            svc = DeviceCommands._get_service(device)
+            if not svc.selected:
+                print("No device found.")
+                return 1
+
+            dev = svc.selected
+            w, h = dev.resolution
+            img = Image.open(image_path).convert('RGB')
+            img = ImageService.resize(img, w, h)
+            svc.send_pil(img, w, h)
+            print(f"Sent {image_path} to {dev.path}")
             return 0
         except Exception as e:
             print(f"Error sending image: {e}")
@@ -523,10 +644,18 @@ class DisplayCommands:
             g = int(hex_color[2:4], 16)
             b = int(hex_color[4:6], 16)
 
-            driver = DeviceCommands._get_driver(device)
-            frame = driver.create_solid_color(r, g, b)
-            driver.send_frame(frame)
-            print(f"Sent color #{hex_color} to {driver.device_path}")
+            from trcc.services import ImageService
+
+            svc = DeviceCommands._get_service(device)
+            if not svc.selected:
+                print("No device found.")
+                return 1
+
+            dev = svc.selected
+            w, h = dev.resolution
+            img = ImageService.solid_color(r, g, b, w, h)
+            svc.send_pil(img, w, h)
+            print(f"Sent color #{hex_color} to {dev.path}")
             return 0
         except Exception as e:
             print(f"Error sending color: {e}")
@@ -536,14 +665,21 @@ class DisplayCommands:
     def reset(device=None):
         """Reset/reinitialize the LCD device."""
         try:
-            print("Resetting LCD device...")
-            driver = DeviceCommands._get_driver(device)
-            print(f"  Device: {driver.device_path}")
+            from trcc.services import ImageService
 
-            # Send test frame (red) - this will auto-init if needed
-            frame = driver.create_solid_color(255, 0, 0)
-            driver.send_frame(frame, force_init=True)
-            print("[✓] Device reset - displaying RED")
+            print("Resetting LCD device...")
+            svc = DeviceCommands._get_service(device)
+            if not svc.selected:
+                print("No device found.")
+                return 1
+
+            dev = svc.selected
+            w, h = dev.resolution
+            print(f"  Device: {dev.path}")
+
+            img = ImageService.solid_color(255, 0, 0, w, h)
+            svc.send_pil(img, w, h)
+            print("[OK] Device reset - displaying RED")
             return 0
         except Exception as e:
             print(f"Error resetting device: {e}")
@@ -556,13 +692,14 @@ class DisplayCommands:
             import time
 
             from trcc.conf import device_config_key, get_device_config
-            from trcc.device_detector import detect_devices
-            from trcc.driver_lcd import LCDDriver
+            from trcc.services import DeviceService, ImageService
+
+            svc = DeviceService()
 
             # Wait for USB devices to appear (they may not be ready at boot)
-            devices = []
+            devices: list = []
             for attempt in range(10):
-                devices = detect_devices()
+                devices = svc.detect()
                 if devices:
                     break
                 print(f"Waiting for device... ({attempt + 1}/10)")
@@ -573,16 +710,16 @@ class DisplayCommands:
                 return 1
 
             sent = 0
-            for i, dev in enumerate(devices):
+            for dev in devices:
                 if dev.protocol != "scsi":
                     continue
 
-                key = device_config_key(i, dev.vid, dev.pid)
+                key = device_config_key(dev.device_index, dev.vid, dev.pid)
                 cfg = get_device_config(key)
                 theme_path = cfg.get("theme_path")
 
                 if not theme_path:
-                    print(f"  [{dev.product_name}] No saved theme, skipping")
+                    print(f"  [{dev.product}] No saved theme, skipping")
                     continue
 
                 # Find the image to send (00.png in theme dir, or direct file)
@@ -595,36 +732,32 @@ class DisplayCommands:
                     image_path = theme_path
 
                 if not image_path:
-                    print(f"  [{dev.product_name}] Theme not found: {theme_path}")
+                    print(f"  [{dev.product}] Theme not found: {theme_path}")
                     continue
 
                 try:
-                    from PIL import Image, ImageEnhance
+                    from PIL import Image
 
-                    driver = LCDDriver(device_path=dev.scsi_device)
-                    if not driver.implementation:
-                        continue
-                    w, h = driver.implementation.resolution
-
-                    img = Image.open(image_path).convert("RGB").resize((w, h))
+                    img = Image.open(image_path).convert("RGB")
+                    w, h = dev.resolution
+                    img = ImageService.resize(img, w, h)
 
                     # Apply brightness
                     brightness_level = cfg.get("brightness_level", 3)
                     brightness_pct = {1: 25, 2: 50, 3: 100}.get(brightness_level, 100)
-                    if brightness_pct < 100:
-                        img = ImageEnhance.Brightness(img).enhance(brightness_pct / 100.0)
+                    img = ImageService.apply_brightness(img, brightness_pct)
 
-                    # Apply rotation + convert to RGB565
-                    from trcc.core.controllers import apply_rotation, image_to_rgb565
+                    # Apply rotation
                     rotation = cfg.get("rotation", 0)
-                    img = apply_rotation(img, rotation)
-                    frame = image_to_rgb565(img)
+                    img = ImageService.apply_rotation(img, rotation)
 
-                    driver.send_frame(frame)
-                    print(f"  [{dev.product_name}] Sent: {os.path.basename(theme_path)}")
+                    # Send via service (auto byte-order)
+                    svc.select(dev)
+                    svc.send_pil(img, w, h)
+                    print(f"  [{dev.product}] Sent: {os.path.basename(theme_path)}")
                     sent += 1
                 except Exception as e:
-                    print(f"  [{dev.product_name}] Error: {e}")
+                    print(f"  [{dev.product}] Error: {e}")
 
             if sent == 0:
                 print("No themes were sent. Use the GUI to set a theme first.")
@@ -822,43 +955,35 @@ class DiagCommands:
         try:
             import time
 
-            from trcc.device_factory import create_usb_transport
+            from trcc.device_factory import LedProtocol
             from trcc.device_led import (
                 LED_PID,
                 LED_VID,
                 PM_TO_STYLE,
-                LedHidSender,
-                LedPacketBuilder,
+                LedHandshakeInfo,
             )
 
             print("LED Device Diagnostic")
             print("=" * 50)
             print(f"  Target: VID=0x{LED_VID:04x} PID=0x{LED_PID:04x}")
 
-            try:
-                transport = create_usb_transport(LED_VID, LED_PID)
-            except ImportError as e:
-                print(f"Error: {e}")
+            protocol = LedProtocol(vid=LED_VID, pid=LED_PID)
+            info = protocol.handshake()
+
+            if info is None:
+                error = protocol.last_error
+                print(f"\nHandshake failed: {error or 'no response'}")
+                protocol.close()
                 return 1
 
-            transport.open()
-            print("  Transport: opened")
-
-            sender = LedHidSender(transport)
-            try:
-                info = sender.handshake()
-            except RuntimeError as e:
-                print(f"\nHandshake failed: {e}")
-                transport.close()
-                return 1
-
+            assert isinstance(info, LedHandshakeInfo)
             print(f"\n  PM byte:    {info.pm}")
             print(f"  Sub-type:   {info.sub_type}")
             print(f"  Model:      {info.model_name}")
             style = info.style
             if style is None:
                 print("  Style:      (unknown — handshake returned no style)")
-                transport.close()
+                protocol.close()
                 return 1
             print(f"  Style ID:   {style.style_id}")
             print(f"  LED count:  {style.led_count}")
@@ -873,25 +998,18 @@ class DiagCommands:
                 print(f"  Add PM {info.pm} to led_device.py _PM_REGISTRY.")
 
             if test:
-                from .device_led import remap_led_colors
-
                 print("\n  Sending test colors...")
                 led_count = style.led_count
                 for name, color in [("RED", (255, 0, 0)), ("GREEN", (0, 255, 0)),
                                     ("BLUE", (0, 0, 255)), ("WHITE", (255, 255, 255))]:
-                    led_colors = remap_led_colors(
-                        [color] * led_count, style.style_id)
-                    packet = LedPacketBuilder.build_led_packet(led_colors, brightness=100)
-                    sender.send_led_data(packet)
+                    protocol.send_led_data([color] * led_count, brightness=100)
                     print(f"    {name}")
                     time.sleep(1.5)
-                led_colors = remap_led_colors(
-                    [(0, 0, 0)] * led_count, style.style_id)
-                packet = LedPacketBuilder.build_led_packet(led_colors, brightness=0)
-                sender.send_led_data(packet)
+                protocol.send_led_data(
+                    [(0, 0, 0)] * led_count, global_on=False, brightness=0)
                 print("    OFF")
 
-            transport.close()
+            protocol.close()
             print("\nDone.")
             return 0
 
@@ -1245,6 +1363,7 @@ _probe_device = DeviceCommands._probe
 _format_device = DeviceCommands._format
 _ensure_extracted = DeviceCommands._ensure_extracted
 _get_driver = DeviceCommands._get_driver
+_get_service = DeviceCommands._get_service
 send_image = DisplayCommands.send_image
 send_color = DisplayCommands.send_color
 reset_device = DisplayCommands.reset
@@ -1263,22 +1382,6 @@ _hid_debug_lcd = DiagCommands._hid_debug_lcd
 _hid_debug_led = DiagCommands._hid_debug_led
 
 
-def _get_settings_path():
-    """Deprecated — use conf.CONFIG_PATH instead."""
-    from trcc.conf import CONFIG_DIR
-    return os.path.join(CONFIG_DIR, 'settings.json')
-
-
-def _get_selected_device():
-    """Deprecated — use conf.get_selected_device() instead."""
-    from trcc.conf import get_selected_device
-    return get_selected_device()
-
-
-def _set_selected_device(device_path):
-    """Deprecated — use conf.save_selected_device() instead."""
-    from trcc.conf import save_selected_device
-    save_selected_device(device_path)
 
 
 if __name__ == "__main__":

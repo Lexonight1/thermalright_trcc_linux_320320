@@ -10,8 +10,8 @@ Matches Windows FormGetColor functionality:
 Uses the same grab_full_screen() utility as ScreenCaptureOverlay.
 """
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import (
     QColor,
     QFont,
     QPainter,
@@ -32,8 +32,8 @@ class EyedropperOverlay(BaseScreenOverlay):
         cancelled(): Emitted on ESC or right-click.
     """
 
-    color_picked = pyqtSignal(int, int, int)
-    cancelled = pyqtSignal()
+    color_picked = Signal(int, int, int)
+    cancelled = Signal()
 
     # Windows FormGetColor uses 12×12 capture area
     MAGNIFY_SIZE = 12

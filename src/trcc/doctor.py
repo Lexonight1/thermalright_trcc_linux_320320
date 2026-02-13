@@ -131,7 +131,7 @@ def _install_hint(dep: str, pm: str | None) -> str:
 def get_module_version(import_name: str) -> str | None:
     """Get version string for a Python module, or None if not installed.
 
-    Handles PyQt6 (version in QtCore), hidapi (tuple version), and
+    Handles PySide6 (version attribute), hidapi (tuple version), and
     standard __version__ / version attributes.
     """
     try:
@@ -139,11 +139,11 @@ def get_module_version(import_name: str) -> str | None:
         ver = getattr(mod, '__version__', getattr(mod, 'version', ''))
         if isinstance(ver, tuple):
             ver = '.'.join(str(x) for x in ver)
-        # PyQt6 stores version in PyQt6.QtCore.PYQT_VERSION_STR
-        if not ver and import_name == 'PyQt6':
+        # PySide6 stores version in PySide6.__version__
+        if not ver and import_name == 'PySide6':
             try:
-                from PyQt6.QtCore import PYQT_VERSION_STR
-                ver = PYQT_VERSION_STR
+                import PySide6
+                ver = PySide6.__version__
             except ImportError:
                 pass
         return str(ver) if ver else ''
@@ -205,13 +205,38 @@ def _check_library(
 
 
 def _check_udev_rules() -> bool:
-    """Check if TRCC udev rules are installed."""
+    """Check if TRCC udev rules are installed and cover known devices."""
     path = '/etc/udev/rules.d/99-trcc-lcd.rules'
-    if os.path.isfile(path):
+    if not os.path.isfile(path):
+        print(f"  {_MISS}  udev rules — run: trcc setup-udev")
+        return False
+
+    # File exists — verify it covers all known VIDs
+    try:
+        with open(path) as f:
+            content = f.read()
+
+        from trcc.device_detector import (
+            _BULK_DEVICES,
+            _HID_LCD_DEVICES,
+            _LED_DEVICES,
+            KNOWN_DEVICES,
+        )
+        all_devices = {**KNOWN_DEVICES, **_HID_LCD_DEVICES, **_LED_DEVICES, **_BULK_DEVICES}
+        all_vids = {f"{vid:04x}" for vid, _ in all_devices}
+        missing = [vid for vid in sorted(all_vids) if vid not in content]
+
+        if missing:
+            print(f"  {_MISS}  udev rules outdated — missing VID(s): {', '.join(missing)}")
+            print("         run: trcc setup-udev")
+            return False
+
         print(f"  {_OK}  udev rules ({path})")
         return True
-    print(f"  {_MISS}  udev rules — run: trcc setup-udev")
-    return False
+    except Exception:
+        # File exists but can't verify content — still OK
+        print(f"  {_OK}  udev rules ({path})")
+        return True
 
 
 # ── Main entry point ─────────────────────────────────────────────────────────
@@ -236,7 +261,7 @@ def run_doctor() -> int:
     # Python modules (required)
     print()
     for label, imp in [
-        ('PyQt6', 'PyQt6'),
+        ('PySide6', 'PySide6'),
         ('Pillow', 'PIL'),
         ('numpy', 'numpy'),
         ('psutil', 'psutil'),

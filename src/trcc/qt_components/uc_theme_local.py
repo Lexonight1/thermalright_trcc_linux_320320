@@ -15,9 +15,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton
 
 from ..core.models import LocalThemeItem
 from .assets import load_pixmap
@@ -28,8 +28,8 @@ from .constants import Layout, Styles
 class ThemeThumbnail(BaseThumbnail):
     """Local theme thumbnail with optional delete button and slideshow badge."""
 
-    delete_clicked = pyqtSignal(object)
-    slideshow_toggled = pyqtSignal(object)
+    delete_clicked = Signal(object)
+    slideshow_toggled = Signal(object)
 
     def __init__(self, item_info: LocalThemeItem, parent=None):
         self._slideshow_mode = False
@@ -116,8 +116,8 @@ class UCThemeLocal(BaseThemeBrowser):
     CMD_SLIDESHOW = 48
     CMD_DELETE = 32
 
-    slideshow_changed = pyqtSignal(bool, int, list)  # enabled, interval, theme_indices
-    delete_requested = pyqtSignal(object)  # LocalThemeItem
+    slideshow_changed = Signal(bool, int, list)  # enabled, interval, theme_indices
+    delete_requested = Signal(object)  # LocalThemeItem
 
     def __init__(self, parent=None):
         self.filter_mode = self.MODE_ALL

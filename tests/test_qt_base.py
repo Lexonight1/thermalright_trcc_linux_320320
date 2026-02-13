@@ -21,13 +21,13 @@ import unittest
 # Must set before ANY Qt import
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 # Create app once for all tests
 _app = QApplication.instance() or QApplication(sys.argv)
 
 from PIL import Image  # noqa: E402
-from PyQt6.QtGui import QPixmap  # noqa: E402
+from PySide6.QtGui import QPixmap  # noqa: E402
 
 from trcc.core.models import ThemeItem  # noqa: E402
 from trcc.qt_components.base import (  # noqa: E402
@@ -151,8 +151,8 @@ class TestImageLabel(unittest.TestCase):
         fired = []
         label.clicked.connect(lambda: fired.append(True))
         # Simulate click via mousePressEvent
-        from PyQt6.QtCore import QEvent, QPointF
-        from PyQt6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent
         event = QMouseEvent(
             QEvent.Type.MouseButtonPress,
             QPointF(50, 50),
@@ -172,8 +172,8 @@ class TestClickableFrame(unittest.TestCase):
         fired = []
         frame.clicked.connect(lambda: fired.append(True))
 
-        from PyQt6.QtCore import QEvent, QPointF
-        from PyQt6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent
         event = QMouseEvent(
             QEvent.Type.MouseButtonPress,
             QPointF(10, 10),
@@ -217,8 +217,8 @@ class TestBaseThumbnail(unittest.TestCase):
         received = []
         thumb.clicked.connect(lambda d: received.append(d))
 
-        from PyQt6.QtCore import QEvent, QPointF
-        from PyQt6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent
         event = QMouseEvent(
             QEvent.Type.MouseButtonPress,
             QPointF(60, 60),
@@ -236,7 +236,7 @@ class TestCreateImageButton(unittest.TestCase):
 
     def test_fallback_text(self):
         """When images don't exist, shows fallback text."""
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtWidgets import QWidget
         parent = QWidget()
         btn = create_image_button(
             parent, 10, 20, 80, 30,
@@ -248,7 +248,7 @@ class TestCreateImageButton(unittest.TestCase):
         self.assertEqual(btn.y(), 20)
 
     def test_checkable(self):
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtWidgets import QWidget
         parent = QWidget()
         btn = create_image_button(
             parent, 0, 0, 50, 50,
@@ -262,7 +262,7 @@ class TestSetBackgroundPixmap(unittest.TestCase):
 
     def test_fallback_style(self):
         """When asset doesn't exist, applies fallback stylesheet."""
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtWidgets import QWidget
         widget = QWidget()
         widget.setFixedSize(100, 100)
         result = set_background_pixmap(
@@ -273,7 +273,7 @@ class TestSetBackgroundPixmap(unittest.TestCase):
 
     def test_with_qpixmap_directly(self):
         """Passing QPixmap directly sets palette background."""
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtWidgets import QWidget
         widget = QWidget()
         widget.setFixedSize(50, 50)
         pix = QPixmap(50, 50)
@@ -284,7 +284,7 @@ class TestSetBackgroundPixmap(unittest.TestCase):
 
 
 # Import Qt here for the mouse event helper
-from PyQt6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 if __name__ == '__main__':
     unittest.main()

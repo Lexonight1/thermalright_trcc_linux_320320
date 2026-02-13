@@ -162,7 +162,7 @@ class TestDependenciesSection(unittest.TestCase):
         # At minimum, pyusb or hidapi status should appear
         self.assertIn("pyusb:", body)
         self.assertIn("hidapi:", body)
-        self.assertIn("PyQt6:", body)
+        self.assertIn("PySide6:", body)
 
 
 class TestDevicesSection(unittest.TestCase):

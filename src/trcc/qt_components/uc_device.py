@@ -5,9 +5,9 @@ Matches Windows TRCC.UCDevice (180x800)
 Shows connected LCD devices as clickable buttons.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 
 from ..device_scsi import find_lcd_devices
 from .assets import Assets, asset_exists, load_pixmap
@@ -127,7 +127,7 @@ class DeviceButton(QPushButton):
     Windows: FlatStyle button at (25, 160 + i*60), Size(140, 50).
     """
 
-    device_clicked = pyqtSignal(dict)
+    device_clicked = Signal(dict)
 
     def __init__(self, device_info, parent=None):
         super().__init__(parent)
@@ -220,9 +220,9 @@ class UCDevice(BasePanel):
     CMD_ABOUT = 240
     CMD_HOME = 512
 
-    device_selected = pyqtSignal(dict)
-    about_clicked = pyqtSignal()
-    home_clicked = pyqtSignal()
+    device_selected = Signal(dict)
+    about_clicked = Signal()
+    home_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent, width=Sizes.SIDEBAR_W, height=Sizes.SIDEBAR_H)

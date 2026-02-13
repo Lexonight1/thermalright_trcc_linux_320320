@@ -6,9 +6,9 @@ Contains the LCD preview with decorative frame.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QFrame, QLabel, QPushButton, QSlider, QVBoxLayout
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSlider, QVBoxLayout
 
 from .assets import Assets, load_pixmap
 from .base import BasePanel, ImageLabel, set_background_pixmap
@@ -49,7 +49,7 @@ class UCPreview(BasePanel):
     CMD_VIDEO_SEEK = 11
 
     # Signals
-    image_clicked = pyqtSignal(int, int)
+    image_clicked = Signal(int, int)
 
     def __init__(self, width=320, height=320, parent=None):
         super().__init__(parent, width=Sizes.PREVIEW_FRAME, height=Sizes.PREVIEW_PANEL_H)

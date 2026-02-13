@@ -11,9 +11,9 @@ panel row.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QIcon, QPalette
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QIcon, QPalette
+from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QPushButton,
@@ -50,7 +50,7 @@ VALUE_W = 100
 class SensorRow(QWidget):
     """Single sensor row in the picker list (22px tall)."""
 
-    clicked = pyqtSignal(str)  # sensor_id
+    clicked = Signal(str)  # sensor_id
 
     def __init__(self, sensor: SensorInfo, parent=None):
         super().__init__(parent)

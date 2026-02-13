@@ -10,8 +10,8 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 
 log = logging.getLogger(__name__)
 

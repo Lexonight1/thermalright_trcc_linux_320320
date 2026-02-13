@@ -15,18 +15,18 @@ import tempfile
 from io import BytesIO
 
 from PIL import Image as PILImage
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (
     QBrush,
     QColor,
     QPainter,
     QPalette,
     QPen,
 )
-from PyQt6.QtWidgets import QLabel, QProgressBar, QWidget
+from PySide6.QtWidgets import QLabel, QProgressBar, QWidget
 
-from trcc.core.controllers import apply_rotation
 from trcc.media_player import FFMPEG_AVAILABLE
+from trcc.services import ImageService
 
 from .assets import load_pixmap
 from .base import make_icon_button, pil_to_pixmap
@@ -84,9 +84,9 @@ def _format_time(ms):
 class ExportWorker(QThread):
     """Background thread for FFmpeg frame extraction + Theme.zt assembly."""
 
-    progress = pyqtSignal(int, str)  # percent, message
-    finished = pyqtSignal(str)       # output path (empty on error)
-    error = pyqtSignal(str)
+    progress = Signal(int, str)  # percent, message
+    finished = Signal(str)       # output path (empty on error)
+    error = Signal(str)
 
     def __init__(self, video_path, start_ms, end_ms, target_w, target_h,
                  rotation, width_fit):
@@ -206,7 +206,7 @@ class UCVideoCut(QWidget):
         video_cut_done(str): Emitted with Theme.zt path on export, or '' on cancel.
     """
 
-    video_cut_done = pyqtSignal(str)
+    video_cut_done = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -535,7 +535,7 @@ class UCVideoCut(QWidget):
             return
 
         # Apply rotation and scale to fit preview
-        img = apply_rotation(img, self._rotation)
+        img = ImageService.apply_rotation(img, self._rotation)
         w, h = img.size
         scale = min(PREVIEW_W / w, PREVIEW_H / h)
         new_w, new_h = int(w * scale), int(h * scale)

@@ -18,10 +18,10 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QRegularExpression as QRE
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QPalette, QRegularExpressionValidator
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QRegularExpression as QRE
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPalette, QRegularExpressionValidator
+from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
@@ -42,13 +42,8 @@ from ..conf import (
 )
 
 # Import MVC core
-from ..core import (
-    DeviceInfo,
-    PlaybackState,
-    ThemeInfo,
-    create_controller,
-)
-from ..core.controllers import LEDDeviceController
+from ..core.controllers import LEDDeviceController, create_controller
+from ..core.models import DeviceInfo, PlaybackState, ThemeInfo
 from ..dc_writer import CarouselConfig, read_carousel_config, write_carousel_config
 from ..device_scsi import find_lcd_devices
 from ..sensor_enumerator import SensorEnumerator
@@ -121,7 +116,7 @@ class TRCCMainWindowMVC(QMainWindow):
     """
 
     # Signal emitted from background handshake thread → main thread
-    _handshake_done = pyqtSignal(object, object)  # (DeviceInfo, resolution tuple or None)
+    _handshake_done = Signal(object, object)  # (DeviceInfo, resolution tuple or None)
 
     _instance: 'TRCCMainWindowMVC | None' = None
 
@@ -1457,7 +1452,7 @@ class TRCCMainWindowMVC(QMainWindow):
 
     def _on_delete_theme(self, theme_info):
         """Handle theme delete request — show confirmation, delete directory."""
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
         name = theme_info.name
         reply = QMessageBox.question(
             self, "Delete Theme",
@@ -1700,19 +1695,9 @@ class TRCCMainWindowMVC(QMainWindow):
             self._led_controller = LEDDeviceController()
             self._connect_led_signals()
 
-        from ..device_led import LED_STYLES
-        led_style = 1
-
-        # Resolve LED style from model name.
-        # The model was already identified by probe_led_model() during
-        # device detection, so we match by model name instead of doing
-        # another handshake (which would timeout since firmware already
-        # responded to the detection probe).
+        from ..services.led import LEDService
         model = device.model or ''
-        for style_id, style in LED_STYLES.items():
-            if style.model_name == model:
-                led_style = style_id
-                break
+        led_style = LEDService.resolve_style_id(model)
 
         # Initialize controller for this device
         self._led_controller.initialize(device, led_style)
@@ -1720,13 +1705,13 @@ class TRCCMainWindowMVC(QMainWindow):
         self._led_sensor_counter = 0
 
         # All LED devices use the unified UCLedControl panel
-        style = LED_STYLES.get(led_style)
-        if style:
+        style_info = LEDService.get_style_info(led_style)
+        if style_info:
             self.uc_led_control.initialize(
-                led_style, style.segment_count, style.zone_count, self._lang
+                led_style, style_info.segment_count, style_info.zone_count, self._lang
             )
         # Sync saved sensor source to UI
-        source = self._led_controller.led.model.state.temp_source
+        source = self._led_controller.led.state.temp_source
         self.uc_led_control.set_sensor_source(source)
 
         self._show_view('led')
@@ -1758,7 +1743,7 @@ class TRCCMainWindowMVC(QMainWindow):
         panel.global_toggled.connect(
             lambda on: ctrl.led.toggle_global(on))
         panel.segment_clicked.connect(
-            lambda idx: ctrl.led.toggle_segment(idx, not ctrl.led.model.state.segment_on[idx]))
+            lambda idx: ctrl.led.toggle_segment(idx, not ctrl.led.state.segment_on[idx]))
 
         # Zone selection
         panel.zone_selected.connect(self._on_zone_selected)
@@ -1790,10 +1775,10 @@ class TRCCMainWindowMVC(QMainWindow):
         if not ctrl:
             return
         panel = self.uc_led_control
-        if panel.sync_all and ctrl.led.model.state.zones:
-            for i in range(len(ctrl.led.model.state.zones)):
+        if panel.sync_all and ctrl.led.state.zones:
+            for i in range(len(ctrl.led.state.zones)):
                 ctrl.led.set_zone_mode(i, mode)
-        elif ctrl.led.model.state.zones:
+        elif ctrl.led.state.zones:
             ctrl.led.set_zone_mode(panel.selected_zone, mode)
         else:
             ctrl.led.set_mode(mode)
@@ -1804,10 +1789,10 @@ class TRCCMainWindowMVC(QMainWindow):
         if not ctrl:
             return
         panel = self.uc_led_control
-        if panel.sync_all and ctrl.led.model.state.zones:
-            for i in range(len(ctrl.led.model.state.zones)):
+        if panel.sync_all and ctrl.led.state.zones:
+            for i in range(len(ctrl.led.state.zones)):
                 ctrl.led.set_zone_color(i, r, g, b)
-        elif ctrl.led.model.state.zones:
+        elif ctrl.led.state.zones:
             ctrl.led.set_zone_color(panel.selected_zone, r, g, b)
         else:
             ctrl.led.set_color(r, g, b)
@@ -1818,10 +1803,10 @@ class TRCCMainWindowMVC(QMainWindow):
         if not ctrl:
             return
         panel = self.uc_led_control
-        if panel.sync_all and ctrl.led.model.state.zones:
-            for i in range(len(ctrl.led.model.state.zones)):
+        if panel.sync_all and ctrl.led.state.zones:
+            for i in range(len(ctrl.led.state.zones)):
                 ctrl.led.set_zone_brightness(i, val)
-        elif ctrl.led.model.state.zones:
+        elif ctrl.led.state.zones:
             ctrl.led.set_zone_brightness(panel.selected_zone, val)
         else:
             ctrl.led.set_brightness(val)
@@ -1829,9 +1814,9 @@ class TRCCMainWindowMVC(QMainWindow):
     def _on_zone_selected(self, zone_index):
         """Load zone state into panel when a zone is selected."""
         ctrl = self._led_controller
-        if not ctrl or not ctrl.led.model.state.zones:
+        if not ctrl or not ctrl.led.state.zones:
             return
-        zones = ctrl.led.model.state.zones
+        zones = ctrl.led.state.zones
         if 0 <= zone_index < len(zones):
             z = zones[zone_index]
             self.uc_led_control.load_zone_state(
@@ -1889,7 +1874,7 @@ class TRCCMainWindowMVC(QMainWindow):
         if style == 9:
             import datetime
             now = datetime.datetime.now()
-            state = self._led_controller.led.model.state
+            state = self._led_controller.led.state
             hour = now.hour
             if not state.is_timer_24h and hour > 12:
                 hour -= 12

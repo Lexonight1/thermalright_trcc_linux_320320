@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPalette
-from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPalette
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
 
 from ..sensor_enumerator import SensorEnumerator
 from ..sysinfo_config import (
@@ -73,10 +73,10 @@ class SystemInfoPanel(QWidget):
     Selector buttons (↓) open the sensor picker per row.
     """
 
-    clicked = pyqtSignal(object)                     # self
-    sensor_select_requested = pyqtSignal(object, int)  # (self, row_index)
-    delete_requested = pyqtSignal(object)              # self
-    name_changed = pyqtSignal(object, str)             # (self, new_name)
+    clicked = Signal(object)                     # self
+    sensor_select_requested = Signal(object, int)  # (self, row_index)
+    delete_requested = Signal(object)              # self
+    name_changed = Signal(object, str)             # (self, new_name)
 
     def __init__(self, config: PanelConfig, parent=None):
         super().__init__(parent)
@@ -231,7 +231,7 @@ class UCSystemInfo(QWidget):
     Matches 1274x800 content area (same as FormCZTV).
     """
 
-    panel_clicked = pyqtSignal(object)  # SystemInfoPanel
+    panel_clicked = Signal(object)  # SystemInfoPanel
 
     def __init__(self, enumerator: SensorEnumerator, lang: str = 'en', parent=None):
         super().__init__(parent)
@@ -443,7 +443,7 @@ class UCSystemInfo(QWidget):
 
     def _on_selector_clicked(self, panel: SystemInfoPanel, row: int):
         """Open sensor picker for a specific row."""
-        from PyQt6.QtWidgets import QDialog
+        from PySide6.QtWidgets import QDialog
 
         from .uc_sensor_picker import SensorPickerDialog
 

@@ -1,58 +1,27 @@
 """
-TRCC Core - MVC Architecture
+TRCC Core - Services + Controllers Architecture
 
-Models and Controllers that are GUI-framework independent.
-Views (Tkinter, PyQt6, etc.) import from here.
+Services: Pure Python business logic (no GUI dependencies)
+Controllers: Driving adapters that wrap services for GUI
+Models: Data classes only (ThemeInfo, DeviceInfo, VideoState, etc.)
 
-Architecture:
-- Models: Pure data classes, no GUI dependencies
-- Controllers: Business logic, coordinates models and views
-- Views: GUI-specific widgets (in components/ or qt_components/)
+Note: Controllers are NOT re-exported here to avoid circular imports
+(services → core.models → core.__init__ → controllers → services).
+Import controllers directly: `from trcc.core.controllers import ...`
 """
 
-from .controllers import (
-    DeviceController,
-    LCDDeviceController,
-    OverlayController,
-    ThemeController,
-    VideoController,
-    create_controller,
-)
 from .models import (
     DeviceInfo,
-    DeviceModel,
-    OverlayElement,
-    OverlayElementType,
-    OverlayModel,
     PlaybackState,
-    # Data classes
     ThemeInfo,
-    ThemeModel,
-    # Enums
     ThemeType,
-    VideoModel,
     VideoState,
 )
 
 __all__ = [
-    # Enums
     'ThemeType',
     'PlaybackState',
-    'OverlayElementType',
-    # Models
     'ThemeInfo',
-    'ThemeModel',
     'DeviceInfo',
-    'DeviceModel',
     'VideoState',
-    'VideoModel',
-    'OverlayElement',
-    'OverlayModel',
-    # Controllers
-    'ThemeController',
-    'DeviceController',
-    'VideoController',
-    'OverlayController',
-    'LCDDeviceController',
-    'create_controller',
 ]

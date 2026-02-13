@@ -314,6 +314,36 @@ trcc hr10-tempd --unit F                 # Fahrenheit
 
 ---
 
+### `trcc doctor`
+
+Check dependencies, libraries, and permissions. Useful for diagnosing installation issues.
+
+```bash
+trcc doctor
+```
+
+Reports status of: Python version, PySide6, PIL/Pillow, numpy, pyusb, sg_raw, udev rules, and device access permissions.
+
+---
+
+### `trcc serve`
+
+Start a REST API server for remote LCD control (requires `trcc-linux[api]` extras).
+
+```bash
+trcc serve                              # localhost:8080
+trcc serve --host 0.0.0.0 --port 9090  # LAN-accessible
+trcc serve --token mysecret             # require auth token
+```
+
+| Option | Description |
+|--------|-------------|
+| `--host` | Bind address (default: `127.0.0.1`, use `0.0.0.0` for LAN) |
+| `--port` | Listen port (default: `8080`) |
+| `--token` | API bearer token for authentication |
+
+---
+
 ### `trcc download`
 
 Download cloud theme packs.

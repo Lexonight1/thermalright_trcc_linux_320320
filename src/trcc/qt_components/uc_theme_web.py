@@ -17,8 +17,8 @@ import logging
 import subprocess
 from pathlib import Path
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QMovie
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QMovie
 
 from ..core.models import CloudThemeItem
 from .base import BaseThumbnail, DownloadableThemeBrowser

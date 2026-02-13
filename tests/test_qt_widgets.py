@@ -22,7 +22,7 @@ from unittest.mock import patch
 # Must set before ANY Qt import
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

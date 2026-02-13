@@ -11,9 +11,9 @@ Original implementation by Lcstyle (GitHub PR #9).
 
 from typing import Tuple
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+from PySide6.QtWidgets import QWidget
 
 # 7-segment encoding: each digit maps to which segments are ON.
 # Segment layout:

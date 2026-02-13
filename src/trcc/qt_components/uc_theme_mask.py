@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PySide6.QtCore import Signal
 
 from trcc.paths import is_safe_archive_member
 
@@ -53,7 +53,7 @@ class UCThemeMask(DownloadableThemeBrowser):
     CMD_MASK_SELECTED = 16
     CMD_DOWNLOAD = 100
 
-    mask_selected = pyqtSignal(object)
+    mask_selected = Signal(object)
 
     def __init__(self, parent=None):
         self.mask_directory = None

@@ -112,32 +112,28 @@ class TestDetectToSend(unittest.TestCase):
 # ── Pipeline: CLI send command ──────────────────────────────────────────────
 
 class TestCLISendPipeline(unittest.TestCase):
-    """CLI send_image() → LCDDriver → sg_raw."""
+    """CLI send_image()/send_color() → DeviceService → DeviceProtocolFactory."""
 
-    @patch("trcc.device_scsi.require_sg_raw")
-    @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    @patch("trcc.cli._get_selected_device", return_value="/dev/sg0")
-    def test_cli_send_image(self, mock_sel, mock_get_impl, mock_detect, mock_run, mock_sg):
-        """trcc send image.png end-to-end."""
+    @patch("trcc.device_factory.DeviceProtocolFactory.get_protocol")
+    @patch("trcc.device_detector.DeviceDetector.detect")
+    def test_cli_send_image(self, mock_detect, mock_get_protocol):
+        """trcc send image.png end-to-end via DeviceService."""
         from trcc.cli import send_image
-        from trcc.device_implementations import get_implementation as real_get_impl
 
-        dev = _make_device()
-        mock_detect.return_value = [dev]
-
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
-        mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
+        mock_detect.return_value = [_make_device()]
+        mock_protocol = MagicMock()
+        mock_protocol.send_image.return_value = True
+        mock_get_protocol.return_value = mock_protocol
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             _make_png(f.name)
             try:
                 result = send_image(f.name, device="/dev/sg0")
                 self.assertEqual(result, 0)
+                mock_protocol.send_image.assert_called_once()
+                # Verify RGB565 frame size: 320*320*2 = 204800
+                data = mock_protocol.send_image.call_args[0][0]
+                self.assertEqual(len(data), 320 * 320 * 2)
             finally:
                 os.unlink(f.name)
 
@@ -147,26 +143,23 @@ class TestCLISendPipeline(unittest.TestCase):
         result = send_image("/nonexistent/image.png")
         self.assertEqual(result, 1)
 
-    @patch("trcc.device_scsi.require_sg_raw")
-    @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    def test_cli_send_color(self, mock_get_impl, mock_detect, mock_run, mock_sg):
-        """trcc color ff0000 end-to-end."""
+    @patch("trcc.device_factory.DeviceProtocolFactory.get_protocol")
+    @patch("trcc.device_detector.DeviceDetector.detect")
+    def test_cli_send_color(self, mock_detect, mock_get_protocol):
+        """trcc color ff0000 end-to-end via DeviceService."""
         from trcc.cli import send_color
-        from trcc.device_implementations import get_implementation as real_get_impl
 
-        dev = _make_device()
-        mock_detect.return_value = [dev]
-
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
-        mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
+        mock_detect.return_value = [_make_device()]
+        mock_protocol = MagicMock()
+        mock_protocol.send_image.return_value = True
+        mock_get_protocol.return_value = mock_protocol
 
         result = send_color("ff0000", device="/dev/sg0")
         self.assertEqual(result, 0)
+        mock_protocol.send_image.assert_called_once()
+        # Verify RGB565 frame size
+        data = mock_protocol.send_image.call_args[0][0]
+        self.assertEqual(len(data), 320 * 320 * 2)
 
     def test_cli_send_color_invalid_hex(self):
         """send_color with invalid hex returns 1."""
@@ -178,37 +171,26 @@ class TestCLISendPipeline(unittest.TestCase):
 # ── Pipeline: CLI resume ────────────────────────────────────────────────────
 
 class TestCLIResumePipeline(unittest.TestCase):
-    """CLI resume() — detect → load theme config → apply brightness/rotation → send."""
+    """CLI resume() → DeviceService.detect → load config → ImageService → send."""
 
-    @patch("trcc.device_scsi.require_sg_raw")
-    @patch("trcc.device_scsi.subprocess.run")
-    @patch("trcc.driver_lcd.detect_devices")
-    @patch("trcc.driver_lcd.get_implementation")
-    @patch("trcc.device_detector.detect_devices")
+    @patch("trcc.device_factory.DeviceProtocolFactory.get_protocol")
+    @patch("trcc.device_detector.DeviceDetector.detect")
     @patch("trcc.conf.get_device_config")
     @patch("trcc.conf.device_config_key")
-    def test_resume_with_saved_theme(self, mock_key, mock_cfg, mock_cli_detect,
-                                     mock_get_impl, mock_drv_detect, mock_run, mock_sg):
+    def test_resume_with_saved_theme(self, mock_key, mock_cfg, mock_detect,
+                                     mock_get_protocol):
         """resume() sends last theme with brightness and rotation applied."""
         from trcc.cli import resume
-        from trcc.device_implementations import get_implementation as real_get_impl
 
-        dev = _make_device()
-        mock_cli_detect.return_value = [dev]
-        mock_drv_detect.return_value = [dev]
-
+        mock_detect.return_value = [_make_device()]
         mock_key.return_value = "0:87cd_70db"
 
-        real_impl = real_get_impl("thermalright_lcd_v1")
-        real_impl.detect_resolution = MagicMock()
-        mock_get_impl.return_value = real_impl
-
-        mock_run.return_value = MagicMock(returncode=0, stdout=b"\x00" * 512)
+        mock_protocol = MagicMock()
+        mock_protocol.send_image.return_value = True
+        mock_get_protocol.return_value = mock_protocol
 
         with tempfile.TemporaryDirectory() as td:
-            # Create a theme dir with 00.png
             _make_png(os.path.join(td, "00.png"))
-
             mock_cfg.return_value = {
                 "theme_path": td,
                 "brightness_level": 2,  # 50%
@@ -217,10 +199,12 @@ class TestCLIResumePipeline(unittest.TestCase):
 
             result = resume()
             self.assertEqual(result, 0)
-            # verify sg_raw was called (poll + init + chunks)
-            self.assertGreater(mock_run.call_count, 0)
+            mock_protocol.send_image.assert_called_once()
+            # Verify RGB565 frame was sent
+            data = mock_protocol.send_image.call_args[0][0]
+            self.assertEqual(len(data), 320 * 320 * 2)
 
-    @patch("trcc.device_detector.detect_devices")
+    @patch("trcc.device_detector.DeviceDetector.detect")
     def test_resume_no_devices(self, mock_detect):
         """resume() with no devices returns 1."""
         from trcc.cli import resume
@@ -228,15 +212,14 @@ class TestCLIResumePipeline(unittest.TestCase):
         result = resume()
         self.assertEqual(result, 1)
 
-    @patch("trcc.device_detector.detect_devices")
+    @patch("trcc.device_detector.DeviceDetector.detect")
     @patch("trcc.conf.get_device_config")
     @patch("trcc.conf.device_config_key")
     def test_resume_no_saved_theme(self, mock_key, mock_cfg, mock_detect):
         """resume() with no saved theme returns 1."""
         from trcc.cli import resume
 
-        dev = _make_device()
-        mock_detect.return_value = [dev]
+        mock_detect.return_value = [_make_device()]
         mock_key.return_value = "0:87cd_70db"
         mock_cfg.return_value = {}  # no theme_path
 
@@ -257,7 +240,7 @@ class TestCLIDetectPipeline(unittest.TestCase):
         dev = _make_device()
         mock_detect.return_value = [dev]
 
-        with patch("trcc.cli._get_selected_device", return_value="/dev/sg0"):
+        with patch("trcc.conf.get_selected_device", return_value="/dev/sg0"):
             result = detect(show_all=True)
         self.assertEqual(result, 0)
 
@@ -281,7 +264,7 @@ class TestCLIDetectPipeline(unittest.TestCase):
         ]
         mock_detect.return_value = devs
 
-        with patch("trcc.cli._get_selected_device", return_value="/dev/sg0"):
+        with patch("trcc.conf.get_selected_device", return_value="/dev/sg0"):
             result = detect(show_all=True)
         self.assertEqual(result, 0)
 
@@ -400,8 +383,8 @@ class TestRGB565Consistency(unittest.TestCase):
 
     def test_driver_rgb_matches_controller(self):
         """LCDDriver.implementation.rgb_to_bytes matches controllers.image_to_rgb565."""
-        from trcc.core.controllers import image_to_rgb565
         from trcc.device_implementations import get_implementation
+        from trcc.services import ImageService
 
         impl = get_implementation("thermalright_lcd_v1")
 
@@ -410,7 +393,7 @@ class TestRGB565Consistency(unittest.TestCase):
         for r, g, b in [(255, 0, 0), (0, 255, 0), (0, 0, 255),
                          (128, 128, 128), (255, 255, 255), (0, 0, 0)]:
             img = Image.new("RGB", (1, 1), (r, g, b))
-            controller_bytes = image_to_rgb565(img)
+            controller_bytes = ImageService.to_rgb565(img)
 
             impl_bytes = impl.rgb_to_bytes(r, g, b)
 
@@ -453,7 +436,7 @@ class TestThemeLoadRender(unittest.TestCase):
         """Load 00.png from theme dir, convert to RGB565, verify size."""
         from PIL import Image
 
-        from trcc.core.controllers import image_to_rgb565
+        from trcc.services import ImageService
 
         with tempfile.TemporaryDirectory() as td:
             bg_path = os.path.join(td, "00.png")
@@ -462,14 +445,14 @@ class TestThemeLoadRender(unittest.TestCase):
             img = Image.open(bg_path).convert("RGB")
             self.assertEqual(img.size, (320, 320))
 
-            frame = image_to_rgb565(img)
+            frame = ImageService.to_rgb565(img)
             self.assertEqual(len(frame), 320 * 320 * 2)
 
     def test_theme_with_mask_overlay(self):
         """Load background + mask → composite → convert to RGB565."""
         from PIL import Image
 
-        from trcc.core.controllers import image_to_rgb565
+        from trcc.services import ImageService
 
         with tempfile.TemporaryDirectory() as td:
             # Create background
@@ -487,19 +470,19 @@ class TestThemeLoadRender(unittest.TestCase):
             composite = bg.copy()
             composite.paste(mask, (0, 0), mask)
 
-            frame = image_to_rgb565(composite)
+            frame = ImageService.to_rgb565(composite)
             self.assertEqual(len(frame), 320 * 320 * 2)
 
     def test_image_resize_and_convert(self):
         """Oversized image gets resized to device resolution before RGB565."""
         from PIL import Image
 
-        from trcc.core.controllers import image_to_rgb565
+        from trcc.services import ImageService
 
         # Create 800x600 image
         big = Image.new("RGB", (800, 600), (0, 128, 255))
         resized = big.resize((320, 320))
-        frame = image_to_rgb565(resized)
+        frame = ImageService.to_rgb565(resized)
         self.assertEqual(len(frame), 320 * 320 * 2)
 
 
@@ -512,13 +495,13 @@ class TestBrightnessRotation(unittest.TestCase):
         """90° rotation swaps dimensions correctly."""
         from PIL import Image
 
-        from trcc.core.controllers import apply_rotation
+        from trcc.services import ImageService
 
         img = Image.new("RGB", (320, 320), (255, 0, 0))
         # Draw a marker at (0,0) so rotation is verifiable
         img.putpixel((0, 0), (0, 255, 0))
 
-        rotated = apply_rotation(img, 90)
+        rotated = ImageService.apply_rotation(img, 90)
         self.assertEqual(rotated.size, (320, 320))
 
         # After 90° CW rotation, top-left green pixel moves
@@ -529,12 +512,12 @@ class TestBrightnessRotation(unittest.TestCase):
         """0° rotation returns identical image."""
         from PIL import Image
 
-        from trcc.core.controllers import apply_rotation
+        from trcc.services import ImageService
 
         img = Image.new("RGB", (320, 320), (255, 0, 0))
         img.putpixel((5, 5), (0, 255, 0))
 
-        rotated = apply_rotation(img, 0)
+        rotated = ImageService.apply_rotation(img, 0)
         self.assertEqual(rotated.getpixel((5, 5)), (0, 255, 0))
 
     def test_brightness_reduces_values(self):

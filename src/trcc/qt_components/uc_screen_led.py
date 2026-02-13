@@ -9,9 +9,9 @@ matching Windows UCScreenLED.cs. Background shows the device image
 
 from typing import List, Optional, Tuple
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QWidget
 
 # Segment layout for Style 1 (AX120_DIGITAL, 30 LEDs, 10 segments)
 # Approximate positions on the 536x536 device preview image.
@@ -72,7 +72,7 @@ class UCScreenLED(QWidget):
     - Click to toggle individual segments
     """
 
-    segment_clicked = pyqtSignal(int)  # segment index
+    segment_clicked = Signal(int)  # segment index
 
     def __init__(self, parent=None):
         super().__init__(parent)

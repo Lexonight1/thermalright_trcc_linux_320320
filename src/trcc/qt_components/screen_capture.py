@@ -16,9 +16,9 @@ import subprocess
 import tempfile
 from functools import lru_cache
 
-from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 @lru_cache(maxsize=1)
@@ -188,7 +188,7 @@ class ScreenCaptureOverlay(BaseScreenOverlay):
         overlay.show()
     """
 
-    captured = pyqtSignal(object)  # PIL Image or None
+    captured = Signal(object)  # PIL Image or None
 
     # Visual constants
     _DIM_COLOR = QColor(0, 0, 0, 120)

@@ -11,8 +11,8 @@ Original implementation by Lcstyle (GitHub PR #9).
 
 import math
 
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import (
     QBrush,
     QColor,
     QConicalGradient,
@@ -20,7 +20,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 
 class UCColorWheel(QWidget):
@@ -30,7 +30,7 @@ class UCColorWheel(QWidget):
         hue_changed: Emitted when the user selects a hue (0-360).
     """
 
-    hue_changed = pyqtSignal(int)
+    hue_changed = Signal(int)
 
     # Ring geometry (relative to widget center)
     OUTER_RADIUS = 97

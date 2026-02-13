@@ -15,9 +15,9 @@ FormLED.cs which is one form for all LED device types.
 
 from typing import Dict, List, Tuple
 
-from PyQt6.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
+from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QLabel,
@@ -263,24 +263,24 @@ class UCLedControl(QWidget):
     """
 
     # Signals for controller binding
-    mode_changed = pyqtSignal(int)              # LEDMode value
-    color_changed = pyqtSignal(int, int, int)   # R, G, B
-    brightness_changed = pyqtSignal(int)         # 0-100
-    global_toggled = pyqtSignal(bool)            # on/off
-    segment_clicked = pyqtSignal(int)            # segment index
+    mode_changed = Signal(int)              # LEDMode value
+    color_changed = Signal(int, int, int)   # R, G, B
+    brightness_changed = Signal(int)         # 0-100
+    global_toggled = Signal(bool)            # on/off
+    segment_clicked = Signal(int)            # segment index
     # HR10-specific signals
-    display_metric_changed = pyqtSignal(str)     # "temp", "activity", ...
-    circulate_toggled = pyqtSignal(bool)
+    display_metric_changed = Signal(str)     # "temp", "activity", ...
+    circulate_toggled = Signal(bool)
     # Zone signals
-    zone_selected = pyqtSignal(int)              # zone index (0-based)
-    sync_all_changed = pyqtSignal(bool)          # sync mode toggled
+    zone_selected = Signal(int)              # zone index (0-based)
+    sync_all_changed = Signal(bool)          # sync mode toggled
     # LC2 clock signals (style 9)
-    clock_format_changed = pyqtSignal(bool)      # True = 24h
-    week_start_changed = pyqtSignal(bool)        # True = Sunday
+    clock_format_changed = Signal(bool)      # True = 24h
+    week_start_changed = Signal(bool)        # True = Sunday
     # Temperature unit signal
-    temp_unit_changed = pyqtSignal(str)          # "C" or "F"
+    temp_unit_changed = Signal(str)          # "C" or "F"
     # Sensor source signal (for temp/load linked modes)
-    sensor_source_changed = pyqtSignal(str)      # "cpu" or "gpu"
+    sensor_source_changed = Signal(str)      # "cpu" or "gpu"
 
     def __init__(self, parent=None):
         super().__init__(parent)

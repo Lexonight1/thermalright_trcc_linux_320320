@@ -29,11 +29,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "PyQt6>=6.5.0",
+    "PySide6>=6.5.0",
     "Pillow>=10.0.0",
     "numpy>=1.24.0",
     "psutil>=5.9.0",
     "pyusb>=1.2.0",
+    "typer>=0.9.0",
 ]
 
 [project.optional-dependencies]
@@ -47,13 +48,17 @@ wayland = [
 hid = [
     "hidapi>=0.14.0",
 ]
+api = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.4.0",
 ]
 all = [
-    "trcc-linux[nvidia,wayland,hid,dev]",
+    "trcc-linux[nvidia,wayland,hid,api,dev]",
 ]
 
 [project.urls]

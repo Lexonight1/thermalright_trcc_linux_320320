@@ -8,17 +8,17 @@ images to LCD target resolution.
 from __future__ import annotations
 
 from PIL import Image as PILImage
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import (
     QBrush,
     QColor,
     QPainter,
     QPalette,
     QPen,
 )
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
-from trcc.core.controllers import apply_rotation
+from trcc.services import ImageService
 
 from .assets import load_pixmap
 from .base import make_icon_button, pil_to_pixmap
@@ -65,7 +65,7 @@ class UCImageCut(QWidget):
         image_cut_done(object): PIL Image on OK, None on cancel.
     """
 
-    image_cut_done = pyqtSignal(object)
+    image_cut_done = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -212,7 +212,7 @@ class UCImageCut(QWidget):
         """Get source image with rotation applied."""
         if not self._source_image:
             return None
-        return apply_rotation(self._source_image, self._rotation)
+        return ImageService.apply_rotation(self._source_image, self._rotation)
 
     def _get_cropped_output(self):
         """Get the final cropped PIL Image at target resolution."""

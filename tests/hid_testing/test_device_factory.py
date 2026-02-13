@@ -439,19 +439,18 @@ class TestDeviceProtocolFactory:
 # Tests: End-to-end wiring (DeviceModel → Factory → Protocol)
 # =========================================================================
 
-class TestDeviceModelFactoryWiring:
-    """Test that DeviceModel.send_image() routes through the factory.
+class TestDeviceServiceFactoryWiring:
+    """Test that DeviceService.send_rgb565() routes through the factory.
 
     Mirrors Windows: GUI fires delegateForm.Invoke(cmd, ...) →
     DelegateFormCZTV (SCSI) or DelegateFormCZTVHid (HID).
     """
 
-    def _make_model(self, device_info):
-        """Create a DeviceModel with a selected device."""
-        from trcc.core.models import DeviceModel
-        model = DeviceModel()
-        # Bypass detect_devices — just set the device directly
+    def _make_svc(self, device_info):
+        """Create a DeviceService with a selected device."""
         from trcc.core.models import DeviceInfo
+        from trcc.services import DeviceService
+        svc = DeviceService()
         dev = DeviceInfo(
             name=device_info.name,
             path=device_info.path,
@@ -460,16 +459,16 @@ class TestDeviceModelFactoryWiring:
             protocol=device_info.protocol,
             device_type=device_info.device_type,
         )
-        model.selected_device = dev
-        return model
+        svc.select(dev)
+        return svc
 
     @patch("trcc.device_scsi.send_image_to_device")
     def test_scsi_device_routes_to_scsi(self, mock_scsi_send, scsi_device):
         mock_scsi_send.return_value = True
-        model = self._make_model(scsi_device)
+        svc = self._make_svc(scsi_device)
         data = b'\x00' * 204800
 
-        result = model.send_image(data, 320, 320)
+        result = svc.send_rgb565(data, 320, 320)
 
         assert result is True
         mock_scsi_send.assert_called_once_with("/dev/sg0", data, 320, 320)
@@ -481,10 +480,10 @@ class TestDeviceModelFactoryWiring:
         mock_transport = MagicMock()
         MockPyUsb.return_value = mock_transport
         mock_hid_send.return_value = True
-        model = self._make_model(hid_type2_device)
+        svc = self._make_svc(hid_type2_device)
         data = b'\xFF' * 5000
 
-        result = model.send_image(data, 320, 320)
+        result = svc.send_rgb565(data, 320, 320)
 
         assert result is True
         mock_hid_send.assert_called_once_with(mock_transport, data, 2)
@@ -496,10 +495,10 @@ class TestDeviceModelFactoryWiring:
         mock_transport = MagicMock()
         MockPyUsb.return_value = mock_transport
         mock_hid_send.return_value = True
-        model = self._make_model(hid_type3_device)
+        svc = self._make_svc(hid_type3_device)
         data = b'\xAB' * 204800
 
-        result = model.send_image(data, 320, 320)
+        result = svc.send_rgb565(data, 320, 320)
 
         assert result is True
         mock_hid_send.assert_called_once_with(mock_transport, data, 3)
@@ -507,50 +506,28 @@ class TestDeviceModelFactoryWiring:
     @patch("trcc.device_scsi.send_image_to_device")
     def test_send_returns_false_on_failure(self, mock_scsi_send, scsi_device):
         mock_scsi_send.return_value = False
-        model = self._make_model(scsi_device)
-        result = model.send_image(b'\x00', 320, 320)
+        svc = self._make_svc(scsi_device)
+        result = svc.send_rgb565(b'\x00', 320, 320)
         assert result is False
 
     def test_send_returns_false_when_no_device(self):
-        from trcc.core.models import DeviceModel
-        model = DeviceModel()
-        result = model.send_image(b'\x00', 320, 320)
+        from trcc.services import DeviceService
+        svc = DeviceService()
+        result = svc.send_rgb565(b'\x00', 320, 320)
         assert result is False
 
     def test_send_returns_false_when_busy(self, scsi_device):
-        model = self._make_model(scsi_device)
-        model._send_busy = True
-        result = model.send_image(b'\x00', 320, 320)
+        svc = self._make_svc(scsi_device)
+        svc._send_busy = True
+        result = svc.send_rgb565(b'\x00', 320, 320)
         assert result is False
-
-    @patch("trcc.device_scsi.send_image_to_device")
-    def test_callback_on_success(self, mock_scsi_send, scsi_device):
-        mock_scsi_send.return_value = True
-        model = self._make_model(scsi_device)
-        callback = MagicMock()
-        model.on_send_complete = callback
-
-        model.send_image(b'\x00' * 100, 320, 320)
-
-        callback.assert_called_once_with(True)
-
-    @patch("trcc.device_scsi.send_image_to_device")
-    def test_callback_on_failure(self, mock_scsi_send, scsi_device):
-        mock_scsi_send.return_value = False
-        model = self._make_model(scsi_device)
-        callback = MagicMock()
-        model.on_send_complete = callback
-
-        model.send_image(b'\x00', 320, 320)
-
-        callback.assert_called_once_with(False)
 
     @patch("trcc.device_scsi.send_image_to_device", side_effect=Exception("SCSI error"))
     def test_exception_clears_busy_flag(self, mock_scsi_send, scsi_device):
-        model = self._make_model(scsi_device)
-        result = model.send_image(b'\x00', 320, 320)
+        svc = self._make_svc(scsi_device)
+        result = svc.send_rgb565(b'\x00', 320, 320)
         assert result is False
-        assert model._send_busy is False
+        assert svc._send_busy is False
 
 
 # =========================================================================
@@ -720,24 +697,21 @@ class TestDeviceInfoProtocol:
         assert dev.protocol == "hid"
         assert dev.device_type == 2
 
-    @patch("trcc.core.models.DeviceModel.detect_devices")
-    def test_detect_passes_protocol_to_device_info(self, mock_detect):
+    def test_detect_passes_protocol_to_device_info(self):
         """Simulate what happens when detect_devices finds HID hardware."""
-        from trcc.core.models import DeviceInfo, DeviceModel
+        from trcc.core.models import DeviceInfo
+        from trcc.services import DeviceService
 
-        # Create model and manually set devices (simulating detection)
-        model = DeviceModel()
-        model.devices = [
-            DeviceInfo(
-                name="HID ALi", path="hid:0418:5303",
-                vid=0x0418, pid=0x5303,
-                protocol="hid", device_type=3,
-            )
-        ]
-        model.selected_device = model.devices[0]
+        svc = DeviceService()
+        dev = DeviceInfo(
+            name="HID ALi", path="hid:0418:5303",
+            vid=0x0418, pid=0x5303,
+            protocol="hid", device_type=3,
+        )
+        svc.select(dev)
 
-        assert model.selected_device.protocol == "hid"
-        assert model.selected_device.device_type == 3
+        assert svc.selected.protocol == "hid"
+        assert svc.selected.device_type == 3
 
 
 # =========================================================================
@@ -860,10 +834,10 @@ class TestDeviceControllerProtocolInfo:
         from trcc.core.controllers import DeviceController
         from trcc.core.models import DeviceInfo
         ctrl = DeviceController()
-        ctrl.model.selected_device = DeviceInfo(
+        ctrl.select_device(DeviceInfo(
             name="LCD", path="/dev/sg0",
             protocol="scsi", device_type=1,
-        )
+        ))
         info = ctrl.get_protocol_info()
         assert info.protocol == "scsi"
         assert info.is_scsi is True
@@ -872,11 +846,11 @@ class TestDeviceControllerProtocolInfo:
         from trcc.core.controllers import DeviceController
         from trcc.core.models import DeviceInfo
         ctrl = DeviceController()
-        ctrl.model.selected_device = DeviceInfo(
+        ctrl.select_device(DeviceInfo(
             name="HID LCD", path="hid:0416:5302",
             vid=0x0416, pid=0x5302,
             protocol="hid", device_type=2,
-        )
+        ))
         info = ctrl.get_protocol_info()
         assert info.protocol == "hid"
         assert info.is_hid is True
