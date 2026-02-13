@@ -1,6 +1,6 @@
 # Device Testing Guide
 
-The HID protocol is implemented with **563 automated tests** but **not fully validated with real hardware**. I only have a SCSI device (`87CD:70DB`). If you have an HID device, please help test.
+All 4 protocols (SCSI, HID, LED, Bulk) are implemented with **2105 automated tests**. Several HID/LED devices have been validated by testers. If you have a device not listed below, please help test.
 
 ## Supported HID Devices
 
@@ -11,7 +11,7 @@ Run `lsusb` and look for your VID:PID:
 | `0416:5302` | Winbond Electronics Corp. USBDISPLAY | HID Type 2 (LCD) | Trofeo Vision, AS120 VISION, BA120 VISION, FROZEN WARFRAME PRO |
 | `0418:5303` | ALi Corp. LCD Display | HID Type 3 (LCD) | TARAN ARMS |
 | `0418:5304` | ALi Corp. LCD Display | HID Type 3 (LCD) | TARAN ARMS |
-| `0416:8001` | Winbond Electronics Corp. LED Controller | HID LED (RGB) | AX120 DIGITAL |
+| `0416:8001` | Winbond Electronics Corp. LED Controller | HID LED (RGB) | AX120 DIGITAL, PA120 DIGITAL, HR10 2280 PRO DIGITAL |
 
 ## Quick Start
 
@@ -179,26 +179,32 @@ After the HID handshake, the sidebar button updates based on the PM (product mod
 
 ## What to Report
 
-Open an [issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues) with:
+The fastest way to report is:
+
+```bash
+trcc report
+```
+
+This runs `lsusb`, `detect --all`, and `hid-debug` in one command. Copy-paste the entire output into a [GitHub issue](https://github.com/Lexonight1/thermalright-trcc-linux/issues).
+
+**Also include:**
 
 1. Your product name (e.g. "Trofeo Vision LCD")
-2. Output of `lsusb | grep -i "0416\|0418\|87cd"`
-3. **Full output of `trcc hid-debug`** (most important!)
-4. Output of `trcc detect --all`
-5. Does the GUI detect the device? Can you send themes?
-6. Your distro and kernel version (`uname -r`)
-7. Screenshot of the GUI if possible
+2. Does the GUI detect the device? Can you send themes?
+3. Your distro and kernel version (`uname -r`)
+4. Screenshot of the GUI if possible
 
-Even a "it doesn't work" report is helpful — the `hid-debug` output tells us exactly where the protocol breaks.
+Even a "it doesn't work" report is helpful — the `trcc report` output tells us exactly where the protocol breaks.
 
 ## How It Works
 
-HID devices use a different protocol than SCSI devices:
+TRCC Linux supports 4 USB protocol types:
 
 - **SCSI** (`87CD:70DB`, `0416:5406`, `0402:3922`) — USB Mass Storage, sends raw RGB565 pixels via `sg_raw`
 - **HID Type 2** (`0416:5302`) — USB HID, DA/DB/DC/DD magic bytes, JPEG frames in 512-byte chunks
 - **HID Type 3** (`0418:5303`, `0418:5304`) — USB HID, 0x65/0x66 prefix, fixed-size frames with ACK
 - **HID LED** (`0416:8001`) — USB HID, 64-byte reports for RGB LED color/effect control
+- **Bulk** (`87AD:70DB`) — Raw USB vendor-specific protocol via pyusb (GrandVision/Mjolnir Vision)
 
 ### Resolution Detection
 
