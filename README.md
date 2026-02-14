@@ -227,6 +227,16 @@ A big thanks to everyone who has contributed to this project:
 - **[PantherX12max](https://github.com/PantherX12max)** — Trofeo Vision LCD hardware testing
 - **[shadowepaxeor-glitch](https://github.com/shadowepaxeor-glitch)** — AX120 Digital hardware testing & USB descriptor dumps
 - **[Xentrino](https://github.com/Xentrino)** — Peerless Assassin 120 Digital ARGB White hardware testing
+- **[Pikarz](https://github.com/Pikarz)** — Mjolnir Vision 360 bulk protocol testing
+- **[bipobuilt](https://github.com/bipobuilt)** — GrandVision 360 AIO bulk protocol testing
+- **[cadeon](https://github.com/cadeon)** — GrandVision 360 AIO bulk protocol testing
+- **[michael-spinelli](https://github.com/michael-spinelli)** — Assassin Spirit 120 Vision ARGB HID testing
+- **[gizbo](https://github.com/gizbo)** — FROZEN WARFRAME SCSI color bug report
+- **[hexskrew](https://github.com/hexskrew)** — Assassin X 120R Digital ARGB HID testing
+- **[Rizzzolo](https://github.com/Rizzzolo)** — Phantom Spirit 120 Digital EVO hardware testing
+- **[apj202-ops](https://github.com/apj202-ops)** — Frozen Warframe SE HID testing
+- **[Edoardo-Rossi-EOS](https://github.com/Edoardo-Rossi-EOS)** — Frozen Warframe 360 HID testing
+- **[edoargo1996](https://github.com/edoargo1996)** — Frozen Warframe 360 HID testing
 
 ## License
 
