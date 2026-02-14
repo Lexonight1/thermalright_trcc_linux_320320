@@ -174,6 +174,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self._screencast_w = 0
         self._screencast_h = 0
         self._screencast_active = False
+        self._background_active = False  # C# myBjxs — background display mode
 
         # PipeWire portal capture for Wayland (GNOME/KDE)
         self._pipewire_cast = None
@@ -424,20 +425,21 @@ class TRCCMainWindowMVC(QMainWindow):
         """Create mode tab buttons matching Windows positions."""
         self.mode_buttons = []
 
-        # (layout_rect, normal_img, active_img, panel_index)
+        # (layout_rect, normal_img, active_img, panel_index, tooltip)
         tab_configs = [
-            (Layout.TAB_LOCAL, Assets.TAB_LOCAL, Assets.TAB_LOCAL_ACTIVE, 0),
-            (Layout.TAB_MASK, Assets.TAB_MASK, Assets.TAB_MASK_ACTIVE, 2),
-            (Layout.TAB_CLOUD, Assets.TAB_CLOUD, Assets.TAB_CLOUD_ACTIVE, 1),
-            (Layout.TAB_SETTINGS, Assets.TAB_SETTINGS, Assets.TAB_SETTINGS_ACTIVE, 3),
+            (Layout.TAB_LOCAL, Assets.TAB_LOCAL, Assets.TAB_LOCAL_ACTIVE, 0, "Local themes"),
+            (Layout.TAB_MASK, Assets.TAB_MASK, Assets.TAB_MASK_ACTIVE, 2, "Mask overlays"),
+            (Layout.TAB_CLOUD, Assets.TAB_CLOUD, Assets.TAB_CLOUD_ACTIVE, 1, "Cloud themes"),
+            (Layout.TAB_SETTINGS, Assets.TAB_SETTINGS, Assets.TAB_SETTINGS_ACTIVE, 3, "Settings"),
         ]
 
-        for rect, normal_img, active_img, panel_idx in tab_configs:
+        for rect, normal_img, active_img, panel_idx, tooltip in tab_configs:
             x, y, w, h = rect
             btn = create_image_button(
                 self.form_container, x, y, w, h,
                 normal_img, active_img, checkable=True
             )
+            btn.setToolTip(tooltip)
             btn.clicked.connect(lambda checked, idx=panel_idx: self._show_panel(idx))
             self.mode_buttons.append(btn)
 
@@ -576,6 +578,7 @@ class TRCCMainWindowMVC(QMainWindow):
             "QComboBox QAbstractItemView { background-color: #2A2A2A; color: white;"
             " selection-background-color: #4A6FA5; }"
         )
+        self.rotation_combo.setToolTip("LCD rotation")
         self.rotation_combo.currentIndexChanged.connect(self._on_rotation_change)
 
         # === Brightness button (buttonLDD) — cycles PL1→PL2→PL3→PL1 ===
@@ -588,6 +591,7 @@ class TRCCMainWindowMVC(QMainWindow):
 
         self.brightness_btn = QPushButton(self.form_container)
         self.brightness_btn.setGeometry(*Layout.BRIGHTNESS_BTN)
+        self.brightness_btn.setToolTip("Cycle brightness (Low / Medium / High)")
         self._update_brightness_icon()
         self.brightness_btn.clicked.connect(self._on_brightness_cycle)
 
@@ -596,6 +600,7 @@ class TRCCMainWindowMVC(QMainWindow):
         self.theme_name_input.setGeometry(*Layout.THEME_NAME_INPUT)
         self.theme_name_input.setText("Theme1")
         self.theme_name_input.setMaxLength(10)
+        self.theme_name_input.setToolTip("Theme name for saving")
         self.theme_name_input.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.theme_name_input.setStyleSheet(
             "background-color: #232227; color: white; border: none;"
@@ -608,14 +613,17 @@ class TRCCMainWindowMVC(QMainWindow):
         # === Icon buttons (save/export/import) with text fallback ===
         self.save_btn = self._create_icon_or_text_btn(
             *Layout.SAVE_BTN, Assets.BTN_SAVE, "S")
+        self.save_btn.setToolTip("Save theme")
         self.save_btn.clicked.connect(self._on_save_clicked)
 
         self.export_btn = self._create_icon_or_text_btn(
             *Layout.EXPORT_BTN, Assets.BTN_EXPORT, "Exp")
+        self.export_btn.setToolTip("Export theme to file")
         self.export_btn.clicked.connect(self._on_export_clicked)
 
         self.import_btn = self._create_icon_or_text_btn(
             *Layout.IMPORT_BTN, Assets.BTN_IMPORT, "Imp")
+        self.import_btn.setToolTip("Import theme from file")
         self.import_btn.clicked.connect(self._on_import_clicked)
 
     def _create_icon_or_text_btn(self, x, y, w, h, icon_name, fallback_text):
@@ -640,6 +648,7 @@ class TRCCMainWindowMVC(QMainWindow):
             self.form_container, *Layout.HELP_BTN,
             Assets.BTN_HELP, None, fallback_text="?"
         )
+        help_btn.setToolTip("Help")
         help_btn.clicked.connect(self._on_help_clicked)
 
         # Close/Power button
@@ -647,12 +656,13 @@ class TRCCMainWindowMVC(QMainWindow):
             self.form_container, *Layout.CLOSE_BTN,
             Assets.BTN_POWER, Assets.BTN_POWER_HOVER, fallback_text="X"
         )
+        close_btn.setToolTip("Close")
         close_btn.clicked.connect(self.close)
 
     def _on_help_clicked(self):
-        """Open project README on GitHub."""
+        """Open troubleshooting guide on GitHub."""
         import webbrowser
-        webbrowser.open('https://github.com/Lexonight1/thermalright-trcc-linux#readme')
+        webbrowser.open('https://github.com/Lexonight1/thermalright-trcc-linux/blob/main/doc/TROUBLESHOOTING.md')
 
     def _apply_settings_backgrounds(self):
         """Apply localized P01 backgrounds to display mode panels in UCThemeSetting.
@@ -1053,11 +1063,22 @@ class TRCCMainWindowMVC(QMainWindow):
         Shared by local theme clicks and mask clicks — both have the same
         structure (01.png, config1.dc, optional 00.png). from_directory()
         detects mask-only (no 00.png) and load_local_theme() handles it.
+
+        C# Theme_Click_Event → ReadSystemConfiguration: fully overrides
+        myBjxs, myMode, myUIMode from config1.dc. We reset all mode toggles.
         """
         if not path.exists():
             return
         self._slideshow_timer.stop()
         self.stop_metrics()
+        # Reset background/screencast/video modes (C# ReadSystemConfiguration override)
+        self._background_active = False
+        self._screencast_active = False
+        self._screencast_timer.stop()
+        self._animation_timer.stop()
+        self.uc_theme_setting.background_panel.set_enabled(False)
+        self.uc_theme_setting.screencast_panel.set_enabled(False)
+        self.uc_theme_setting.video_panel.set_enabled(False)
         theme = ThemeInfo.from_directory(path)
         self.controller.themes.select_theme(theme)
         self._load_theme_overlay_config(path)
@@ -1079,6 +1100,12 @@ class TRCCMainWindowMVC(QMainWindow):
         Cloud videos are backgrounds — overlay (mask + metrics) persists.
         Don't stop metrics; they keep rendering on top of video frames.
         """
+        # Reset background/screencast modes (cloud theme overrides)
+        self._background_active = False
+        self._screencast_active = False
+        self._screencast_timer.stop()
+        self.uc_theme_setting.background_panel.set_enabled(False)
+        self.uc_theme_setting.screencast_panel.set_enabled(False)
         if theme_info.video:
             video_path = Path(theme_info.video)
             preview_path = video_path.parent / f"{video_path.stem}.png"
@@ -1120,16 +1147,38 @@ class TRCCMainWindowMVC(QMainWindow):
             })
 
     def _on_background_toggle(self, enabled: bool):
-        """Handle background display toggle from settings (Windows cmd 1 / myMode=0)."""
+        """Handle background display toggle from settings (C# myBjxs / myMode=0).
+
+        ON:  Stop other modes, render background+overlays, start continuous
+             sending via metrics timer (C# isToTimer=true, myMode=0).
+        OFF: Keep timer running but render black+overlays (C# myBjxs=false,
+             isDrawBkImage=false — timer continues, background not drawn).
+        """
+        self._background_active = enabled
         if enabled:
-            # Stop other modes, show static background
+            # Stop other modes (C# exclusive toggle — only one mode active)
             self._animation_timer.stop()
             self.controller.video.stop()
             self._screencast_timer.stop()
             self._screencast_active = False
+            # Render and send immediately
             img = self.controller.render_overlay_and_preview()
             if img and self.controller.auto_send:
                 self.controller._send_frame_to_lcd(img)
+            # Start continuous rendering (C# isToTimer=true — timer sends every tick)
+            if not self._metrics_timer.isActive():
+                self._metrics_timer.start(1000)
+        else:
+            # C# toggle OFF: myBjxs=false → black canvas + overlays
+            # Clear background so overlay renders on black
+            self.controller.overlay.set_background(None)
+            self.controller._display._create_black_background()
+            img = self.controller.render_overlay_and_preview()
+            if img and self.controller.auto_send:
+                self.controller._send_frame_to_lcd(img)
+            # Stop continuous background sending if overlay isn't independently enabled
+            if not self.controller.overlay.is_enabled():
+                self._metrics_timer.stop()
         self.uc_preview.set_status(f"Background: {'On' if enabled else 'Off'}")
 
     def _on_screencast_toggle(self, enabled: bool):
@@ -2092,13 +2141,22 @@ class TRCCMainWindowMVC(QMainWindow):
         self.controller.video_tick()
 
     def _on_metrics_tick(self):
-        """Collect system metrics and re-render overlay, send to LCD."""
+        """Collect system metrics and re-render overlay, send to LCD.
+
+        C# Timer_event myMode=0: renders every 10 ticks (~160ms).
+        We tick every 1s (sufficient for sensor refresh) and always send
+        when background mode is active OR overlay is enabled.
+        """
         try:
             metrics = get_all_metrics()
         except Exception:
             return
         self.controller.overlay.update_metrics(metrics)
-        if self.controller.current_image and self.controller.overlay.is_enabled():
+        should_render = (
+            (self.controller.current_image and self.controller.overlay.is_enabled())
+            or self._background_active
+        )
+        if should_render:
             img = self.controller.render_overlay_and_preview()
             if img and self.controller.auto_send and not self.controller.video.is_playing():
                 self.controller._send_frame_to_lcd(img)

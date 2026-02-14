@@ -48,6 +48,7 @@ class ThemeThumbnail(BaseThumbnail):
                 "QPushButton:hover { background: rgba(220, 50, 50, 255); }"
             )
             self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._delete_btn.setToolTip("Delete theme")
             self._delete_btn.clicked.connect(
                 lambda: self.delete_clicked.emit(self.item_info))
             self._delete_btn.raise_()
@@ -157,6 +158,7 @@ class UCThemeLocal(BaseThemeBrowser):
         if not self._lunbo_off.isNull():
             self.slideshow_btn.setIcon(QIcon(self._lunbo_off))
             self.slideshow_btn.setIconSize(self.slideshow_btn.size())
+        self.slideshow_btn.setToolTip("Toggle theme slideshow")
         self.slideshow_btn.clicked.connect(self._on_slideshow_clicked)
 
         # Slideshow interval input — Windows: textBoxTimer (602, 29) 24x16
@@ -165,6 +167,7 @@ class UCThemeLocal(BaseThemeBrowser):
         self.timer_input.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.timer_input.setMaxLength(3)
         self.timer_input.setText("3")
+        self.timer_input.setToolTip("Slideshow interval (seconds)")
         self.timer_input.setStyleSheet(
             "QLineEdit { background: #232227; color: white; border: none; "
             "font-family: 'Microsoft YaHei'; font-size: 9pt; }"
@@ -178,6 +181,7 @@ class UCThemeLocal(BaseThemeBrowser):
         self.export_btn.setFlat(True)
         self.export_btn.setStyleSheet(Styles.FLAT_BUTTON)
         self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.setToolTip("Export all themes")
         if not export_px.isNull():
             self.export_btn.setIcon(QIcon(export_px))
             self.export_btn.setIconSize(self.export_btn.size())

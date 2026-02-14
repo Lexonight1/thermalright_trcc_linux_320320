@@ -148,11 +148,13 @@ class SystemInfoPanel(QWidget):
                 "QPushButton:hover { color: #FF4444; }"
             )
             self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._del_btn.setToolTip("Delete panel")
             self._del_btn.clicked.connect(lambda: self.delete_requested.emit(self))
 
             # Editable name for custom panels
             self._name_edit = QLineEdit(config.name, self)
             self._name_edit.setGeometry(49, 24, 190, 16)
+            self._name_edit.setToolTip("Panel name")
             self._name_edit.setStyleSheet(
                 "QLineEdit { background: transparent; border: none; "
                 "border-bottom: 1px solid #444; color: #C0C0C0; font-size: 10px; }"
@@ -396,6 +398,7 @@ class UCSystemInfo(QWidget):
                 "QPushButton:hover { color: white; }"
             )
         self._page_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._page_prev.setToolTip("Previous page")
         self._page_prev.clicked.connect(lambda: self._change_page(-1))
         self._page_prev.setEnabled(self._page > 0)
         self._page_prev.show()
@@ -417,6 +420,7 @@ class UCSystemInfo(QWidget):
                 "QPushButton:hover { color: white; }"
             )
         self._page_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._page_next.setToolTip("Next page")
         self._page_next.clicked.connect(lambda: self._change_page(1))
         self._page_next.setEnabled(self._page < total_pages - 1)
         self._page_next.show()

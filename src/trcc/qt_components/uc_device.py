@@ -254,6 +254,7 @@ class UCDevice(BasePanel):
             Assets.SENSOR_BTN, Assets.SENSOR_BTN_ACTIVE,
             checkable=True, fallback_text="Sensor"
         )
+        self.sensor_btn.setToolTip("System sensors")
         self.sensor_btn.clicked.connect(self._on_home_clicked)
 
         # Device buttons area
@@ -282,6 +283,7 @@ class UCDevice(BasePanel):
             Assets.ABOUT_BTN, Assets.ABOUT_BTN_ACTIVE,
             checkable=True, fallback_text="About"
         )
+        self.about_btn.setToolTip("Settings")
         self.about_btn.clicked.connect(self._on_about_clicked)
 
     def _build_device_buttons(self, devices):

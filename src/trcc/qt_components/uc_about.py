@@ -204,6 +204,7 @@ class UCAbout(BasePanel):
             "background-color: black; color: #B4964F; border: none;"
             " font-family: 'Microsoft YaHei'; font-size: 9pt;"
         )
+        self.refresh_input.setToolTip("Data refresh interval (seconds)")
         self.refresh_input.editingFinished.connect(self._on_refresh_changed)
 
         # === Language selection checkboxes ===
@@ -221,6 +222,7 @@ class UCAbout(BasePanel):
         self.website_btn.setFlat(True)
         self.website_btn.setStyleSheet(Styles.FLAT_BUTTON)
         self.website_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.website_btn.setToolTip("Open thermalright.com")
         self.website_btn.clicked.connect(
             lambda: webbrowser.open('https://www.thermalright.com'))
 

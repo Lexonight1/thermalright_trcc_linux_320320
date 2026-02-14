@@ -113,6 +113,7 @@ class UCPreview(BasePanel):
         self.play_btn.setFlat(True)
         self.play_btn.setStyleSheet(Styles.FLAT_BUTTON)
         self.play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.play_btn.setToolTip("Play / Pause")
         self.play_btn.clicked.connect(self._on_play_pause)
 
         # Time label

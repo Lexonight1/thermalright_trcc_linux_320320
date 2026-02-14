@@ -91,8 +91,19 @@ class DebugReport:
         sec = self._add("Version")
         sec.lines.append(f"  trcc-linux:  {__version__}")
         sec.lines.append(f"  Python:      {platform.python_version()}")
+        sec.lines.append(f"  Distro:      {self._distro_name()}")
         sec.lines.append(f"  OS:          {platform.platform()}")
         sec.lines.append(f"  Kernel:      {platform.release()}")
+
+    @staticmethod
+    def _distro_name() -> str:
+        """Get Linux distro name (e.g. 'Fedora 43', 'Ubuntu 24.04')."""
+        try:
+            # Python 3.10+ — pyright may not know about this on older stubs
+            info: dict[str, str] = platform.freedesktop_os_release()  # type: ignore[attr-defined]
+            return info.get("PRETTY_NAME", info.get("NAME", "Unknown"))
+        except (OSError, AttributeError):
+            return "Unknown"
 
     def _lsusb(self) -> None:
         sec = self._add("lsusb (filtered)")

@@ -364,6 +364,7 @@ class UCLedControl(QWidget):
                     f"background-image: url({active_path}); }}"
                 )
 
+            btn.setToolTip(label)
             self._mode_buttons.append(btn)
 
         # Set initial mode
@@ -381,6 +382,7 @@ class UCLedControl(QWidget):
         self._btn_cpu.setCheckable(True)
         self._btn_cpu.setChecked(True)
         self._btn_cpu.setStyleSheet(_STYLE_CHECKABLE_BTN)
+        self._btn_cpu.setToolTip("Link to CPU sensor")
         self._btn_cpu.clicked.connect(lambda: self._set_sensor_source("cpu"))
         self._btn_cpu.setVisible(False)
 
@@ -388,6 +390,7 @@ class UCLedControl(QWidget):
         self._btn_gpu.setGeometry(MODE_X_START + 118, 298, 55, 26)
         self._btn_gpu.setCheckable(True)
         self._btn_gpu.setStyleSheet(_STYLE_CHECKABLE_BTN)
+        self._btn_gpu.setToolTip("Link to GPU sensor")
         self._btn_gpu.clicked.connect(lambda: self._set_sensor_source("gpu"))
         self._btn_gpu.setVisible(False)
 
@@ -517,6 +520,7 @@ class UCLedControl(QWidget):
             "margin: -4px 0; border-radius: 8px; }"
             "QSlider::sub-page:horizontal { background: #aaa; border-radius: 4px; }"
         )
+        self._brightness_slider.setToolTip("LED brightness")
         self._brightness_slider.valueChanged.connect(self.brightness_changed.emit)
 
         self._brightness_label = QLabel("100%", self)
@@ -537,6 +541,7 @@ class UCLedControl(QWidget):
             "QPushButton:checked { background: #4CAF50; }"
             "QPushButton:!checked { background: #666; }"
         )
+        self._onoff_btn.setToolTip("Turn LED on / off")
         self._onoff_btn.clicked.connect(self._on_toggle_clicked)
 
         # -- Zone buttons (hidden by default, shown for multi-zone devices) --
@@ -546,6 +551,7 @@ class UCLedControl(QWidget):
             x = ZONE_X_START + i * (ZONE_W + ZONE_SPACING)
             btn.setGeometry(x, ZONE_Y, ZONE_W, ZONE_H)
             btn.setCheckable(True)
+            btn.setToolTip(f"Select zone {i + 1}")
             btn.setStyleSheet(
                 "QPushButton { background: #444; color: white; "
                 "border: 1px solid #666; border-radius: 4px; }"
@@ -564,6 +570,7 @@ class UCLedControl(QWidget):
             ZONE_X_START + 4 * (ZONE_W + ZONE_SPACING), ZONE_Y + 5,
             100, 30
         )
+        self._sync_cb.setToolTip("Apply same color to all zones")
         self._sync_cb.setStyleSheet(
             "QCheckBox { color: #aaa; font-size: 12px; }"
             "QCheckBox::indicator { width: 14px; height: 14px; }"
@@ -634,6 +641,7 @@ class UCLedControl(QWidget):
             "QCheckBox::indicator:unchecked { border: 1px solid #666; background: #333; }"
             "QCheckBox::indicator:checked { border: 1px solid #4CAF50; background: #4CAF50; }"
         )
+        self._circulate_cb.setToolTip("Cycle through display modes")
         self._circulate_cb.toggled.connect(self._on_circulate_toggled)
         self._circulate_cb.setVisible(False)
 
@@ -648,6 +656,7 @@ class UCLedControl(QWidget):
         self._circulate_interval.setRange(CIRCULATE_MIN_S, CIRCULATE_MAX_S)
         self._circulate_interval.setValue(CIRCULATE_DEFAULT_S)
         self._circulate_interval.setSuffix("s")
+        self._circulate_interval.setToolTip("Circulate interval (seconds)")
         self._circulate_interval.setStyleSheet(
             "color: white; background: #333; border: 1px solid #555; "
             "border-radius: 3px; font-size: 11px;"
@@ -664,6 +673,7 @@ class UCLedControl(QWidget):
             x = DISPLAY_SEL_X + i * (DISPLAY_SEL_W + DISPLAY_SEL_SPACING)
             btn.setGeometry(x, DISPLAY_SEL_Y, DISPLAY_SEL_W, DISPLAY_SEL_H)
             btn.setCheckable(True)
+            btn.setToolTip(f"Show {label}")
             btn.setStyleSheet(self._display_button_style())
             btn.clicked.connect(
                 lambda checked, key=metric_key, idx=i: self._on_display_selected(key, idx)
@@ -685,6 +695,7 @@ class UCLedControl(QWidget):
         self._btn_24h.setCheckable(True)
         self._btn_24h.setChecked(True)
         self._btn_24h.setStyleSheet(self._mode_button_style(False))
+        self._btn_24h.setToolTip("24-hour format")
         self._btn_24h.clicked.connect(lambda: self._set_clock_format(True))
         self._btn_24h.setVisible(False)
 
@@ -692,6 +703,7 @@ class UCLedControl(QWidget):
         self._btn_12h.setGeometry(760, 618, 55, 26)
         self._btn_12h.setCheckable(True)
         self._btn_12h.setStyleSheet(self._mode_button_style(False))
+        self._btn_12h.setToolTip("12-hour format")
         self._btn_12h.clicked.connect(lambda: self._set_clock_format(False))
         self._btn_12h.setVisible(False)
 
@@ -704,6 +716,7 @@ class UCLedControl(QWidget):
         self._btn_sun.setGeometry(930, 618, 55, 26)
         self._btn_sun.setCheckable(True)
         self._btn_sun.setStyleSheet(self._mode_button_style(False))
+        self._btn_sun.setToolTip("Week starts on Sunday")
         self._btn_sun.clicked.connect(lambda: self._set_week_start(True))
         self._btn_sun.setVisible(False)
 
@@ -712,6 +725,7 @@ class UCLedControl(QWidget):
         self._btn_mon.setCheckable(True)
         self._btn_mon.setChecked(True)
         self._btn_mon.setStyleSheet(self._mode_button_style(False))
+        self._btn_mon.setToolTip("Week starts on Monday")
         self._btn_mon.clicked.connect(lambda: self._set_week_start(False))
         self._btn_mon.setVisible(False)
 
@@ -748,6 +762,7 @@ class UCLedControl(QWidget):
         self._btn_celsius.setCheckable(True)
         self._btn_celsius.setChecked(True)
         self._btn_celsius.setStyleSheet(_STYLE_CHECKABLE_BTN)
+        self._btn_celsius.setToolTip("Celsius")
         self._btn_celsius.clicked.connect(lambda: self._set_temp_unit_btn(False))
         self._btn_celsius.setVisible(False)
 
@@ -755,6 +770,7 @@ class UCLedControl(QWidget):
         self._btn_fahrenheit.setGeometry(60, 770, 40, 24)
         self._btn_fahrenheit.setCheckable(True)
         self._btn_fahrenheit.setStyleSheet(_STYLE_CHECKABLE_BTN)
+        self._btn_fahrenheit.setToolTip("Fahrenheit")
         self._btn_fahrenheit.clicked.connect(lambda: self._set_temp_unit_btn(True))
         self._btn_fahrenheit.setVisible(False)
 

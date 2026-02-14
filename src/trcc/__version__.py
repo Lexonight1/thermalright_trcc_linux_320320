@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "3.0.2"
+__version__ = "3.0.3"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -80,3 +80,8 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #          format (magic, cmd, dimensions, mode), robust kernel driver detach
 #          before set_configuration(), chunked 16 KiB writes, interface claim.
 #          Fix legacy autostart cleanup (glob desktop files). 2156 tests.
+# 3.0.3  - Fix background display mode: continuous LCD sending via metrics
+#          timer (C# myBjxs/isToTimer parity), toggle OFF renders black+overlays,
+#          theme click resets all mode toggles. Security hardening (timing-safe
+#          auth, PIL bomb cap, zip-slip, TOCTOU). Tooltips on all user-facing
+#          buttons. Distro name in debug report. Help→troubleshooting guide.

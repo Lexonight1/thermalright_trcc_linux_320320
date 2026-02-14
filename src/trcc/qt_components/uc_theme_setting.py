@@ -354,6 +354,7 @@ class OverlayGridPanel(QFrame):
                 "QPushButton:!checked { background: #666; }"
             )
 
+        self._toggle_btn.setToolTip("Toggle overlay display")
         self._toggle_btn.clicked.connect(self._on_toggle)
 
     def _on_toggle(self, checked):
@@ -622,6 +623,7 @@ class ColorPickerPanel(QFrame):
         self.x_spin.setRange(0, 480)
         self.x_spin.setStyleSheet(Styles.INPUT_FIELD)
         self.x_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.x_spin.setToolTip("X position")
         self.x_spin.valueChanged.connect(self._on_position_changed)
 
         # Y coordinate input
@@ -630,6 +632,7 @@ class ColorPickerPanel(QFrame):
         self.y_spin.setRange(0, 480)
         self.y_spin.setStyleSheet(Styles.INPUT_FIELD)
         self.y_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.y_spin.setToolTip("Y position")
         self.y_spin.valueChanged.connect(self._on_position_changed)
 
         # Font picker button
@@ -641,6 +644,7 @@ class ColorPickerPanel(QFrame):
         )
         self.font_btn.setText("Microsoft YaHei  36")
         self.font_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.font_btn.setToolTip("Choose font")
         self.font_btn.clicked.connect(self._pick_font)
         self._current_font_name = "Microsoft YaHei"
         self._current_font_size = 36
@@ -650,6 +654,7 @@ class ColorPickerPanel(QFrame):
         self.color_area_btn.setGeometry(*Layout.COLOR_AREA)
         self.color_area_btn.setStyleSheet("background-color: transparent; border: none;")
         self.color_area_btn.setCursor(Qt.CursorShape.CrossCursor)
+        self.color_area_btn.setToolTip("Pick color")
         self.color_area_btn.clicked.connect(self._pick_color)
 
         # RGB input boxes
@@ -657,16 +662,19 @@ class ColorPickerPanel(QFrame):
         self.r_input.setGeometry(*Layout.COLOR_R)
         self.r_input.setStyleSheet(Styles.RGB_INPUT)
         self.r_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.r_input.setToolTip("Red (0-255)")
 
         self.g_input = QLineEdit("255", self)
         self.g_input.setGeometry(*Layout.COLOR_G)
         self.g_input.setStyleSheet(Styles.RGB_INPUT)
         self.g_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.g_input.setToolTip("Green (0-255)")
 
         self.b_input = QLineEdit("255", self)
         self.b_input.setGeometry(*Layout.COLOR_B)
         self.b_input.setStyleSheet(Styles.RGB_INPUT)
         self.b_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.b_input.setToolTip("Blue (0-255)")
 
         for inp in (self.r_input, self.g_input, self.b_input):
             inp.editingFinished.connect(self._on_rgb_changed)
@@ -827,6 +835,7 @@ class AddElementPanel(QFrame):
 
         self.hw_combo = QComboBox()
         self.hw_combo.addItems(list(CATEGORY_NAMES.values()))
+        self.hw_combo.setToolTip("Hardware category")
         self.hw_combo.setStyleSheet("""
             QComboBox {
                 background-color: rgba(51, 51, 51, 180);
@@ -840,6 +849,7 @@ class AddElementPanel(QFrame):
         hw_layout.addWidget(metric_label)
 
         self.metric_combo = QComboBox()
+        self.metric_combo.setToolTip("Sensor metric")
         self.metric_combo.setStyleSheet("""
             QComboBox {
                 background-color: rgba(51, 51, 51, 180);
@@ -912,6 +922,7 @@ class DataTablePanel(QFrame):
         self.unit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._unit_off = load_pixmap('P单位开关.png', 70, 24)   # °C
         self._unit_on = load_pixmap('P单位开关a.png', 70, 24)   # °F
+        self.unit_btn.setToolTip("Temperature unit (C/F)")
         self.unit_btn.clicked.connect(self._on_unit_clicked)
         self.unit_btn.setVisible(False)
 
@@ -924,6 +935,7 @@ class DataTablePanel(QFrame):
         self.time_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._time_12h = load_pixmap('P12H.png', 54, 22)
         self._time_24h = load_pixmap('P24H.png', 54, 22)
+        self.time_btn.setToolTip("Time format (12h/24h)")
         self.time_btn.clicked.connect(self._on_time_clicked)
         self.time_btn.setVisible(False)
 
@@ -937,6 +949,7 @@ class DataTablePanel(QFrame):
         self._date_pixmaps = {
             k: load_pixmap(v, 54, 22) for k, v in self._DATE_IMAGES.items()
         }
+        self.date_btn.setToolTip("Date format")
         self.date_btn.clicked.connect(self._on_date_clicked)
         self.date_btn.setVisible(False)
 
@@ -946,6 +959,7 @@ class DataTablePanel(QFrame):
         self.text_input.setGeometry(15, 15, 200, 22)
         self.text_input.setStyleSheet(Styles.INPUT_FIELD)
         self.text_input.setPlaceholderText("Text...")
+        self.text_input.setToolTip("Custom text")
         self.text_input.setMaxLength(100)
         self.text_input.editingFinished.connect(
             lambda: self.text_changed.emit(self.text_input.text()))
@@ -1047,6 +1061,26 @@ class DisplayModePanel(QFrame):
 
         self._setup_ui()
 
+    # Tooltip text for action buttons
+    _TOOLTIP_MAP = {
+        "Image": "Load image from file",
+        "Video": "Load video/GIF from file",
+        "Load": "Load mask overlay",
+        "Clear": "Clear mask",
+        "VideoLoad": "Load video for playback",
+        "GIF": "Load animated GIF",
+        "Network": "Network stream",
+        "Settings": "Settings",
+    }
+
+    # Tooltip text for toggle buttons by mode
+    _TOGGLE_TOOLTIP = {
+        "background": "Enable background display",
+        "screencast": "Enable screen capture",
+        "video": "Enable video playback",
+        "mask": "Toggle mask overlay",
+    }
+
     def _setup_ui(self):
         # Toggle button — smaller slider for mask panel, large toggle for others
         self.toggle_btn = QPushButton(self)
@@ -1068,6 +1102,7 @@ class DisplayModePanel(QFrame):
             self.toggle_btn.setIconSize(self.toggle_btn.size())
         self.toggle_btn.setStyleSheet(Styles.FLAT_BUTTON)
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_btn.setToolTip(self._TOGGLE_TOOLTIP.get(self.mode_id, "Toggle"))
         self.toggle_btn.clicked.connect(self._on_toggle)
 
         # Action buttons with icon images
@@ -1076,6 +1111,7 @@ class DisplayModePanel(QFrame):
             "Load": "P蒙板.png", "VideoLoad": "P直播视频载入.png",
             "GIF": "P动画.png", "Network": "P网络.png",
         }
+        self._action_buttons: list[QPushButton] = []
         action_positions = [Layout.ACTION_BTN_1, Layout.ACTION_BTN_2]
         for i, action_name in enumerate(self.actions):
             if i >= len(action_positions):
@@ -1090,13 +1126,23 @@ class DisplayModePanel(QFrame):
                     btn.setIconSize(btn.size())
             btn.setStyleSheet(Styles.FLAT_BUTTON_HOVER)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(self._TOOLTIP_MAP.get(action_name, action_name))
+            btn.setEnabled(False)  # Disabled until toggle is ON (C# buttonOnOff_Set)
             btn.clicked.connect(lambda checked, a=action_name: self.action_requested.emit(a))
+            self._action_buttons.append(btn)
 
     def _on_toggle(self, checked):
+        self._set_actions_enabled(checked)
         self.mode_changed.emit(self.mode_id, checked)
+
+    def _set_actions_enabled(self, enabled: bool):
+        """Enable/disable action buttons (C# buttonOnOff_Set pattern)."""
+        for btn in self._action_buttons:
+            btn.setEnabled(enabled)
 
     def set_enabled(self, enabled):
         self.toggle_btn.setChecked(enabled)
+        self._set_actions_enabled(enabled)
 
     def set_background_image(self, pixmap):
         """Apply P01 localized background via QPalette (not stylesheet)."""
@@ -1188,6 +1234,7 @@ class ScreenCastPanel(DisplayModePanel):
         self.border_btn = QPushButton(self)
         self.border_btn.setGeometry(*self._BTN_BORDER)
         self.border_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.border_btn.setToolTip("Toggle capture border")
         self.border_btn.clicked.connect(self._on_border_toggle)
         self._update_border_icon()
 
