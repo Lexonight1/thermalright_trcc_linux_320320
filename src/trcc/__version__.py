@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "3.0.3"
+__version__ = "3.0.4"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -85,3 +85,7 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 #          theme click resets all mode toggles. Security hardening (timing-safe
 #          auth, PIL bomb cap, zip-slip, TOCTOU). Tooltips on all user-facing
 #          buttons. Distro name in debug report. Help→troubleshooting guide.
+# 3.0.4  - Fix bulk frame encoding: JPEG (cmd=2) instead of raw RGB565 for
+#          all USBLCDNew devices (87AD:70DB), matching C# ImageToJpg protocol.
+#          PM=32 remains RGB565 (cmd=3). Add PM=5 to bulk resolution table
+#          (Mjolnir Vision → 240×320). 2166 tests.
