@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 # Linux autostart desktop file
 _AUTOSTART_DIR = Path.home() / '.config' / 'autostart'
 _AUTOSTART_FILE = _AUTOSTART_DIR / 'trcc-linux.desktop'
+_LEGACY_AUTOSTART_FILE = _AUTOSTART_DIR / 'trcc.desktop'
 
 
 def _get_trcc_exec() -> str:
@@ -93,6 +94,11 @@ def ensure_autostart():
     Returns the current autostart state (bool).
     """
     from ..conf import load_config, save_config
+
+    # Remove legacy autostart file (pre-v2.0.2) to prevent duplicate instances
+    if _LEGACY_AUTOSTART_FILE.exists():
+        _LEGACY_AUTOSTART_FILE.unlink()
+        log.info("Removed legacy autostart file: %s", _LEGACY_AUTOSTART_FILE)
 
     config = load_config()
 

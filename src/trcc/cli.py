@@ -2178,12 +2178,11 @@ StartupWMClass=trcc-linux
         user_items = [
             home / ".config" / "trcc",                          # config dir
             home / ".trcc",                                      # downloaded themes/web data
-            home / ".config" / "autostart" / "trcc-linux.desktop",     # autostart
-            home / ".local" / "share" / "applications" / "trcc-linux.desktop",  # desktop shortcut
-            # Legacy filenames (pre-v2.0.2)
-            home / ".config" / "autostart" / "trcc.desktop",
-            home / ".local" / "share" / "applications" / "trcc.desktop",
         ]
+        # Glob for any trcc autostart/desktop files (catches current + legacy names)
+        for d in (home / ".config" / "autostart", home / ".local" / "share" / "applications"):
+            if d.is_dir():
+                user_items.extend(d.glob("trcc*.desktop"))
 
         removed = []
 
