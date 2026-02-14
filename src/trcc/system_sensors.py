@@ -4,12 +4,14 @@ Linux hardware sensor discovery and reading.
 Replaces Windows HWiNFO64 shared memory with native Linux sensor sources:
 - hwmon: /sys/class/hwmon/* (temperatures, fans, voltages, power, frequency)
 - NVIDIA GPU: nvidia-ml-py / pynvml (temperature, utilization, clock, power, VRAM, fan)
+- DRM: /sys/class/drm/card* (AMD gpu_busy_percent, Intel gt_cur_freq_mhz)
 - psutil: CPU usage/frequency, memory, disk I/O, network I/O
 - Intel RAPL: CPU package power via /sys/class/powercap/
 
 Sensor IDs follow the format:
     hwmon:{driver}:{input}    e.g., hwmon:coretemp:temp1
     nvidia:{gpu}:{metric}     e.g., nvidia:0:temp
+    drm:{card}:{metric}       e.g., drm:card0:gpu_busy
     psutil:{metric}           e.g., psutil:cpu_percent
     rapl:{domain}             e.g., rapl:package-0
     computed:{metric}         e.g., computed:disk_read
@@ -51,6 +53,42 @@ _HWMON_DIVISORS = {
     'freq': 1000000.0,  # Hz → MHz
 }
 
+# GPU vendor IDs (PCI sysfs)
+_GPU_VENDOR_NVIDIA = '10de'
+_GPU_VENDOR_AMD = '1002'
+_GPU_VENDOR_INTEL = '8086'
+
+
+def _detect_gpu_vendors() -> list[str]:
+    """Detect GPU vendors via PCI sysfs, discrete first.
+
+    Scans /sys/bus/pci/devices/*/class for VGA (0x0300) and 3D (0x0302)
+    controllers, returns vendor ID strings ordered: NVIDIA > AMD > Intel.
+    """
+    pci_base = Path('/sys/bus/pci/devices')
+    if not pci_base.exists():
+        return []
+
+    vendors: list[str] = []
+    for dev_dir in pci_base.iterdir():
+        class_path = dev_dir / 'class'
+        vendor_path = dev_dir / 'vendor'
+        if not class_path.exists() or not vendor_path.exists():
+            continue
+        try:
+            pci_class = class_path.read_text().strip()
+            if not (pci_class.startswith('0x0300') or pci_class.startswith('0x0302')):
+                continue
+            vendor = vendor_path.read_text().strip().removeprefix('0x')
+            if vendor not in vendors:
+                vendors.append(vendor)
+        except OSError:
+            continue
+
+    # Prefer discrete (NVIDIA/AMD) over integrated (Intel)
+    priority = {_GPU_VENDOR_NVIDIA: 0, _GPU_VENDOR_AMD: 1, _GPU_VENDOR_INTEL: 2}
+    vendors.sort(key=lambda v: priority.get(v, 99))
+    return vendors
 
 
 class SensorEnumerator:
@@ -60,6 +98,7 @@ class SensorEnumerator:
         self._sensors: list[SensorInfo] = []
         self._hwmon_paths: dict[str, str] = {}   # sensor_id -> sysfs path
         self._nvidia_handles: dict[int, object] = {}  # gpu_index -> handle
+        self._drm_paths: dict[str, str] = {}     # sensor_id -> drm sysfs path
         self._rapl_paths: dict[str, str] = {}     # sensor_id -> energy_uj path
         self._rapl_prev: dict[str, tuple[float, float]] = {}  # id -> (energy, time)
         self._net_prev: Optional[tuple] = None     # (counters, time)
@@ -70,10 +109,12 @@ class SensorEnumerator:
         self._sensors = []
         self._hwmon_paths = {}
         self._nvidia_handles = {}
+        self._drm_paths = {}
         self._rapl_paths = {}
 
         self._discover_hwmon()
         self._discover_nvidia()
+        self._discover_drm()
         self._discover_psutil()
         self._discover_rapl()
         self._discover_computed()
@@ -118,6 +159,9 @@ class SensorEnumerator:
         # RAPL power
         self._read_rapl(readings)
 
+        # DRM sensors (AMD/Intel GPU)
+        self._read_drm(readings)
+
         # Computed I/O rates
         self._read_computed(readings)
 
@@ -135,6 +179,14 @@ class SensorEnumerator:
                         if prefix.startswith(pfx):
                             return raw / div
                     return raw
+                except ValueError:
+                    return None
+
+        if sensor_id in self._drm_paths:
+            val = SysUtils.read_sysfs(self._drm_paths[sensor_id])
+            if val is not None:
+                try:
+                    return float(val)
                 except ValueError:
                     return None
 
@@ -234,6 +286,48 @@ class SensorEnumerator:
                     id=f"{prefix}:{metric}", name=name,
                     category=cat, unit=unit, source='nvidia'
                 ))
+
+    def _discover_drm(self):
+        """Discover GPU sensors from /sys/class/drm/ (AMD utilization, Intel freq)."""
+        drm_base = Path('/sys/class/drm')
+        if not drm_base.exists():
+            return
+
+        for card_dir in sorted(drm_base.glob('card[0-9]*')):
+            if '-' in card_dir.name:  # skip card0-DP-1 etc.
+                continue
+
+            vendor_path = card_dir / 'device' / 'vendor'
+            if not vendor_path.exists():
+                continue
+            try:
+                vendor = vendor_path.read_text().strip().removeprefix('0x')
+            except OSError:
+                continue
+
+            card = card_dir.name  # e.g. "card0"
+
+            # AMD: gpu_busy_percent (utilization %)
+            if vendor == _GPU_VENDOR_AMD:
+                busy_path = card_dir / 'device' / 'gpu_busy_percent'
+                if busy_path.exists():
+                    sid = f"drm:{card}:gpu_busy"
+                    self._sensors.append(SensorInfo(
+                        id=sid, name=f"GPU / Utilization ({card})",
+                        category='usage', unit='%', source='drm',
+                    ))
+                    self._drm_paths[sid] = str(busy_path)
+
+            # Intel: gt_cur_freq_mhz (graphics clock)
+            if vendor == _GPU_VENDOR_INTEL:
+                freq_path = card_dir / 'gt_cur_freq_mhz'
+                if freq_path.exists():
+                    sid = f"drm:{card}:freq"
+                    self._sensors.append(SensorInfo(
+                        id=sid, name=f"GPU / Frequency ({card})",
+                        category='clock', unit='MHz', source='drm',
+                    ))
+                    self._drm_paths[sid] = str(freq_path)
 
     def _discover_psutil(self):
         """Discover psutil-based sensors."""
@@ -338,6 +432,16 @@ class SensorEnumerator:
                 readings[f"{prefix}:fan"] = float(pynvml.nvmlDeviceGetFanSpeed(handle))
             except Exception:
                 pass
+
+    def _read_drm(self, readings: dict[str, float]):
+        """Read DRM sysfs sensors (AMD gpu_busy, Intel freq)."""
+        for sid, path in self._drm_paths.items():
+            val = SysUtils.read_sysfs(path)
+            if val is not None:
+                try:
+                    readings[sid] = float(val)
+                except ValueError:
+                    pass
 
     def _read_psutil(self, readings: dict[str, float]):
         """Read psutil-based sensors."""
@@ -469,11 +573,30 @@ class SensorEnumerator:
         mapping['cpu_freq'] = 'psutil:cpu_freq'
         mapping['cpu_power'] = _find_first(source='rapl') or ''
 
-        # GPU
-        mapping['gpu_temp'] = _find_first(source='nvidia', name_contains='Temperature') or ''
-        mapping['gpu_usage'] = _find_first(source='nvidia', name_contains='GPU Utilization') or ''
-        mapping['gpu_clock'] = _find_first(source='nvidia', name_contains='Graphics Clock') or ''
-        mapping['gpu_power'] = _find_first(source='nvidia', name_contains='Power Draw') or ''
+        # GPU — prefer NVIDIA (pynvml) > AMD (amdgpu hwmon + drm) > Intel (i915 hwmon + drm)
+        nvidia_temp = _find_first(source='nvidia', name_contains='Temperature')
+        if nvidia_temp:
+            mapping['gpu_temp'] = nvidia_temp
+            mapping['gpu_usage'] = _find_first(source='nvidia', name_contains='GPU Utilization') or ''
+            mapping['gpu_clock'] = _find_first(source='nvidia', name_contains='Graphics Clock') or ''
+            mapping['gpu_power'] = _find_first(source='nvidia', name_contains='Power Draw') or ''
+        else:
+            gpu_vendors = _detect_gpu_vendors()
+            if _GPU_VENDOR_AMD in gpu_vendors:
+                mapping['gpu_temp'] = _find_first(source='hwmon', name_contains='amdgpu', category='temperature') or ''
+                mapping['gpu_usage'] = _find_first(source='drm', category='usage') or ''
+                mapping['gpu_clock'] = _find_first(source='hwmon', name_contains='amdgpu', category='clock') or ''
+                mapping['gpu_power'] = _find_first(source='hwmon', name_contains='amdgpu', category='power') or ''
+            elif _GPU_VENDOR_INTEL in gpu_vendors:
+                mapping['gpu_temp'] = _find_first(source='hwmon', name_contains='i915', category='temperature') or ''
+                mapping['gpu_usage'] = ''  # Intel iGPU doesn't expose utilization via sysfs
+                mapping['gpu_clock'] = _find_first(source='drm', category='clock') or ''
+                mapping['gpu_power'] = _find_first(source='hwmon', name_contains='i915', category='power') or ''
+            else:
+                mapping['gpu_temp'] = ''
+                mapping['gpu_usage'] = ''
+                mapping['gpu_clock'] = ''
+                mapping['gpu_power'] = ''
 
         # Memory
         mapping['mem_temp'] = _find_first(source='hwmon', name_contains='spd') or ''
