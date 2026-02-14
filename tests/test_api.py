@@ -4,11 +4,14 @@ import io
 import unittest
 from unittest.mock import MagicMock, patch
 
-from fastapi.testclient import TestClient
-from PIL import Image
+pytest = __import__("pytest")
+pytest.importorskip("fastapi", reason="fastapi is an optional dependency")
 
-from trcc.api import _device_svc, app, configure_auth
-from trcc.core.models import DeviceInfo
+from fastapi.testclient import TestClient  # noqa: E402
+from PIL import Image  # noqa: E402
+
+from trcc.api import _device_svc, app, configure_auth  # noqa: E402
+from trcc.core.models import DeviceInfo  # noqa: E402
 
 
 class TestHealthEndpoint(unittest.TestCase):
