@@ -275,6 +275,19 @@ class DataManager:
         """Extract a .7z archive into target_dir using 7z CLI. Returns True on success."""
         os.makedirs(target_dir, exist_ok=True)
         try:
+            # Validate archive members before extraction (zip-slip prevention)
+            listing = subprocess.run(
+                ['7z', 'l', '-slt', archive],
+                capture_output=True, text=True, timeout=30,
+            )
+            if listing.returncode == 0:
+                for line in listing.stdout.splitlines():
+                    if line.startswith('Path = ') and line != f'Path = {archive}':
+                        member = line[7:]
+                        if not DataManager.is_safe_archive_member(member):
+                            log.warning("Blocked unsafe archive member: %s", member)
+                            return False
+
             result = subprocess.run(
                 ['7z', 'x', archive, f'-o{target_dir}', '-y'],
                 capture_output=True, timeout=120,

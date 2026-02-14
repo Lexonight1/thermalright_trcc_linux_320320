@@ -202,20 +202,18 @@ class TestLCDDriverScsiIO(unittest.TestCase):
         result = _scsi_read('/dev/sg0', b'\x01', 128)
         self.assertEqual(result, b'')
 
-    @patch('trcc.device_scsi.os.unlink')
     @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
-    def test_scsi_write_success(self, mock_run, _, __):
+    def test_scsi_write_success(self, mock_run, _):
         from trcc.device_scsi import _build_header, _scsi_write
         mock_run.return_value = MagicMock(returncode=0)
         header = _build_header(0x101F5, 100)
         result = _scsi_write('/dev/sg0', header, b'\x00' * 100)
         self.assertTrue(result)
 
-    @patch('trcc.device_scsi.os.unlink')
     @patch('trcc.data_repository.SysUtils.require_sg_raw')
     @patch('trcc.device_scsi.subprocess.run')
-    def test_scsi_write_failure(self, mock_run, _, __):
+    def test_scsi_write_failure(self, mock_run, _):
         from trcc.device_scsi import _build_header, _scsi_write
         mock_run.return_value = MagicMock(returncode=1)
         header = _build_header(0x101F5, 100)

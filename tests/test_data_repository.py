@@ -387,7 +387,7 @@ class TestExtract7z(unittest.TestCase):
             target = os.path.join(d, 'out')
             Path(archive).touch()
 
-            mock_result = type('R', (), {'returncode': 0, 'stderr': b''})()
+            mock_result = type('R', (), {'returncode': 0, 'stderr': b'', 'stdout': ''})()
             with patch('trcc.data_repository.subprocess.run', return_value=mock_result):
                 result = DataManager.extract_7z(archive, target)
 
@@ -401,7 +401,7 @@ class TestExtract7z(unittest.TestCase):
             target = os.path.join(d, 'out')
             Path(archive).touch()
 
-            mock_result = type('R', (), {'returncode': 2, 'stderr': b'error'})()
+            mock_result = type('R', (), {'returncode': 2, 'stderr': b'error', 'stdout': ''})()
             with patch('trcc.data_repository.subprocess.run', return_value=mock_result):
                 result = DataManager.extract_7z(archive, target)
 

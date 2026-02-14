@@ -11,7 +11,6 @@ auto-detection during device discovery.
 
 import binascii
 import logging
-import os
 import struct
 import subprocess
 import tempfile
@@ -90,16 +89,12 @@ def _scsi_write(dev: str, header: bytes, data: bytes) -> bool:
     SysUtils.require_sg_raw()
     cdb_hex = ' '.join(f'{b:02x}' for b in list(header[:16]))
 
-    with tempfile.NamedTemporaryFile(delete=False) as f:
+    with tempfile.NamedTemporaryFile(delete=True) as f:
         f.write(data)
-        tmp_path = f.name
-
-    cmd = ['sg_raw', '-s', str(len(data)), '-i', tmp_path, dev] + cdb_hex.split()
-    try:
+        f.flush()
+        cmd = ['sg_raw', '-s', str(len(data)), '-i', f.name, dev] + cdb_hex.split()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         return result.returncode == 0
-    finally:
-        os.unlink(tmp_path)
 
 
 def _init_device(dev: str) -> int:

@@ -177,29 +177,27 @@ class TestScsiRead(unittest.TestCase):
 class TestScsiWrite(unittest.TestCase):
     """Low-level SCSI WRITE via sg_raw with temp file."""
 
-    @patch('trcc.device_scsi.os.unlink')
     @patch('trcc.device_scsi.subprocess.run')
-    def test_success_returns_true(self, mock_run, mock_unlink):
+    def test_success_returns_true(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
         header = _build_header(0x101F5, 0x10000)
         result = _scsi_write('/dev/sg0', header, b'\x00' * 100)
         self.assertTrue(result)
 
-    @patch('trcc.device_scsi.os.unlink')
     @patch('trcc.device_scsi.subprocess.run')
-    def test_failure_returns_false(self, mock_run, mock_unlink):
+    def test_failure_returns_false(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1)
         header = _build_header(0x101F5, 0x10000)
         result = _scsi_write('/dev/sg0', header, b'\x00' * 10)
         self.assertFalse(result)
 
-    @patch('trcc.device_scsi.os.unlink')
     @patch('trcc.device_scsi.subprocess.run')
-    def test_temp_file_cleaned_up(self, mock_run, mock_unlink):
+    def test_temp_file_auto_cleaned(self, mock_run):
+        """Temp file is auto-deleted by NamedTemporaryFile(delete=True)."""
         mock_run.return_value = MagicMock(returncode=0)
         header = _build_header(0x101F5, 100)
         _scsi_write('/dev/sg0', header, b'\x00' * 10)
-        mock_unlink.assert_called_once()
+        mock_run.assert_called_once()
 
 
 # ── Init device ──────────────────────────────────────────────────────────────

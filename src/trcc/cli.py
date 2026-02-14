@@ -469,15 +469,14 @@ def main():
 # =========================================================================
 
 def _sudo_reexec(subcommand):
-    """Re-exec `trcc <subcommand>` as root via sudo with correct PYTHONPATH."""
+    """Re-exec `trcc <subcommand>` as root via sudo with correct PYTHONPATH.
+
+    Only includes the trcc package directory — user site-packages are excluded
+    to prevent privilege escalation via malicious packages in ~/.local/lib.
+    """
     trcc_pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # Include user site-packages so third-party deps (typer etc.) are available
-    # under sudo, which strips ~/.local/lib from sys.path.
-    import site
-    user_site = site.getusersitepackages()
-    pythonpath = f"{trcc_pkg}:{user_site}" if isinstance(user_site, str) else trcc_pkg
     cmd = [
-        "sudo", "env", f"PYTHONPATH={pythonpath}",
+        "sudo", "env", f"PYTHONPATH={trcc_pkg}",
         sys.executable, "-m", "trcc.cli", subcommand,
     ]
     print("Root required — requesting sudo...")

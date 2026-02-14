@@ -10,3 +10,8 @@ We appreciate responsible disclosure. If you discover a security vulnerability i
 In non-sensitive cases, you may open a public issue using the security report template (`.github/ISSUE_TEMPLATE/security-report.md`), and add the label `security`.
 
 Thank you for helping keep TRCC Linux secure.
+
+## Known Limitations
+
+- **Cloud theme downloads use HTTP**: Thermalright's cloud servers (`czhorde.cc`, `czhorde.com`) do not support HTTPS (port 443 refused). Downloads are unencrypted and vulnerable to MITM. This matches the Windows TRCC client behavior and cannot be fixed on our end. No integrity checksums are available from the upstream server.
+- **API token auth is optional**: The REST API binds to localhost by default. Token auth (`--token`) is available but not enforced. Do not expose the API to untrusted networks without a token.

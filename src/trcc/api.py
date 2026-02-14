@@ -16,6 +16,7 @@ Security:
 """
 from __future__ import annotations
 
+import hmac
 import io
 import logging
 
@@ -52,7 +53,8 @@ def configure_auth(token: str | None) -> None:
 async def check_token(request: Request, call_next):
     """Reject requests without valid token (if token is configured)."""
     if _api_token and request.url.path != "/health":
-        if request.headers.get("X-API-Token") != _api_token:
+        header_token = request.headers.get("X-API-Token", "")
+        if not hmac.compare_digest(header_token, _api_token):
             return JSONResponse(status_code=401, content={"detail": "Invalid token"})
     return await call_next(request)
 
@@ -186,6 +188,8 @@ def list_themes(resolution: str = "320x320") -> list[ThemeResponse]:
         w, h = int(parts[0]), int(parts[1])
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="Invalid resolution format (use WxH)")
+    if not (100 <= w <= 4096 and 100 <= h <= 4096):
+        raise HTTPException(status_code=400, detail="Resolution out of range (100-4096)")
 
     from pathlib import Path
 

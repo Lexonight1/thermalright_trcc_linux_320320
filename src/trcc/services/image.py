@@ -10,6 +10,11 @@ import struct
 from typing import Any
 
 import numpy as np
+from PIL import Image as PILImage
+
+# Cap decompression to 4x the largest LCD (1920x720). Prevents decompression
+# bombs from crafted theme images causing OOM.
+PILImage.MAX_IMAGE_PIXELS = 1920 * 720 * 4  # 5,529,600 pixels
 
 
 class ImageService:
