@@ -350,8 +350,8 @@ class UCLedControl(QWidget):
             btn.clicked.connect(lambda checked, idx=i: self._on_mode_clicked(idx))
 
             # Try to load mode button image
-            normal_name = f"D2\u706f\u51491{i + 1}"
-            active_name = f"D2\u706f\u51491{i + 1}a"
+            normal_name = f"D2\u706f\u5149{i + 1}"
+            active_name = f"D2\u706f\u5149{i + 1}a"
             normal_path = Assets.get(normal_name)
             active_path = Assets.get(active_name)
             if normal_path and active_path:

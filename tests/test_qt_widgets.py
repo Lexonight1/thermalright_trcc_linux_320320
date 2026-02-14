@@ -98,6 +98,14 @@ class TestAssets(unittest.TestCase):
         # Should be P0CZTVen.png if that file exists, else P0CZTV.png
         self.assertIsInstance(result, str)
 
+    def test_led_mode_button_assets_exist(self):
+        """All 6 LED mode button images (normal + active) must exist."""
+        for i in range(1, 7):
+            normal = f"D2\u706f\u5149{i}.png"
+            active = f"D2\u706f\u5149{i}a.png"
+            self.assertTrue(asset_exists(normal), f"Missing {normal}")
+            self.assertTrue(asset_exists(active), f"Missing {active}")
+
 
 # ============================================================================
 # UCPreview
