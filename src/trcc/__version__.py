@@ -1,6 +1,6 @@
 """TRCC Linux version information."""
 
-__version__ = "3.0.6"
+__version__ = "3.0.7"
 __version_info__ = tuple(int(x) for x in __version__.split("."))
 
 # Version history:
@@ -94,3 +94,8 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 # 3.0.6  - Single-instance guard: prevent duplicate systray entries on launch.
 #          Font size spinbox in overlay color picker (independent of font dialog).
 #          2167 tests.
+# 3.0.7  - Unified segment display renderer for all 11 LED device styles.
+#          OOP class hierarchy (SegmentDisplay ABC + 10 subclasses) with
+#          data/logic separation. Covers AX120, PA120, AK120, LC1, LF8,
+#          LF12, LF10, CZ1, LC2, LF11, LF15. LEDService generalized for
+#          all digit-display styles (not just AX120). 2291 tests.

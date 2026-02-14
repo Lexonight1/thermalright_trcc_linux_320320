@@ -37,6 +37,15 @@ class LEDService:
         self._hr10_indicators: set = {'deg'}
         self._hr10_mask: Optional[List[bool]] = None
 
+        # Segment display state (styles 1-11 — all digit-display LED devices)
+        self._segment_mode = False
+        self._segment_mask: Optional[List[bool]] = None
+        self._seg_phase = 0          # Current rotation phase
+        self._seg_tick_count = 0     # Ticks since last phase change
+        self._seg_phase_ticks = 100  # Ticks per phase (~3s at 30ms tick interval)
+        self._seg_temp_unit = "C"    # "C" or "F"
+        self._seg_display: Any = None  # SegmentDisplay instance
+
         # Device identity (for config persistence)
         self._device_key: Optional[str] = None
         self._led_style: int = 1
@@ -138,7 +147,18 @@ class LEDService:
 
         Dispatches to mode-specific algorithm. For multi-zone devices,
         divides segments among zones and computes independently.
+        For segment display styles, also advances the rotation phase.
         """
+        # Advance segment display rotation (all digit-display styles)
+        if self._segment_mode and self._seg_display:
+            self._seg_tick_count += 1
+            if self._seg_tick_count >= self._seg_phase_ticks:
+                self._seg_tick_count = 0
+                self._seg_phase = (
+                    (self._seg_phase + 1) % self._seg_display.phase_count
+                )
+            self._update_segment_mask()
+
         if self.state.zone_count > 1 and self.state.zones:
             return self._tick_multi_zone()
         return self._tick_single_mode(self.state.mode, self.state.color,
@@ -286,6 +306,25 @@ class LEDService:
             self._hr10_display_text, self._hr10_indicators
         )
 
+    # ── Segment display (all styles 1-11) ────────────────────────
+
+    def _update_segment_mask(self) -> None:
+        """Recompute segment mask from current metrics + rotation phase.
+
+        Delegates to the unified SegmentDisplay class hierarchy in
+        device_led_segment.py.  Each style handles its own phase/metric
+        mapping internally.
+        """
+        if not self._seg_display:
+            return
+        self._segment_mask = self._seg_display.compute_mask(
+            self._metrics,
+            self._seg_phase,
+            self._seg_temp_unit,
+            is_24h=self.state.is_timer_24h,
+            week_sunday=self.state.is_week_sunday,
+        )
+
     # ── Protocol send ───────────────────────────────────────────────
 
     def set_protocol(self, protocol: Any) -> None:
@@ -296,10 +335,17 @@ class LEDService:
         if not colors or not self._protocol:
             return False
 
-        if self._hr10_mode and self._hr10_mask:
-            from ..device_led_hr10 import LED_COUNT
+        if self._segment_mode and self._segment_mask:
             base_color = colors[0] if colors else (0, 0, 0)
             send_colors: list[Any] = [
+                base_color if self._segment_mask[i] else (0, 0, 0)
+                for i in range(len(self._segment_mask))
+            ]
+            is_on = None
+        elif self._hr10_mode and self._hr10_mask:
+            from ..device_led_hr10 import LED_COUNT
+            base_color = colors[0] if colors else (0, 0, 0)
+            send_colors = [
                 base_color if self._hr10_mask[i] else (0, 0, 0)
                 for i in range(LED_COUNT)
             ]
@@ -335,8 +381,18 @@ class LEDService:
 
         self.configure_for_style(led_style)
         self._hr10_mode = (led_style == 13)
+
+        # Activate segment display for all digit-display styles (1-11)
+        from ..device_led_segment import get_display
+        self._seg_display = get_display(led_style)
+        self._segment_mode = self._seg_display is not None
+
         if self._hr10_mode:
             self._update_hr10_mask()
+        if self._segment_mode:
+            self._seg_phase = 0
+            self._seg_tick_count = 0
+            self._update_segment_mask()
 
         try:
             from ..device_factory import DeviceProtocolFactory

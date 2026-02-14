@@ -812,6 +812,131 @@ class _LedProbeCache:
             return None
 
 
+# =========================================================================
+# AX120 Digital — 7-segment display renderer (style 1, 30 LEDs)
+# =========================================================================
+# LED layout from UCScreenLED.cs default field values:
+#   Index 0-1:  Always-on indicator LEDs
+#   Index 2-3:  CPU label (Cpu1, Cpu2)
+#   Index 4-5:  GPU label (Gpu1, Gpu2)
+#   Index 6:    °C indicator (SSD)
+#   Index 7:    °F indicator (HSD)
+#   Index 8:    % indicator (BFB)
+#   Index 9-15:  Digit 1 segments A,B,C,D,E,F,G
+#   Index 16-22: Digit 2 segments A,B,C,D,E,F,G
+#   Index 23-29: Digit 3 segments A,B,C,D,E,F,G
+
+AX120_LED_COUNT = 30
+
+# Indicator LED indices
+AX120_ALWAYS_ON = (0, 1)
+AX120_CPU_LEDS = (2, 3)
+AX120_GPU_LEDS = (4, 5)
+AX120_CELSIUS = 6
+AX120_FAHRENHEIT = 7
+AX120_PERCENT = 8
+
+# Digit LED indices — wire order is standard A,B,C,D,E,F,G
+AX120_WIRE_ORDER = ('a', 'b', 'c', 'd', 'e', 'f', 'g')
+AX120_DIGIT_LEDS = (
+    (9, 10, 11, 12, 13, 14, 15),    # Digit 1 (hundreds)
+    (16, 17, 18, 19, 20, 21, 22),   # Digit 2 (tens)
+    (23, 24, 25, 26, 27, 28, 29),   # Digit 3 (ones)
+)
+
+# Rotation phases (from FormLED.cs GetVal, style 1 isLunBo rotation)
+AX120_PHASE_CPU_TEMP = 0
+AX120_PHASE_CPU_USAGE = 1
+AX120_PHASE_GPU_TEMP = 2
+AX120_PHASE_GPU_USAGE = 3
+AX120_PHASE_COUNT = 4
+
+
+class Ax120Display:
+    """Renders sensor metrics onto the AX120 Digital's 30-LED 7-segment display.
+
+    Layout: [always-on][CPU][GPU][°C][°F][%] [Digit1][Digit2][Digit3]
+    Cycles through CPU temp → CPU usage → GPU temp → GPU usage.
+    """
+
+    # Standard 7-segment encoding (shared with HR10)
+    CHAR_SEGMENTS: dict[str, set[str]] = {
+        '0': {'a', 'b', 'c', 'd', 'e', 'f'},
+        '1': {'b', 'c'},
+        '2': {'a', 'b', 'd', 'e', 'g'},
+        '3': {'a', 'b', 'c', 'd', 'g'},
+        '4': {'b', 'c', 'f', 'g'},
+        '5': {'a', 'c', 'd', 'f', 'g'},
+        '6': {'a', 'c', 'd', 'e', 'f', 'g'},
+        '7': {'a', 'b', 'c'},
+        '8': {'a', 'b', 'c', 'd', 'e', 'f', 'g'},
+        '9': {'a', 'b', 'c', 'd', 'f', 'g'},
+        ' ': set(),
+    }
+
+    @staticmethod
+    def get_mask(
+        value: int,
+        source: str,
+        metric: str,
+        temp_unit: str = "C",
+    ) -> List[bool]:
+        """Compute 30-element boolean mask for a sensor reading.
+
+        Args:
+            value: Sensor value (temperature °C or usage %).
+            source: "cpu" or "gpu".
+            metric: "temp" or "usage".
+            temp_unit: "C" or "F" for temperature indicator.
+
+        Returns:
+            30-element list of bools (True = LED on).
+        """
+        mask = [False] * AX120_LED_COUNT
+
+        # Always-on indicator LEDs (C#: isOn[0]=true, isOn[1]=true)
+        for idx in AX120_ALWAYS_ON:
+            mask[idx] = True
+
+        # Source indicator LEDs
+        if source == "cpu":
+            for idx in AX120_CPU_LEDS:
+                mask[idx] = True
+        else:
+            for idx in AX120_GPU_LEDS:
+                mask[idx] = True
+
+        # Metric indicator LEDs
+        if metric == "temp":
+            mask[AX120_FAHRENHEIT if temp_unit == "F" else AX120_CELSIUS] = True
+        else:
+            mask[AX120_PERCENT] = True
+
+        # 3-digit value with leading zero suppression (C# SetMyNumeral)
+        clamped = max(0, min(999, value))
+        d_hundreds = clamped // 100
+        d_tens = (clamped % 100) // 10
+        d_ones = clamped % 10
+        digits = [str(d_hundreds), str(d_tens), str(d_ones)]
+
+        # Leading zero suppression: blank hundreds if 0, blank tens if both 0
+        if d_hundreds == 0:
+            digits[0] = ' '
+            if d_tens == 0:
+                digits[1] = ' '
+
+        for digit_idx, ch in enumerate(digits):
+            if ch == ' ':
+                continue
+            segments_on = Ax120Display.CHAR_SEGMENTS.get(ch, set())
+            led_indices = AX120_DIGIT_LEDS[digit_idx]
+            for wire_idx, seg_name in enumerate(AX120_WIRE_ORDER):
+                if seg_name in segments_on:
+                    mask[led_indices[wire_idx]] = True
+
+        return mask
+
+
 def probe_led_model(vid: int = LED_VID, pid: int = LED_PID,
                     usb_path: str = '') -> Optional[LedHandshakeInfo]:
     """Probe an LED device to discover its model via HID handshake.

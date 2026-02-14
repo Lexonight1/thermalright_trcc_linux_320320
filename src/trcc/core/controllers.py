@@ -673,6 +673,15 @@ class LEDController:
         self._svc._hr10_mode = (style_id == 13)
         if self._svc._hr10_mode:
             self._svc._update_hr10_mask()
+
+        # Activate segment display for all digit-display styles (1-11)
+        from ..device_led_segment import get_display
+        self._svc._seg_display = get_display(style_id)
+        self._svc._segment_mode = self._svc._seg_display is not None
+        if self._svc._segment_mode:
+            self._svc._seg_phase = 0
+            self._svc._seg_tick_count = 0
+            self._svc._update_segment_mask()
         self._fire_state_changed()
 
     @property
