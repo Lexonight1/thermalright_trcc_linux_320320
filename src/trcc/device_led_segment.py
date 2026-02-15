@@ -126,6 +126,16 @@ class SegmentDisplay(ABC):
             return "gpu"
         return "other"
 
+    # ── Temperature conversion ────────────────────────────────────
+
+    @staticmethod
+    def _to_display_temp(celsius: float, temp_unit: str) -> int:
+        """Convert temperature for display. C#: value * 9 / 5 + 32."""
+        v = int(celsius)
+        if temp_unit == "F":
+            v = v * 9 // 5 + 32
+        return v
+
     # ── Shared encoding logic ──────────────────────────────────────
 
     def _encode_3digit(
@@ -302,7 +312,10 @@ class AX120Display(SegmentDisplay):
         else:
             mask[self.PERCENT] = True
 
-        self._encode_3digit(int(metrics.get(metric_key, 0)), self.DIGITS, mask)
+        value = int(metrics.get(metric_key, 0))
+        if is_temp:
+            value = self._to_display_temp(value, temp_unit)
+        self._encode_3digit(value, self.DIGITS, mask)
         return mask
 
 
@@ -375,14 +388,16 @@ class PA120Display(SegmentDisplay):
 
         # All 4 metrics simultaneously
         self._encode_3digit(
-            int(metrics.get('cpu_temp', 0)), self.CPU_TEMP_DIGITS, mask,
+            self._to_display_temp(metrics.get('cpu_temp', 0), temp_unit),
+            self.CPU_TEMP_DIGITS, mask,
         )
         self._encode_2digit_partial(
             int(metrics.get('cpu_percent', 0)),
             self.CPU_USE_DIGITS, self.CPU_USE_PARTIAL, mask,
         )
         self._encode_3digit(
-            int(metrics.get('gpu_temp', 0)), self.GPU_TEMP_DIGITS, mask,
+            self._to_display_temp(metrics.get('gpu_temp', 0), temp_unit),
+            self.GPU_TEMP_DIGITS, mask,
         )
 
         # GPU usage: tens (full) + ones (B,C only) + hundreds (partial)
@@ -468,7 +483,7 @@ class AK120Display(SegmentDisplay):
         mask[self.SSD if temp_unit == "C" else self.HSD] = True
 
         self._encode_3digit(int(metrics.get(watt_key, 0)), self.WATT_DIGITS, mask)
-        self._encode_3digit(int(metrics.get(temp_key, 0)), self.TEMP_DIGITS, mask)
+        self._encode_3digit(self._to_display_temp(metrics.get(temp_key, 0), temp_unit), self.TEMP_DIGITS, mask)
         self._encode_2digit_partial(
             int(metrics.get(use_key, 0)), self.USE_DIGITS, self.USE_PARTIAL, mask,
         )
@@ -527,7 +542,7 @@ class LC1Display(SegmentDisplay):
 
         value = int(metrics.get(metric_key, 0))
         if actual_mode == -1:
-            value = value * 9 // 5 + 32
+            value = self._to_display_temp(value, "F")
         self._encode_3digit(value, self.DIGITS, mask)
         self._encode_unit(actual_mode, self.UNIT_DIGIT, mask)
         return mask
@@ -601,7 +616,7 @@ class LF8Display(SegmentDisplay):
         mask[src] = True
         mask[self.SSD if temp_unit == "C" else self.HSD] = True
 
-        self._encode_3digit(int(metrics.get(temp_key, 0)), self.TEMP_DIGITS, mask)
+        self._encode_3digit(self._to_display_temp(metrics.get(temp_key, 0), temp_unit), self.TEMP_DIGITS, mask)
         self._encode_3digit(int(metrics.get(watt_key, 0)), self.WATT_DIGITS, mask)
         self._encode_3digit(int(metrics.get(mhz_key, 0)), self.MHZ_DIGITS, mask)
         self._encode_2digit_partial(
@@ -637,7 +652,7 @@ class LF12Display(LF8Display):
         mask[src] = True
         mask[self.SSD if temp_unit == "C" else self.HSD] = True
 
-        self._encode_3digit(int(metrics.get(temp_key, 0)), self.TEMP_DIGITS, mask)
+        self._encode_3digit(self._to_display_temp(metrics.get(temp_key, 0), temp_unit), self.TEMP_DIGITS, mask)
         self._encode_3digit(int(metrics.get(watt_key, 0)), self.WATT_DIGITS, mask)
         self._encode_3digit(int(metrics.get(mhz_key, 0)), self.MHZ_DIGITS, mask)
         self._encode_2digit_partial(
@@ -706,11 +721,13 @@ class LF10Display(SegmentDisplay):
 
         # CPU temp (digits 1-3)
         self._encode_3digit_13seg(
-            int(metrics.get('cpu_temp', 0)), self.DIGIT_LEDS_13[0:3], mask,
+            self._to_display_temp(metrics.get('cpu_temp', 0), temp_unit),
+            self.DIGIT_LEDS_13[0:3], mask,
         )
         # GPU temp (digits 4-6)
         self._encode_3digit_13seg(
-            int(metrics.get('gpu_temp', 0)), self.DIGIT_LEDS_13[3:6], mask,
+            self._to_display_temp(metrics.get('gpu_temp', 0), temp_unit),
+            self.DIGIT_LEDS_13[3:6], mask,
         )
 
         for idx in self.DECORATION:
@@ -764,7 +781,10 @@ class CZ1Display(SegmentDisplay):
         for idx in indicator_on:
             mask[idx] = True
 
-        self._encode_2digit(int(metrics.get(metric_key, 0)), self.DIGITS, mask)
+        value = int(metrics.get(metric_key, 0))
+        if 'temp' in metric_key:
+            value = self._to_display_temp(value, temp_unit)
+        self._encode_2digit(value, self.DIGITS, mask)
         return mask
 
 
@@ -891,6 +911,8 @@ class LF11Display(SegmentDisplay):
             mask[self.BFB] = True
 
         value = int(metrics.get(metric_key, 0))
+        if is_temp:
+            value = self._to_display_temp(value, temp_unit)
         self._encode_3digit(value, self.DIGITS[0:3], mask)
 
         if is_temp:
