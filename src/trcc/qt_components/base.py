@@ -16,8 +16,8 @@ import logging
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QIcon, QImage, QPalette, QPixmap
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
+from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -183,12 +183,34 @@ def pixmap_to_pil(pixmap):
                            qimage.bytesPerLine())
 
 
+class _BgPaintFilter(QObject):
+    """Event filter that paints a background pixmap once at (0,0).
+
+    Matches Windows WinForms BackgroundImageLayout.None — draw once at
+    top-left, no tiling, no stretching.  Avoids QBrush texture tiling.
+    """
+
+    def __init__(self, pixmap: QPixmap, parent: QObject | None = None):
+        super().__init__(parent)
+        self._pixmap = pixmap
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Paint:
+            painter = QPainter(obj)  # type: ignore[arg-type]
+            painter.drawPixmap(0, 0, self._pixmap)
+            painter.end()
+            return True
+        return False
+
+
 def set_background_pixmap(widget, asset_name, width=None, height=None,
                           fallback_style=None):
-    """Apply a background image to a widget via QPalette.
+    """Apply a background image to a widget (no tiling).
 
-    Uses QPalette+QBrush (not stylesheet) to avoid blocking palette
-    propagation to child widgets.
+    Uses a paint event filter to draw the pixmap once at (0,0), matching
+    Windows BackgroundImageLayout.None.  Does NOT use QPalette+QBrush
+    (which tiles), and does NOT use setStyleSheet (which blocks QPalette
+    on descendants).
 
     Args:
         widget: QWidget to set background on.
@@ -210,10 +232,9 @@ def set_background_pixmap(widget, asset_name, width=None, height=None,
         pixmap = _load(asset_name, w, h)
 
     if pixmap and not pixmap.isNull():
-        palette = widget.palette()
-        palette.setBrush(QPalette.ColorRole.Window, QBrush(pixmap))
-        widget.setPalette(palette)
-        widget.setAutoFillBackground(True)
+        filt = _BgPaintFilter(pixmap, widget)
+        widget.installEventFilter(filt)
+        widget.setAutoFillBackground(False)
         return pixmap
 
     if fallback_style:

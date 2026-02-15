@@ -179,6 +179,11 @@ class Layout:
     SIDEBAR = (0, 0, 180, 800)
     FORM_CONTAINER = (180, 0, 1274, 800)
 
+    # Form1-level buttons (on central, visible in sensor/home view only)
+    # Windows: buttonPower at (1392, 24), buttonHelp at (1342, 24)
+    FORM1_CLOSE_BTN = (1392, 24, 40, 40)
+    FORM1_HELP_BTN = (1342, 24, 40, 40)
+
     # Preview (within form_container)
     PREVIEW = (16, 88, 500, 560)
 
@@ -275,8 +280,8 @@ class Layout:
     ADD_BTN_DY = 42
 
     # UCSystemInfoOptions (sensor grid) — Windows: (190, 98) on Form1, size 1254x692
-    # y=80 covers the FormCZTV tab bar area (Windows hides FormCZTV entirely)
-    SYSINFO_PANEL = (10, 80, 1254, 692)
+    # Sibling of FormCZTV on Form1, not a child
+    SYSINFO_PANEL = (190, 98, 1254, 692)
 
     # UCAbout / Control Center panel
     ABOUT_CLOSE_BTN = (1212, 24, 40, 40)

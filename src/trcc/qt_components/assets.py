@@ -75,6 +75,9 @@ def asset_exists(name: str) -> bool:
 class Assets:
     """Windows resource names mapped to asset filenames."""
 
+    # Form1 background (full window with sidebar + gold bar + sensor grid)
+    FORM1_BG = 'A0无设备.png'
+
     # Main form backgrounds
     FORM_CZTV_BG = 'P0CZTV.png'
     FORM_CZTV_BG_EN = 'P0CZTVen.png'

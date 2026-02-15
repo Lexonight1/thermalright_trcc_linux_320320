@@ -12,7 +12,7 @@ panel row.
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QIcon, QPalette
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QLabel,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..system_sensors import SensorEnumerator, SensorInfo
 from .assets import Assets, load_pixmap
+from .base import set_background_pixmap
 from .constants import Styles
 
 # Dialog dimensions (matches Windows FormSystemInfo)
@@ -133,19 +134,12 @@ class SensorPickerDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setModal(True)
 
-        # Background image
+        # Background image (no tiling — matches Windows ImageLayout.None)
         bg_name = Assets.get_localized('P0系统信息.png', lang)
-        bg = load_pixmap(bg_name, DIALOG_W, DIALOG_H)
-        if not bg.isNull():
-            palette = self.palette()
-            palette.setBrush(QPalette.ColorRole.Window, QBrush(bg))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
-            self._bg_ref = bg
-        else:
-            palette = self.palette()
-            palette.setColor(QPalette.ColorRole.Window, palette.color(QPalette.ColorRole.Window))
-            self.setStyleSheet("background-color: #1A1A2E;")
+        self._bg_ref = set_background_pixmap(
+            self, bg_name, width=DIALOG_W, height=DIALOG_H,
+            fallback_style="background-color: #1A1A2E;"
+        )
 
         # OK button
         self._ok_btn = QPushButton("OK", self)

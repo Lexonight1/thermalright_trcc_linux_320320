@@ -310,6 +310,14 @@ class TRCCMainWindowMVC(QMainWindow):
         self.setCentralWidget(central)
         # No stylesheet on central - would override QPalette on children
 
+        # Form1 background: A0无设备.png (sidebar + gold bar + sensor grid)
+        # ImageLayout.None in Windows — placed at origin, no scaling
+        pix_form1 = set_background_pixmap(central, Assets.FORM1_BG,
+            width=Sizes.WINDOW_W, height=Sizes.WINDOW_H,
+            fallback_style=f"background-color: {Colors.WINDOW_BG};")
+        if pix_form1:
+            self._pixmap_refs.append(pix_form1)
+
         # === Left: Device sidebar (180px) ===
         self.uc_device = UCDevice(central)
         self.uc_device.setGeometry(*Layout.SIDEBAR)
@@ -383,16 +391,7 @@ class TRCCMainWindowMVC(QMainWindow):
         # Apply localized display mode backgrounds to settings panel
         self._apply_settings_backgrounds()
 
-        # Collect form-only widgets (hidden when sysinfo panel is shown)
-        self._form_widgets: list[QWidget] = [
-            self.uc_preview, self.panel_stack, self.uc_activity_sidebar,
-            self.uc_info_module, self.uc_image_cut, self.uc_video_cut,
-            self.rotation_combo, self.brightness_btn, self.theme_name_input,
-            self.save_btn, self.export_btn, self.import_btn,
-            *self.mode_buttons,
-        ]
-
-        # === About / Control Center panel (hidden, replaces form_container) ===
+        # === About / Control Center panel (sibling of form_container) ===
         self.uc_about = UCAbout(self._lang, central)
         self.uc_about.setGeometry(*Layout.FORM_CONTAINER)
         self.uc_about.setVisible(False)
@@ -401,17 +400,32 @@ class TRCCMainWindowMVC(QMainWindow):
         self._system_sensors = SensorEnumerator()
         self._system_sensors.discover()
 
-        # === System Info dashboard (child of form_container, below orange bar) ===
+        # === System Info dashboard (sibling of form_container) ===
         self.uc_system_info = UCSystemInfo(self._system_sensors, self._lang,
-                                           self.form_container)
+                                           central)
         self.uc_system_info.setGeometry(*Layout.SYSINFO_PANEL)
-        self.uc_system_info.raise_()  # above form widgets
         self.uc_system_info.setVisible(False)
 
         # === LED Control panel (hidden, shown when LED device is selected) ===
         self.uc_led_control = UCLedControl(central)
         self.uc_led_control.setGeometry(*Layout.FORM_CONTAINER)
         self.uc_led_control.setVisible(False)
+
+        # === Form1-level buttons (on central, visible in sensor/home view) ===
+        # Windows: buttonPower at (1392, 24), buttonHelp at (1342, 24)
+        self.form1_close_btn = create_image_button(
+            central, *Layout.FORM1_CLOSE_BTN,
+            Assets.BTN_POWER, Assets.BTN_POWER_HOVER, fallback_text="X"
+        )
+        self.form1_close_btn.setToolTip("Close")
+        self.form1_close_btn.clicked.connect(self.close)
+
+        self.form1_help_btn = create_image_button(
+            central, *Layout.FORM1_HELP_BTN,
+            Assets.BTN_HELP, None, fallback_text="?"
+        )
+        self.form1_help_btn.setToolTip("Help")
+        self.form1_help_btn.clicked.connect(self._on_help_clicked)
 
         # Initialize theme directories
         self._init_theme_directories()
@@ -452,25 +466,26 @@ class TRCCMainWindowMVC(QMainWindow):
             btn.setChecked(i == active_btn)
 
     def _show_view(self, view: str):
-        """Switch between the five content views.
+        """Switch between the four content views.
 
         Args:
             view: 'form' (device/themes), 'about' (control center),
                   'sysinfo' (dashboard), or 'led' (LED control)
 
-        Sidebar and orange top bar stay visible for both 'form' and 'sysinfo'
-        views (matching Windows: UCSystemInfoOptions overlays FormCZTV).
+        All panels are siblings on central — only one visible at a time.
+        Matches Windows: Form1 hides/shows FormCZTV, UCAbout,
+        UCSystemInfoOptions, FormLED as siblings.
         """
-        # form_container hosts both form widgets and sysinfo panel
-        self.form_container.setVisible(view in ('form', 'sysinfo'))
+        self.form_container.setVisible(view == 'form')
         self.uc_about.setVisible(view == 'about')
+        self.uc_system_info.setVisible(view == 'sysinfo')
         self.uc_led_control.setVisible(view == 'led')
 
-        # Toggle form-only widgets vs sysinfo panel within form_container
-        show_form = (view == 'form')
-        for w in self._form_widgets:
-            w.setVisible(show_form)
-        self.uc_system_info.setVisible(view == 'sysinfo')
+        # Form1-level buttons: visible in sensor/home view only
+        # Windows: cmd 512 shows buttonPower/Help, cmd 256/240 hides them
+        show_form1_btns = (view == 'sysinfo')
+        self.form1_close_btn.setVisible(show_form1_btns)
+        self.form1_help_btn.setVisible(show_form1_btns)
 
         if view == 'sysinfo':
             self.uc_system_info.start_updates()

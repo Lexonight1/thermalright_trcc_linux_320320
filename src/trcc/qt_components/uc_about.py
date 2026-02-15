@@ -27,11 +27,11 @@ from threading import Thread
 from urllib.request import urlopen
 
 from PySide6.QtCore import QEvent, QPoint, Qt, Signal
-from PySide6.QtGui import QBrush, QIcon, QIntValidator, QPalette
+from PySide6.QtGui import QIcon, QIntValidator
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QToolTip
 
 from .assets import Assets, load_pixmap
-from .base import BasePanel, create_image_button
+from .base import BasePanel, create_image_button, set_background_pixmap
 from .constants import Layout, Sizes, Styles
 
 log = logging.getLogger(__name__)
@@ -183,14 +183,9 @@ class UCAbout(BasePanel):
         self._apply_background()
 
     def _apply_background(self):
-        """Set localized background image via QPalette."""
+        """Set localized background image (no tiling)."""
         bg_name = Assets.get_localized(Assets.ABOUT_BG, self._lang)
-        pixmap = load_pixmap(bg_name)
-        if not pixmap.isNull():
-            palette = self.palette()
-            palette.setBrush(QPalette.ColorRole.Window, QBrush(pixmap))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
+        set_background_pixmap(self, bg_name)
 
     def _setup_ui(self):
         """Build UI with invisible click targets over background image text."""

@@ -272,7 +272,7 @@ class TestSetBackgroundPixmap(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_with_qpixmap_directly(self):
-        """Passing QPixmap directly sets palette background."""
+        """Passing QPixmap directly installs paint event filter."""
         from PySide6.QtWidgets import QWidget
         widget = QWidget()
         widget.setFixedSize(50, 50)
@@ -280,7 +280,8 @@ class TestSetBackgroundPixmap(unittest.TestCase):
         pix.fill()
         result = set_background_pixmap(widget, pix)
         self.assertIsNotNone(result)
-        self.assertTrue(widget.autoFillBackground())
+        # Uses paint event filter (no tiling), not QPalette auto-fill
+        self.assertFalse(widget.autoFillBackground())
 
 
 # Import Qt here for the mouse event helper

@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPalette
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
 
 from ..system_config import (
@@ -30,6 +30,7 @@ from ..system_config import (
 )
 from ..system_sensors import SensorEnumerator
 from .assets import Assets, load_pixmap
+from .base import set_background_pixmap
 from .constants import Layout
 
 log = logging.getLogger(__name__)
@@ -89,14 +90,11 @@ class SystemInfoPanel(QWidget):
         self._value_labels: list[QLabel] = []
         self._selector_btns: list[QPushButton] = []
 
-        # Load background image
+        # Load background image (no tiling — matches Windows ImageLayout.None)
         img_name = CATEGORY_IMAGES.get(config.category_id, 'A自定义.png')
         self._bg_pixmap = load_pixmap(img_name, PANEL_W, PANEL_H)
         if not self._bg_pixmap.isNull():
-            palette = self.palette()
-            palette.setBrush(QPalette.ColorRole.Window, QBrush(self._bg_pixmap))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
+            set_background_pixmap(self, self._bg_pixmap)
 
         # Load selector button image
         self._sel_pixmap = load_pixmap('A数据选择.png', 16, 30)
@@ -261,13 +259,9 @@ class UCSystemInfo(QWidget):
     def _setup_ui(self):
         """Build from config, auto-map empty bindings."""
         # Background image (A0数据列表.png — Windows UCSystemInfoOptions)
+        # ImageLayout.None in Windows — draw once, no tiling
         _, _, w, h = Layout.SYSINFO_PANEL
-        bg = load_pixmap(Assets.SYSINFO_BG, w, h)
-        if not bg.isNull():
-            palette = self.palette()
-            palette.setBrush(QPalette.ColorRole.Window, QBrush(bg))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
+        set_background_pixmap(self, Assets.SYSINFO_BG, width=w, height=h)
 
         # Load config and auto-map any empty bindings
         self._config.load()
