@@ -289,15 +289,28 @@ class Layout:
         # (x, y, lang_suffix)
         (297, 373, 'en'),   # English
         (387, 373, 'd'),    # Deutsch
-        (477, 373, 'r'),    # Россия
+        (477, 373, 'e'),    # Россия
         (567, 373, 'f'),    # Français
         (657, 373, 'p'),    # Português
-        (297, 403, 'x'),    # 日本語
-        (387, 403, 'e'),    # Español
+        (297, 403, 'r'),    # 日本語
+        (387, 403, 'x'),    # Español
         (477, 403, ''),     # 中文简体
         (567, 403, 'tc'),   # 中文繁體
     ]
     ABOUT_CHECKBOX_SIZE = 14
+
+    # System locale → Windows asset suffix (for auto-detect on startup)
+    LOCALE_TO_LANG = {
+        'zh_CN': '',     # Chinese Simplified = default (no suffix)
+        'zh_TW': 'tc',   # Traditional Chinese
+        'en': 'en',       # English
+        'de': 'd',        # German
+        'es': 'x',        # Spanish
+        'fr': 'f',        # French
+        'pt': 'p',        # Portuguese
+        'ru': 'e',        # Russian
+        'ja': 'r',        # Japanese
+    }
 
 
 class Styles:

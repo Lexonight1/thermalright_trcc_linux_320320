@@ -64,18 +64,7 @@ from .uc_video_cut import UCVideoCut
 
 log = logging.getLogger(__name__)
 
-# Language code mapping: system locale -> Windows asset suffix
-LOCALE_TO_LANG = {
-    'zh_CN': '',     # Chinese Simplified = default (no suffix)
-    'zh_TW': 'tc',   # Traditional Chinese
-    'en': 'en',       # English
-    'de': 'd',        # German
-    'es': 'e',        # Spanish
-    'fr': 'f',        # French
-    'pt': 'p',        # Portuguese
-    'ru': 'r',        # Russian
-    'ja': 'x',        # Japanese
-}
+LOCALE_TO_LANG = Layout.LOCALE_TO_LANG
 
 
 def detect_language() -> str:
