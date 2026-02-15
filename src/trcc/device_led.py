@@ -229,8 +229,6 @@ _REMAP_STYLE_2: tuple[int, ...] = (
     21, 16, 17, 22, 20, 19, 18,
     # Zone 3: F A B G E D C
     28, 23, 24, 29, 27, 26, 25,
-    # SSD HSD C11 B11
-    6, 7, 81, 80,
     # Zone 4: F A B G E D C
     36, 31, 32, 37, 35, 34, 33,
     # Zone 5: F A B G E D C
@@ -249,8 +247,8 @@ _REMAP_STYLE_2: tuple[int, ...] = (
     54, 55, 56, 58, 53, 52, 57,
     # Zone 6 (reversed): C D E G B A F
     47, 48, 49, 51, 46, 45, 50,
-    # Gpu1 Gpu2
-    4, 5,
+    # Gpu1 Gpu2 SSD HSD C11 B11
+    4, 5, 6, 7, 81, 80,
 )
 
 # Style 3: AK120_DIGITAL (64 LEDs, 2 zones)

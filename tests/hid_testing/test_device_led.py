@@ -1334,14 +1334,22 @@ class TestRemapLedColors:
         assert remapped[0] == (40, 50, 60)  # Physical 0 = Cpu2
         assert remapped[1] == (10, 20, 30)  # Physical 1 = Cpu1
 
-    def test_style_2_gpu_at_end(self):
-        """Style 2 last two physical positions are Gpu1 and Gpu2."""
+    def test_style_2_gpu_and_tail(self):
+        """Style 2 physical 78-83: Gpu1, Gpu2, SSD, HSD, C11, B11."""
         colors = [(0, 0, 0)] * 84
         colors[4] = (100, 0, 0)    # Gpu1 at logical 4
         colors[5] = (0, 100, 0)    # Gpu2 at logical 5
+        colors[6] = (0, 0, 100)    # SSD at logical 6
+        colors[7] = (50, 50, 0)    # HSD at logical 7
+        colors[81] = (0, 50, 50)   # C11 at logical 81
+        colors[80] = (50, 0, 50)   # B11 at logical 80
         remapped = remap_led_colors(colors, style_id=2)
-        assert remapped[82] == (100, 0, 0)  # Physical 82 = Gpu1
-        assert remapped[83] == (0, 100, 0)  # Physical 83 = Gpu2
+        assert remapped[78] == (100, 0, 0)  # Physical 78 = Gpu1
+        assert remapped[79] == (0, 100, 0)  # Physical 79 = Gpu2
+        assert remapped[80] == (0, 0, 100)  # Physical 80 = SSD
+        assert remapped[81] == (50, 50, 0)  # Physical 81 = HSD
+        assert remapped[82] == (0, 50, 50)  # Physical 82 = C11
+        assert remapped[83] == (50, 0, 50)  # Physical 83 = B11
 
     def test_style_2_uniform_color_unchanged_count(self):
         """Uniform color (all same) remaps to same colors in different order."""
