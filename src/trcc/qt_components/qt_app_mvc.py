@@ -383,6 +383,15 @@ class TRCCMainWindowMVC(QMainWindow):
         # Apply localized display mode backgrounds to settings panel
         self._apply_settings_backgrounds()
 
+        # Collect form-only widgets (hidden when sysinfo panel is shown)
+        self._form_widgets: list[QWidget] = [
+            self.uc_preview, self.panel_stack, self.uc_activity_sidebar,
+            self.uc_info_module, self.uc_image_cut, self.uc_video_cut,
+            self.rotation_combo, self.brightness_btn, self.theme_name_input,
+            self.save_btn, self.export_btn, self.import_btn,
+            *self.mode_buttons,
+        ]
+
         # === About / Control Center panel (hidden, replaces form_container) ===
         self.uc_about = UCAbout(self._lang, central)
         self.uc_about.setGeometry(*Layout.FORM_CONTAINER)
@@ -392,9 +401,11 @@ class TRCCMainWindowMVC(QMainWindow):
         self._system_sensors = SensorEnumerator()
         self._system_sensors.discover()
 
-        # === System Info dashboard (hidden, shown by sensor/home button) ===
-        self.uc_system_info = UCSystemInfo(self._system_sensors, self._lang, central)
-        self.uc_system_info.setGeometry(*Layout.FORM_CONTAINER)
+        # === System Info dashboard (child of form_container, below orange bar) ===
+        self.uc_system_info = UCSystemInfo(self._system_sensors, self._lang,
+                                           self.form_container)
+        self.uc_system_info.setGeometry(*Layout.SYSINFO_PANEL)
+        self.uc_system_info.raise_()  # above form widgets
         self.uc_system_info.setVisible(False)
 
         # === LED Control panel (hidden, shown when LED device is selected) ===
@@ -446,11 +457,20 @@ class TRCCMainWindowMVC(QMainWindow):
         Args:
             view: 'form' (device/themes), 'about' (control center),
                   'sysinfo' (dashboard), or 'led' (LED control)
+
+        Sidebar and orange top bar stay visible for both 'form' and 'sysinfo'
+        views (matching Windows: UCSystemInfoOptions overlays FormCZTV).
         """
-        self.form_container.setVisible(view == 'form')
+        # form_container hosts both form widgets and sysinfo panel
+        self.form_container.setVisible(view in ('form', 'sysinfo'))
         self.uc_about.setVisible(view == 'about')
-        self.uc_system_info.setVisible(view == 'sysinfo')
         self.uc_led_control.setVisible(view == 'led')
+
+        # Toggle form-only widgets vs sysinfo panel within form_container
+        show_form = (view == 'form')
+        for w in self._form_widgets:
+            w.setVisible(show_form)
+        self.uc_system_info.setVisible(view == 'sysinfo')
 
         if view == 'sysinfo':
             self.uc_system_info.start_updates()

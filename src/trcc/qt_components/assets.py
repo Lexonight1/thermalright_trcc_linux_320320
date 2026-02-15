@@ -152,6 +152,7 @@ class Assets:
     CHECKBOX_OFF = 'P点选框.png'
     CHECKBOX_ON = 'P点选框A.png'
     UPDATE_BTN = 'A2立即更新.png'
+    SYSINFO_BG = 'A0数据列表.png'
 
     @classmethod
     def get(cls, name: str) -> str | None:

@@ -29,8 +29,8 @@ from ..system_config import (
     SysInfoConfig,
 )
 from ..system_sensors import SensorEnumerator
-from .assets import load_pixmap
-from .constants import Colors
+from .assets import Assets, load_pixmap
+from .constants import Layout
 
 log = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ SELECTOR_POSITIONS = [
 ]
 
 # Page nav button positions (bottom center)
-PAGE_PREV_POS = (570, 650, 64, 24)
-PAGE_NEXT_POS = (650, 650, 64, 24)
+PAGE_PREV_POS = (570, 655, 64, 24)
+PAGE_NEXT_POS = (650, 655, 64, 24)
 
 
 class SystemInfoPanel(QWidget):
@@ -237,7 +237,8 @@ class UCSystemInfo(QWidget):
 
     def __init__(self, enumerator: SensorEnumerator, lang: str = 'en', parent=None):
         super().__init__(parent)
-        self.setFixedSize(1274, 800)
+        _, _, w, h = Layout.SYSINFO_PANEL
+        self.setFixedSize(w, h)
 
         self._enumerator = enumerator
         self._lang = lang
@@ -259,11 +260,14 @@ class UCSystemInfo(QWidget):
 
     def _setup_ui(self):
         """Build from config, auto-map empty bindings."""
-        # Dark background
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(Colors.WINDOW_BG))
-        self.setPalette(palette)
-        self.setAutoFillBackground(True)
+        # Background image (A0数据列表.png — Windows UCSystemInfoOptions)
+        _, _, w, h = Layout.SYSINFO_PANEL
+        bg = load_pixmap(Assets.SYSINFO_BG, w, h)
+        if not bg.isNull():
+            palette = self.palette()
+            palette.setBrush(QPalette.ColorRole.Window, QBrush(bg))
+            self.setPalette(palette)
+            self.setAutoFillBackground(True)
 
         # Load config and auto-map any empty bindings
         self._config.load()
@@ -427,7 +431,7 @@ class UCSystemInfo(QWidget):
 
         # Page indicator
         self._page_label = QLabel(f"{self._page + 1}/{total_pages}", self)
-        self._page_label.setGeometry(640, 650, 40, 24)
+        self._page_label.setGeometry(640, 655, 40, 24)
         self._page_label.setStyleSheet("color: #888; font-size: 10px; background: transparent;")
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._page_label.show()

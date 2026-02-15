@@ -274,6 +274,10 @@ class Layout:
     ADD_BTN_Y0 = 55
     ADD_BTN_DY = 42
 
+    # UCSystemInfoOptions (sensor grid) — Windows: (190, 98) on Form1, size 1254x692
+    # y=80 covers the FormCZTV tab bar area (Windows hides FormCZTV entirely)
+    SYSINFO_PANEL = (10, 80, 1254, 710)
+
     # UCAbout / Control Center panel
     ABOUT_CLOSE_BTN = (1212, 24, 40, 40)
     ABOUT_STARTUP = (297, 174, 14, 14)
