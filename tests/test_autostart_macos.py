@@ -171,7 +171,9 @@ def test_resolve_macos_program_args_uses_trcc_next_when_on_path(
         lambda name: "/opt/trcc/bin/trcc" if name == "trcc" else None,
     )
     args = _autostart._resolve_macos_program_args()
-    assert args == ["/opt/trcc/bin/trcc", "gui"]
+    # --resume: an autostarted LaunchAgent starts in the tray, matching Linux
+    # since #201.  macOS never got that fix because #201 was reported on Linux.
+    assert args == ["/opt/trcc/bin/trcc", "gui", "--resume"]
 
 
 def test_resolve_macos_program_args_falls_back_to_python(monkeypatch) -> None:
@@ -181,4 +183,46 @@ def test_resolve_macos_program_args_falls_back_to_python(monkeypatch) -> None:
     args = _autostart._resolve_macos_program_args()
     assert "-m" in args
     assert "trcc" in args
-    assert args[-1] == "gui"
+    # --resume, so an autostarted LaunchAgent comes up in the tray instead of
+    # popping a window — the behaviour Linux has had since #201 and macOS had
+    # not.  The subcommand is still the last thing before it.
+    assert args[-2:] == ["gui", "--resume"]
+
+
+# =========================================================================
+# refresh — re-render an installed plist (the #201 upgrade path)
+# =========================================================================
+
+
+def test_refresh_rerenders_an_installed_plist(tmp_path: Path) -> None:
+    """An existing LaunchAgent picks up a changed argv on upgrade.
+
+    Was a no-op — "the plist needs no rebuild between sessions" — which held
+    only while the argv could never change.  ``--resume`` changed it, and
+    without this an existing agent launches a visible window forever.
+    """
+    autostart, _rec, plist = _build(tmp_path,
+                                  program_args=["/opt/trcc/bin/trcc", "gui"])
+    autostart.enable()
+    assert "--resume" not in plist.read_text(encoding="utf-8")
+
+    upgraded, _rec2, _p = _build(
+        tmp_path, program_args=["/opt/trcc/bin/trcc", "gui", "--resume"],
+    )
+    upgraded.refresh()
+
+    assert "<string>--resume</string>" in plist.read_text(encoding="utf-8"), (
+        "refresh left the stale argv in the plist"
+    )
+
+
+def test_refresh_does_not_install_a_plist_that_was_never_enabled(
+    tmp_path: Path,
+) -> None:
+    """The invariant every refresh shares: never create an entry."""
+    autostart, rec, plist = _build(tmp_path)
+
+    autostart.refresh()
+
+    assert not plist.exists()
+    assert rec.calls == [], f"refresh shelled out for a missing agent: {rec.calls}"

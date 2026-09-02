@@ -182,11 +182,15 @@ def _resolve_command() -> str:
     ``python -m trcc gui`` so dev installs still autostart.
     """
     log.debug("_resolve_command: called")
+    # ``--resume`` for the same reason Linux passes it (#201): an autostarted
+    # instance belongs in the tray, not in your face at every login.  Windows
+    # and macOS never got it — #201 was reported on Linux and the fix landed
+    # only on the XDG path, so two of the three platforms popped a window.
     if (exe := shutil.which("trcc")) is not None:
         # Registry values quote the path so spaces in install dirs
         # (Program Files) don't break the launch.
-        return f'"{exe}" gui'
-    return f'"{sys.executable}" -m trcc gui'
+        return f'"{exe}" gui --resume'
+    return f'"{sys.executable}" -m trcc gui --resume'
 
 
 def _winreg_module() -> Any:
@@ -233,6 +237,34 @@ class WindowsAutostart(AutostartManager):
 
     # ── AutostartManager ABC ───────────────────────────────────────
 
+    def _stored_value(self) -> str | None:
+        """The Run-key value we wrote, or None when absent/unreadable.
+
+        Split out of ``is_enabled`` because ``refresh`` asks a DIFFERENT
+        question: is a value present *at all*, whatever it says.  A stale one
+        does not equal the current command by definition, so reusing
+        ``is_enabled`` there would refuse to fix exactly the entries that need
+        fixing.
+        """
+        if self._registry is None:
+            log.debug("WindowsAutostart._stored_value: no winreg — None")
+            return None
+        try:
+            with self._open_key(write=False) as key:
+                stored, _ = self._registry.QueryValueEx(key, self._value_name)
+        except OSError as e:
+            log.debug("WindowsAutostart._stored_value: %s absent (%s)",
+                      self._value_name, e)
+            return None
+        log.debug("WindowsAutostart._stored_value: %r", stored)
+        return str(stored)
+
+    def _value_present(self) -> bool:
+        """True when the Run key holds our value, whatever its content."""
+        present = self._stored_value() is not None
+        log.debug("WindowsAutostart._value_present -> %s", present)
+        return present
+
     def is_enabled(self) -> bool:
         """True when the Run key holds our value AND it matches our command.
 
@@ -242,14 +274,7 @@ class WindowsAutostart(AutostartManager):
         a stale path.
         """
         log.info("is_enabled: called")
-        if self._registry is None:
-            return False
-        try:
-            with self._open_key(write=False) as key:
-                stored, _ = self._registry.QueryValueEx(key, self._value_name)
-        except OSError:
-            return False
-        return stored == self._cmd
+        return self._stored_value() == self._cmd
 
     def enable(self) -> None:
         log.info("enable: called")
@@ -279,7 +304,23 @@ class WindowsAutostart(AutostartManager):
             log.info("WindowsAutostart: disabled")
 
     def refresh(self) -> None:
-        """No-op: the Run key needs no compilation step."""
+        """Rewrite the Run key when it holds a stale command.
+
+        This WAS a no-op — "the Run key needs no compilation step" — which
+        held only while the command could never change.  It can: #201 added
+        ``--resume``, and an already-enabled user's key keeps whatever it was
+        written with forever, so the fix would reach new installs and never
+        reach them.  Linux picks changes up because XDG ``refresh()``
+        re-renders; this is that, for the registry.
+
+        Only rewrites when a value is already present — like every other
+        ``refresh``, it must never enable autostart nobody asked for.
+        """
+        if not self._value_present():
+            log.debug("WindowsAutostart.refresh: no entry — nothing to refresh")
+            return
+        log.info("WindowsAutostart.refresh: re-writing %s", self._value_name)
+        self.enable()
 
     # ── Internal: open the Run key in read or write mode ──────────
 
@@ -308,9 +349,11 @@ _DEFAULT_PLIST_PATH = (
 def _resolve_macos_program_args() -> list[str]:
     """Return the argv that the LaunchAgent should run on login."""
     log.debug("_resolve_macos_program_args: called")
+    # ``--resume`` — see _resolve_command: launch hidden in the tray, the
+    # behaviour Linux has had since #201 and these two platforms had not.
     if (exe := shutil.which("trcc")) is not None:
-        return [exe, "gui"]
-    return [sys.executable, "-m", "trcc", "gui"]
+        return [exe, "gui", "--resume"]
+    return [sys.executable, "-m", "trcc", "gui", "--resume"]
 
 
 def _render_plist(program_args: list[str], *, label: str = _MAC_LABEL) -> str:
@@ -447,4 +490,14 @@ class MacOSAutostart(AutostartManager):
             log.info("MacOSAutostart: disabled")
 
     def refresh(self) -> None:
-        """No-op: the plist needs no rebuild between sessions."""
+        """Re-render the plist when one is installed — see WindowsAutostart.
+
+        Was a no-op on the premise that the plist never changes between
+        sessions.  ``--resume`` changed it, and an existing LaunchAgent would
+        otherwise keep launching a visible window forever.
+        """
+        if not self._plist_path.exists():
+            log.debug("MacOSAutostart.refresh: no plist — nothing to refresh")
+            return
+        log.info("MacOSAutostart.refresh: re-rendering %s", self._plist_path)
+        self.enable()

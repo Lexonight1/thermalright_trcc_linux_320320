@@ -194,7 +194,9 @@ def test_resolve_command_prefers_installed_console_script(
     monkeypatch.setattr(_autostart.shutil, "which",
                         lambda name: fake_path if name == "trcc" else None)
     cmd = _autostart._resolve_command()
-    assert cmd == f'"{fake_path}" gui'
+    # --resume: see the macOS twin.  Windows autostart popped a window on
+    # every login because #201's fix landed only on the XDG path.
+    assert cmd == f'"{fake_path}" gui --resume'
 
 
 # =========================================================================
@@ -234,3 +236,43 @@ def test_works_with_simplenamespace_fake_for_quick_smoke() -> None:
 
 def _raise(exc_class: type[BaseException]) -> Any:
     raise exc_class
+
+
+# =========================================================================
+# refresh — rewrite a stale Run-key value (the #201 upgrade path)
+# =========================================================================
+#
+# This was a no-op: "the Run key needs no compilation step", true only while
+# the command could never change.  #201 added ``--resume``; without a refresh
+# that rewrites, an already-enabled user keeps the old bare command forever
+# and the fix reaches new installs only.  Linux picks changes up because XDG
+# refresh() re-renders; these are that, for the registry and the plist.
+
+
+def test_refresh_rewrites_a_stale_command() -> None:
+    reg = _FakeWinreg()
+    old = WindowsAutostart(command='"C:\\old\\trcc.exe" gui', registry=reg)
+    old.enable()
+
+    new = WindowsAutostart(command='"C:\\new\\trcc.exe" gui --resume',
+                           registry=reg)
+    assert not new.is_enabled(), (
+        "precondition: a stale value must not read as enabled"
+    )
+
+    new.refresh()
+
+    assert new.is_enabled(), "refresh left the stale command in place"
+
+
+def test_refresh_does_not_enable_autostart_nobody_asked_for() -> None:
+    """The invariant every refresh shares: never create an entry."""
+    reg = _FakeWinreg()
+    autostart = WindowsAutostart(command="X", registry=reg)
+
+    autostart.refresh()
+
+    assert not autostart.is_enabled()
+    assert all(not values for values in reg.store.values()), (
+        f"refresh created a Run-key entry: {reg.store}"
+    )
