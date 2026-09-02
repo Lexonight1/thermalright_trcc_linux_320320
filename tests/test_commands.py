@@ -465,3 +465,74 @@ def test_boot_seeds_the_disk_preference_from_settings(fake_platform) -> None:
     assert reborn.platform.sensors()._preferred_disk_key == (
         "hwmon:nvme:SERIAL_AAA:temp1"
     ), "the persisted choice was not re-applied at boot"
+
+
+# =========================================================================
+# EnableAutostart — WHICH ui starts with the computer
+# =========================================================================
+
+
+def test_enable_autostart_records_the_chosen_target(fake_platform) -> None:
+    app = App(fake_platform)
+
+    result = app.dispatch(EnableAutostart(target="daemon"))
+
+    assert result.ok, result.message
+    assert result.target == "daemon"
+    assert app.dispatch(GetAutostartStatus()).target == "daemon", (
+        "status did not report the target that was installed"
+    )
+
+
+def test_enable_autostart_defaults_when_no_target_is_given(fake_platform) -> None:
+    app = App(fake_platform)
+
+    result = app.dispatch(EnableAutostart())
+
+    assert result.ok
+    assert result.target == "gui"
+
+
+def test_enable_autostart_refuses_an_unknown_target(fake_platform) -> None:
+    """A KeyError from ``autostart_argv`` is not an answer; a Result is.
+
+    Validation lives in the Command precisely because the adapter raises.
+    """
+    app = App(fake_platform)
+
+    result = app.dispatch(EnableAutostart(target="nonesuch"))
+
+    assert not result.ok
+    assert "nonesuch" in result.message
+    assert "daemon" in result.message, (
+        "the refusal must name the valid set, or the user cannot act on it"
+    )
+    assert not app.dispatch(GetAutostartStatus()).enabled, (
+        "a rejected target must not have enabled anything"
+    )
+
+
+def test_autostart_status_reports_where_the_entry_lives(fake_platform) -> None:
+    """``entry_location`` is declared on the port, not duck-typed.
+
+    ``_autostart_path`` used to do ``getattr(mgr, "path", "")`` — an attribute
+    only the XDG adapter had — so the field a reporter pastes was EMPTY on
+    Windows and macOS, the two platforms we cannot reproduce on and therefore
+    depend on the reporter for.
+    """
+    assert App(fake_platform).dispatch(GetAutostartStatus()).path != ""
+
+
+def test_autostart_result_round_trips_the_new_field() -> None:
+    """A serializer is a PAIR — gate the round trip, not the write half."""
+    from trcc import ipc
+    from trcc.core.results import AutostartResult
+
+    original = AutostartResult(ok=True, message="enabled (daemon)",
+                               enabled=True, path="/x/trcc.desktop",
+                               target="daemon")
+
+    back = ipc.decode_result(ipc.encode_result(original))
+
+    assert back == original
+    assert back.target == "daemon", "target was dropped crossing the wire"

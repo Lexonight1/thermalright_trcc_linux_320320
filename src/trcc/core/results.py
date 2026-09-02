@@ -506,9 +506,13 @@ class SetupResult(Result):
 
 @dataclass(frozen=True, slots=True)
 class AutostartResult(Result):
-    """Current autostart state + path for diagnostic UIs."""
+    """Current autostart state, target and path for diagnostic UIs."""
     enabled: bool = False
     path: str = ""
+    #: WHICH ui starts with the computer — read back from the installed entry,
+    #: empty when autostart is off.  All four UIs ship; reporting only
+    #: enabled/disabled cannot say which one login will bring up.
+    target: str = ""
 
 
 @dataclass(frozen=True, slots=True)

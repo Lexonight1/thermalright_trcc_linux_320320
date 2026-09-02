@@ -21,6 +21,7 @@ from ..events import (
     TimeFormatChanged,
 )
 from ..models import (
+    AUTOSTART_TARGETS,
     MAX_REFRESH_INTERVAL_S,
     MIN_REFRESH_INTERVAL_S,
     SLIDESHOW_POLL_S,
@@ -1040,25 +1041,46 @@ class GetAutostartStatus(Query[AutostartResult]):
         mgr = app.platform.autostart()
         enabled = mgr.is_enabled()
         path = _autostart_path(app)
-        log.debug("GetAutostartStatus.execute: enabled=%s path=%s", enabled, path)
+        target = mgr.installed_target() or ""
+        log.debug("GetAutostartStatus.execute: enabled=%s target=%s path=%s",
+                  enabled, target, path)
         return AutostartResult(
             ok=True,
-            message="enabled" if enabled else "disabled",
-            enabled=enabled, path=path,
+            message=(f"enabled ({target})" if enabled and target
+                     else "enabled" if enabled else "disabled"),
+            enabled=enabled, path=path, target=target,
         )
 
 @dataclass(frozen=True, slots=True)
 class EnableAutostart(Command[AutostartResult]):
-    """Install the OS-specific autostart entry (per-user, no sudo)."""
+    """Install the OS-specific autostart entry (per-user, no sudo).
+
+    ``target`` names WHICH ui login brings up — ``None`` keeps the platform
+    default.  All four ship, so autostart that could only ever launch ``gui``
+    made the other three unreachable at login.
+    """
+    target: str | None = None
 
     def execute(self, app: App) -> AutostartResult:
+        # Validated HERE, not in the adapter: ``autostart_argv`` raises
+        # KeyError for an unknown target, and a KeyError reaching a UI is not
+        # an answer.  A Result naming the valid set is.
+        if self.target is not None and self.target not in AUTOSTART_TARGETS:
+            log.warning("EnableAutostart: unknown target %r", self.target)
+            return AutostartResult(
+                ok=False, enabled=False,
+                message=(f"unknown autostart target {self.target!r} — "
+                         f"expected one of {sorted(AUTOSTART_TARGETS)}"),
+            )
         mgr = app.platform.autostart()
-        mgr.enable()
-        log.info("EnableAutostart.execute: now enabled=%s at %s",
-                 mgr.is_enabled(), _autostart_path(app))
+        mgr.enable(self.target)
+        installed = mgr.installed_target() or ""
+        log.info("EnableAutostart.execute: enabled=%s target=%s at %s",
+                 mgr.is_enabled(), installed, _autostart_path(app))
         return AutostartResult(
-            ok=True, message="autostart enabled",
+            ok=True, message=f"autostart enabled ({installed or 'default'})",
             enabled=mgr.is_enabled(), path=_autostart_path(app),
+            target=installed,
         )
 
 @dataclass(frozen=True, slots=True)

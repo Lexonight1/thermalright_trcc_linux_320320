@@ -34,10 +34,10 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`PackageManager`](#packagemanager) | 4 | 0 | 2 |
 | [`Paths`](#paths) | 4 | 9 | 5 |
 | [`SendTask`](#sendtask) | 4 | 0 | 3 |
-| [`AutostartManager`](#autostartmanager) | 5 | 0 | 4 |
 | [`BulkTransport`](#bulktransport) | 5 | 0 | 2 |
 | [`CpuSource`](#cpusource) | 5 | 0 | 10 |
 | [`ScsiTransport`](#scsitransport) | 5 | 0 | 3 |
+| [`AutostartManager`](#autostartmanager) | 6 | 0 | 4 |
 | [`Diagnostics`](#diagnostics) | 7 | 0 | 1 |
 | [`GpuSource`](#gpusource) | 10 | 0 | 10 |
 | [`SensorEnumerator`](#sensorenumerator) | 10 | 5 | 1 |
@@ -436,24 +436,6 @@ wake() -> None
 
 **Implementations (3):** `DeviceSender` · `ScreencastDriver` · `SlideshowDriver`
 
-## AutostartManager
-
-`core/ports.py`
-
-Start-with-the-computer, per OS.
-
-**You implement (5):**
-
-```python
-disable() -> None
-enable(target: 'str | None' = None) -> None
-installed_target() -> str | None
-is_enabled() -> bool
-refresh() -> None
-```
-
-**Implementations (4):** `MacOSAutostart` · `NoopAutostart` · `WindowsAutostart` · `XdgDesktopAutostart`
-
 ## BulkTransport
 
 `core/ports.py`
@@ -507,6 +489,25 @@ send_cdb(cdb: 'bytes', data: 'bytes', timeout_ms: 'int' = 5000) -> bool
 ```
 
 **Implementations (3):** `LinuxScsiTransport` · `UsbBotScsiTransport` · `WindowsScsiTransport`
+
+## AutostartManager
+
+`core/ports.py`
+
+Start-with-the-computer, per OS.
+
+**You implement (6):**
+
+```python
+disable() -> None
+enable(target: 'str | None' = None) -> None
+entry_location() -> str
+installed_target() -> str | None
+is_enabled() -> bool
+refresh() -> None
+```
+
+**Implementations (4):** `MacOSAutostart` · `NoopAutostart` · `WindowsAutostart` · `XdgDesktopAutostart`
 
 ## Diagnostics
 

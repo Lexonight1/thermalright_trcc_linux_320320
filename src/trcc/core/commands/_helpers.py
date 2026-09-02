@@ -512,9 +512,10 @@ def _slideshow_snapshot(settings, key: str) -> SlideshowResult:
 
 def _autostart_path(app: App) -> str:
     """Extract the manager's filesystem path when available."""
-    log.debug("_autostart_path: called")
     mgr = app.platform.autostart()
-    return str(getattr(mgr, "path", "")) or ""
+    location = mgr.entry_location()
+    log.debug("_autostart_path: %s", location)
+    return location
 
 
 def device_overlay_layout(app: App, key: str) -> list[dict[str, Any]]:

@@ -1769,6 +1769,17 @@ class AutostartManager(ABC):
     def is_enabled(self) -> bool: ...
 
     @abstractmethod
+    def entry_location(self) -> str:
+        """Where this OS records the entry — a path, a registry value, a label.
+
+        For diagnostics: it is what a reporter checks and what ``trcc report``
+        carries.  Declared rather than duck-typed — ``_autostart_path`` reached
+        for a ``.path`` attribute only ONE implementation had and silently
+        returned "" for the other two, which are exactly the platforms we
+        cannot reproduce on and therefore depend on the reporter for.
+        """
+
+    @abstractmethod
     def installed_target(self) -> str | None:
         """The target the installed entry launches, or None when absent.
 

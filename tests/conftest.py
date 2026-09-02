@@ -126,6 +126,9 @@ class FakeAutostart(AutostartManager):
     def is_enabled(self) -> bool:
         return self._enabled
 
+    def entry_location(self) -> str:
+        return "/fake/autostart/trcc.desktop"
+
     def installed_target(self) -> str | None:
         return self._target if self._enabled else None
 

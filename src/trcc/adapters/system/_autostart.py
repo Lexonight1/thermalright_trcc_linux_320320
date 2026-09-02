@@ -45,6 +45,10 @@ class NoopAutostart(AutostartManager):
         log.debug("is_enabled: called")
         return False
 
+    def entry_location(self) -> str:
+        log.debug("NoopAutostart.entry_location: none on this OS")
+        return ""
+
     def installed_target(self) -> str | None:
         log.debug("NoopAutostart.installed_target: None")
         return None
@@ -110,6 +114,10 @@ class XdgDesktopAutostart(AutostartManager):
         enabled = self._path.is_file()
         log.debug("XdgDesktopAutostart.is_enabled → %s (%s)", enabled, self._path)
         return enabled
+
+    def entry_location(self) -> str:
+        log.debug("XdgDesktopAutostart.entry_location: %s", self._path)
+        return str(self._path)
 
     def installed_target(self) -> str | None:
         """Read the target back out of the installed ``Exec=`` line."""
@@ -385,6 +393,11 @@ class WindowsAutostart(AutostartManager):
         log.debug("WindowsAutostart._command_for(%s): %r", target, cmd)
         return cmd
 
+    def entry_location(self) -> str:
+        location = f"HKCU\\{_WIN_RUN_KEY_PATH}\\{self._value_name}"
+        log.debug("WindowsAutostart.entry_location: %s", location)
+        return location
+
     def installed_target(self) -> str | None:
         stored = self._stored_value()
         target = target_from_command(stored) if stored is not None else None
@@ -589,6 +602,10 @@ class MacOSAutostart(AutostartManager):
         """
         log.info("is_enabled: called")
         return self._plist_path.exists()
+
+    def entry_location(self) -> str:
+        log.debug("MacOSAutostart.entry_location: %s", self._plist_path)
+        return str(self._plist_path)
 
     def installed_target(self) -> str | None:
         """Read the target back out of the installed plist's ProgramArguments."""
