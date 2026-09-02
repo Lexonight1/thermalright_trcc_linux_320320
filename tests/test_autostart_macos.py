@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from trcc.adapters.system._autostart import (
     MacOSAutostart,
     _render_plist,
@@ -226,3 +228,29 @@ def test_refresh_does_not_install_a_plist_that_was_never_enabled(
 
     assert not plist.exists()
     assert rec.calls == [], f"refresh shelled out for a missing agent: {rec.calls}"
+
+
+# =========================================================================
+# Which UI starts with the computer
+# =========================================================================
+
+
+@pytest.mark.parametrize("target", ["gui", "qtgui", "api", "daemon"])
+def test_enable_writes_the_chosen_target_into_the_plist(
+    tmp_path: Path, target: str,
+) -> None:
+    autostart, _rec, plist = _build(tmp_path)
+
+    autostart.enable(target)
+
+    assert f"<string>{target}</string>" in plist.read_text(encoding="utf-8")
+    assert autostart.installed_target() == target
+
+
+def test_refresh_preserves_the_installed_target(tmp_path: Path) -> None:
+    autostart, _rec, _plist = _build(tmp_path)
+    autostart.enable("daemon")
+
+    autostart.refresh()
+
+    assert autostart.installed_target() == "daemon"

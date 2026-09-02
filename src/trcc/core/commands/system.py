@@ -1085,9 +1085,13 @@ class RefreshAutostart(Command[AutostartResult]):
     is installed — it never enables autostart the user did not ask for, which
     is what separates it from :class:`EnableAutostart`.
 
-    Whether it does anything is per-OS and lives in the adapter: XDG
-    re-renders the ``.desktop``; the Windows Run key and the macOS plist need
-    no rebuild and no-op.  It exists as a Command because ``refresh()`` was
+    Whether it does anything is per-OS and lives in the adapter — all three
+    now re-render, because the command CAN change: ``--resume`` (#201) and the
+    autostart target both alter it, and an entry written by an older install
+    would otherwise keep its old launch line forever.  Each re-renders only
+    when an entry already exists, and with the target ALREADY installed, so a
+    repair never changes which ui the user chose.  It exists as a Command
+    because ``refresh()`` was
     the one :class:`~trcc.core.ports.AutostartManager` method no Command
     reached, so the only caller able to repair a stale entry was the gui,
     holding the port directly.

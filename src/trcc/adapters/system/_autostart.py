@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,11 @@ class NoopAutostart(AutostartManager):
         log.debug("is_enabled: called")
         return False
 
-    def enable(self) -> None:
+    def installed_target(self) -> str | None:
+        log.debug("NoopAutostart.installed_target: None")
+        return None
+
+    def enable(self, target: str | None = None) -> None:
         log.debug("NoopAutostart.enable: no-op on this platform")
 
     def disable(self) -> None:
@@ -73,7 +78,7 @@ _AUTOSTART_TEMPLATE = """\
 Type=Application
 Name=TRCC (next)
 GenericName=Thermalright Cooler Control
-Comment=Auto-start TRCC GUI on login
+Comment=Auto-start TRCC ({target}) on login
 Exec={exec_cmd}
 Icon=trcc
 Terminal=false
@@ -106,10 +111,27 @@ class XdgDesktopAutostart(AutostartManager):
         log.debug("XdgDesktopAutostart.is_enabled → %s (%s)", enabled, self._path)
         return enabled
 
-    def enable(self) -> None:
-        log.info("XdgDesktopAutostart.enable: writing %s", self._path)
+    def installed_target(self) -> str | None:
+        """Read the target back out of the installed ``Exec=`` line."""
+        if not self._path.is_file():
+            log.debug("XdgDesktopAutostart.installed_target: %s absent",
+                      self._path)
+            return None
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("Exec="):
+                target = target_from_command(line[len("Exec="):])
+                log.debug("XdgDesktopAutostart.installed_target: %s", target)
+                return target
+        log.debug("XdgDesktopAutostart.installed_target: no Exec= in %s",
+                  self._path)
+        return None
+
+    def enable(self, target: str | None = None) -> None:
+        target = target or DEFAULT_AUTOSTART_TARGET
+        log.info("XdgDesktopAutostart.enable: writing %s (target=%s)",
+                 self._path, target)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(self._render(), encoding="utf-8")
+        self._path.write_text(self._render(target), encoding="utf-8")
         self._path.chmod(0o644)
         log.info("Autostart enabled: %s", self._path)
 
@@ -124,17 +146,24 @@ class XdgDesktopAutostart(AutostartManager):
     def refresh(self) -> None:
         """Re-render the .desktop file if present (picks up a new Exec path)."""
         if self._path.exists():
-            log.info("XdgDesktopAutostart.refresh: re-rendering %s", self._path)
-            self.enable()
+            installed = self.installed_target()
+            log.info("XdgDesktopAutostart.refresh: re-rendering %s (target=%s)",
+                     self._path, installed)
+            # Re-enable with the target ALREADY installed, never the default:
+            # refresh repairs a stale path (#201), it must not silently change
+            # which ui the user chose to start.
+            self.enable(installed)
         else:
             log.debug("XdgDesktopAutostart.refresh: %s not present — nothing to refresh",
                       self._path)
 
-    def _render(self) -> str:
-        return _AUTOSTART_TEMPLATE.format(exec_cmd=self._exec_cmd())
+    def _render(self, target: str = DEFAULT_AUTOSTART_TARGET) -> str:
+        return _AUTOSTART_TEMPLATE.format(
+            exec_cmd=self._exec_cmd(target), target=target,
+        )
 
     @staticmethod
-    def _exec_cmd() -> str:
+    def _exec_cmd(target: str = DEFAULT_AUTOSTART_TARGET) -> str:
         """The autostart launch command.
 
         ``--resume`` makes the autostarted instance start hidden in the
@@ -142,7 +171,7 @@ class XdgDesktopAutostart(AutostartManager):
         window on every login — the long-standing autostart behaviour that
         regressed when the flag was dropped (#201).
         """
-        return gui_launch_command("--resume")
+        return " ".join(autostart_argv(target))
 
 
 def launch_argv(subcommand: str, *args: str) -> list[str]:
@@ -177,6 +206,50 @@ def autostart_argv(target: str = DEFAULT_AUTOSTART_TARGET) -> list[str]:
     args = AUTOSTART_TARGETS[target]
     log.info("autostart_argv: target=%s extra=%s", target, list(args))
     return launch_argv(target, *args)
+
+
+def target_from_argv(argv: list[str]) -> str | None:
+    """Recover the autostart target from an installed entry's argv.
+
+    The installed entry IS the record of what was installed — there is no
+    second copy in Settings to drift from it, and two callers NEED the answer:
+    XDG ``refresh()`` re-renders by calling ``enable()`` and would otherwise
+    reset the user's choice, and Windows ``is_enabled()`` compares against a
+    command that must be the one for the INSTALLED target.
+
+    The target is read at its KNOWN position — ``argv[1]``, or ``argv[3]``
+    after ``-m trcc`` — not by scanning for the first token that happens to be
+    a target name.  Scanning is wrong on a form we do not write:
+    ``trcc --log-file daemon gui`` would answer ``daemon``.  Anything that is
+    not exactly our shape returns None, because a wrong target is worse than
+    no target: it would rewrite a user's entry to something they never chose.
+    """
+    if len(argv) < 2:
+        log.debug("target_from_argv: too short: %s", argv)
+        return None
+    if argv[1:3] == ["-m", "trcc"]:
+        candidate = argv[3] if len(argv) > 3 else ""
+    else:
+        candidate = argv[1]
+    target = candidate if candidate in AUTOSTART_TARGETS else None
+    log.debug("target_from_argv: %s -> %s", argv, target)
+    return target
+
+
+def target_from_command(value: str) -> str | None:
+    """``target_from_argv`` for a command STRING (Exec= line, registry value).
+
+    The Windows Run key QUOTES the program so a Program Files path survives,
+    and a plain split would shred it — so the quoted head is consumed and a
+    placeholder put back, keeping ``argv[0] is the program`` true for the
+    position rule above.
+    """
+    log.debug("target_from_command: %r", value)
+    if value.startswith('"'):
+        end = value.find('"', 1)
+        if end != -1:
+            return target_from_argv(["<program>", *value[end + 1:].split()])
+    return target_from_argv(value.split())
 
 
 def gui_launch_command(*args: str) -> str:
@@ -297,26 +370,51 @@ class WindowsAutostart(AutostartManager):
         log.debug("WindowsAutostart._value_present -> %s", present)
         return present
 
+    def _command_for(self, target: str | None) -> str:
+        """The Run-key value we would write for *target*.
+
+        ``None`` means "whatever this manager was constructed with" — which is
+        how the injected-command seam keeps working, and what an entry naming
+        no target falls back to.
+        """
+        if target is None:
+            log.debug("WindowsAutostart._command_for: default %r", self._cmd)
+            return self._cmd
+        argv = autostart_argv(target)
+        cmd = " ".join([f'"{argv[0]}"', *argv[1:]])
+        log.debug("WindowsAutostart._command_for(%s): %r", target, cmd)
+        return cmd
+
+    def installed_target(self) -> str | None:
+        stored = self._stored_value()
+        target = target_from_command(stored) if stored is not None else None
+        log.debug("WindowsAutostart.installed_target: %s", target)
+        return target
+
     def is_enabled(self) -> bool:
         """True when the Run key holds our value AND it matches our command.
 
-        Mismatched value means the user (or an old install) wrote a
-        different launch line — we report enabled=False so the next
-        ``enable()`` rewrites it.  Defensive — never silently inherit
-        a stale path.
+        Compared against the command for the INSTALLED target, not a fixed
+        one: an entry enabled for ``daemon`` must not read as disabled just
+        because this manager's default is ``gui``.  An entry naming no target
+        falls back to the constructor's command, which keeps the "stale path
+        reads as disabled" defence — and the injected-command tests — intact.
         """
         log.info("is_enabled: called")
-        return self._stored_value() == self._cmd
+        stored = self._stored_value()
+        if stored is None:
+            return False
+        return stored == self._command_for(target_from_command(stored))
 
-    def enable(self) -> None:
-        log.info("enable: called")
+    def enable(self, target: str | None = None) -> None:
+        log.info("enable: target=%s", target)
         if self._registry is None:
             log.debug("WindowsAutostart.enable: winreg unavailable; no-op")
             return
         with self._open_key(write=True) as key:
             self._registry.SetValueEx(
                 key, self._value_name, 0,
-                self._registry.REG_SZ, self._cmd,
+                self._registry.REG_SZ, self._command_for(target),
             )
         log.info("WindowsAutostart: enabled at HKCU\\%s\\%s",
                  _WIN_RUN_KEY_PATH, self._value_name)
@@ -351,8 +449,10 @@ class WindowsAutostart(AutostartManager):
         if not self._value_present():
             log.debug("WindowsAutostart.refresh: no entry — nothing to refresh")
             return
-        log.info("WindowsAutostart.refresh: re-writing %s", self._value_name)
-        self.enable()
+        installed = self.installed_target()
+        log.info("WindowsAutostart.refresh: re-writing %s (target=%s)",
+                 self._value_name, installed)
+        self.enable(installed)
 
     # ── Internal: open the Run key in read or write mode ──────────
 
@@ -490,10 +590,29 @@ class MacOSAutostart(AutostartManager):
         log.info("is_enabled: called")
         return self._plist_path.exists()
 
-    def enable(self) -> None:
-        log.info("enable: called")
+    def installed_target(self) -> str | None:
+        """Read the target back out of the installed plist's ProgramArguments."""
+        if not self._plist_path.exists():
+            log.debug("MacOSAutostart.installed_target: %s absent",
+                      self._plist_path)
+            return None
+        body = self._plist_path.read_text(encoding="utf-8")
+        argv = re.findall(r"<string>(.*?)</string>", body)
+        log.debug("MacOSAutostart.installed_target: argv=%s", argv)
+        # The Label is the first <string> in the plist; drop it so argv[0] is
+        # the program and the position rule holds.
+        return target_from_argv(argv[1:]) if argv else None
+
+    def _args_for(self, target: str | None) -> list[str]:
+        """``None`` keeps the constructor's argv — the injected-args seam."""
+        args = list(self._program_args) if target is None else autostart_argv(target)
+        log.debug("MacOSAutostart._args_for(%s): %s", target, args)
+        return args
+
+    def enable(self, target: str | None = None) -> None:
+        log.info("enable: target=%s", target)
         self._plist_path.parent.mkdir(parents=True, exist_ok=True)
-        body = _render_plist(self._program_args, label=self._label)
+        body = _render_plist(self._args_for(target), label=self._label)
         self._plist_path.write_text(body, encoding="utf-8")
         # bootstrap can fail with code 17 ("already loaded") — that's OK.
         rc = self._runner([
@@ -529,5 +648,7 @@ class MacOSAutostart(AutostartManager):
         if not self._plist_path.exists():
             log.debug("MacOSAutostart.refresh: no plist — nothing to refresh")
             return
-        log.info("MacOSAutostart.refresh: re-rendering %s", self._plist_path)
-        self.enable()
+        installed = self.installed_target()
+        log.info("MacOSAutostart.refresh: re-rendering %s (target=%s)",
+                 self._plist_path, installed)
+        self.enable(installed)

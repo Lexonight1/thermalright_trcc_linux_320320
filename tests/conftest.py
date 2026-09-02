@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import pytest
 
-from trcc.core.models import RawFrame, UsbPowerState, Wire
+from trcc.core.models import DEFAULT_AUTOSTART_TARGET, RawFrame, UsbPowerState, Wire
 from trcc.core.ports import (
     AutostartManager,
     BulkTransport,
@@ -121,15 +121,21 @@ class FakePaths(Paths):
 class FakeAutostart(AutostartManager):
     def __init__(self) -> None:
         self._enabled = False
+        self._target: str | None = None
 
     def is_enabled(self) -> bool:
         return self._enabled
 
-    def enable(self) -> None:
+    def installed_target(self) -> str | None:
+        return self._target if self._enabled else None
+
+    def enable(self, target: str | None = None) -> None:
         self._enabled = True
+        self._target = target or DEFAULT_AUTOSTART_TARGET
 
     def disable(self) -> None:
         self._enabled = False
+        self._target = None
 
     def refresh(self) -> None:
         pass

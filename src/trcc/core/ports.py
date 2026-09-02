@@ -1758,11 +1758,28 @@ class PackageManager(ABC):
 
 
 class AutostartManager(ABC):
+    """Start-with-the-computer, per OS.
+
+    ``target`` names WHICH ui starts — see ``core.models.AUTOSTART_TARGETS``.
+    All four ship, so pinning autostart to one of them would make the others
+    unreachable at login.
+    """
+
     @abstractmethod
     def is_enabled(self) -> bool: ...
 
     @abstractmethod
-    def enable(self) -> None: ...
+    def installed_target(self) -> str | None:
+        """The target the installed entry launches, or None when absent.
+
+        The entry is the record — there is no second copy to drift from it.
+        ``refresh`` needs it (it re-renders by re-enabling, and would otherwise
+        reset the user's choice) and so does a status report.
+        """
+
+    @abstractmethod
+    def enable(self, target: str | None = None) -> None:
+        """Install the entry.  ``None`` keeps whatever this manager defaults to."""
 
     @abstractmethod
     def disable(self) -> None: ...

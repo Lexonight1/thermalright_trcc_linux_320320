@@ -28,13 +28,13 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`DramSource`](#dramsource) | 3 | 0 | 1 |
 | [`HotplugMonitor`](#hotplugmonitor) | 3 | 0 | 5 |
 | [`SendScheduler`](#sendscheduler) | 3 | 0 | 2 |
-| [`AutostartManager`](#autostartmanager) | 4 | 0 | 4 |
 | [`CloudCatalog`](#cloudcatalog) | 4 | 0 | 1 |
 | [`FanSource`](#fansource) | 4 | 0 | 3 |
 | [`MemorySource`](#memorysource) | 4 | 0 | 2 |
 | [`PackageManager`](#packagemanager) | 4 | 0 | 2 |
 | [`Paths`](#paths) | 4 | 9 | 5 |
 | [`SendTask`](#sendtask) | 4 | 0 | 3 |
+| [`AutostartManager`](#autostartmanager) | 5 | 0 | 4 |
 | [`BulkTransport`](#bulktransport) | 5 | 0 | 2 |
 | [`CpuSource`](#cpusource) | 5 | 0 | 10 |
 | [`ScsiTransport`](#scsitransport) | 5 | 0 | 3 |
@@ -330,23 +330,6 @@ shutdown() -> None
 
 **Implementations (2):** `SyncSendScheduler` · `ThreadSendScheduler`
 
-## AutostartManager
-
-`core/ports.py`
-
-Helper class that provides a standard way to create an ABC using inheritance.
-
-**You implement (4):**
-
-```python
-disable() -> None
-enable() -> None
-is_enabled() -> bool
-refresh() -> None
-```
-
-**Implementations (4):** `MacOSAutostart` · `NoopAutostart` · `WindowsAutostart` · `XdgDesktopAutostart`
-
 ## CloudCatalog
 
 `core/ports.py`
@@ -452,6 +435,24 @@ wake() -> None
 ```
 
 **Implementations (3):** `DeviceSender` · `ScreencastDriver` · `SlideshowDriver`
+
+## AutostartManager
+
+`core/ports.py`
+
+Start-with-the-computer, per OS.
+
+**You implement (5):**
+
+```python
+disable() -> None
+enable(target: 'str | None' = None) -> None
+installed_target() -> str | None
+is_enabled() -> bool
+refresh() -> None
+```
+
+**Implementations (4):** `MacOSAutostart` · `NoopAutostart` · `WindowsAutostart` · `XdgDesktopAutostart`
 
 ## BulkTransport
 

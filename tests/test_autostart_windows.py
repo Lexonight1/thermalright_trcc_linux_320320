@@ -276,3 +276,37 @@ def test_refresh_does_not_enable_autostart_nobody_asked_for() -> None:
     assert all(not values for values in reg.store.values()), (
         f"refresh created a Run-key entry: {reg.store}"
     )
+
+
+# =========================================================================
+# Which UI starts with the computer
+# =========================================================================
+
+
+@pytest.mark.parametrize("target", ["gui", "qtgui", "api", "daemon"])
+def test_a_non_default_target_still_reads_as_enabled(target: str) -> None:
+    """``is_enabled`` compares against the INSTALLED target's command.
+
+    It used to compare against a fixed ``self._cmd``, so an entry enabled for
+    ``daemon`` reported DISABLED because this manager's default is ``gui`` —
+    and the UI would have offered to enable autostart that was already on.
+    This is the constraint that rules out storing the target in Settings: the
+    manager cannot see Settings, so the entry has to carry the answer.
+    """
+    reg = _FakeWinreg()
+    autostart = WindowsAutostart(registry=reg)
+
+    autostart.enable(target)
+
+    assert autostart.installed_target() == target
+    assert autostart.is_enabled(), f"{target} entry read as disabled"
+
+
+def test_refresh_preserves_a_non_default_target() -> None:
+    reg = _FakeWinreg()
+    autostart = WindowsAutostart(registry=reg)
+    autostart.enable("daemon")
+
+    autostart.refresh()
+
+    assert autostart.installed_target() == "daemon"

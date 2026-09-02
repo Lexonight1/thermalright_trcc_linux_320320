@@ -3,7 +3,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trcc.adapters.system._autostart import XdgDesktopAutostart
+import pytest
+
+from trcc.adapters.system._autostart import (
+    XdgDesktopAutostart,
+    autostart_argv,
+    target_from_argv,
+    target_from_command,
+)
+from trcc.core.models import AUTOSTART_TARGETS
 
 
 def test_is_enabled_false_when_no_file(tmp_home: Path) -> None:
@@ -107,3 +115,116 @@ def test_linux_and_bsd_platforms_share_the_xdg_manager(tmp_home: Path) -> None:
     assert isinstance(LinuxOS().autostart(), XdgDesktopAutostart)
     assert isinstance(FreeBsdOS().autostart(), XdgDesktopAutostart)
     assert isinstance(OpenBsdOS().autostart(), XdgDesktopAutostart)
+
+
+# =========================================================================
+# Which UI starts with the computer
+# =========================================================================
+#
+# All four ship, so pinning autostart to `gui` made the other three
+# unreachable at login.  The INSTALLED ENTRY is the record of what was
+# chosen — there is no second copy in Settings that could drift from it.
+
+
+@pytest.mark.parametrize("target", sorted(AUTOSTART_TARGETS))
+def test_enable_writes_the_chosen_target(tmp_home: Path, target: str) -> None:
+    mgr = XdgDesktopAutostart()
+
+    mgr.enable(target)
+
+    exec_line = next(
+        line for line in mgr.path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("Exec=")
+    )
+    assert exec_line.split()[1] == target, exec_line
+    assert mgr.installed_target() == target
+
+
+def test_refresh_preserves_the_installed_target(tmp_home: Path) -> None:
+    """The #201 repair must not silently reset the user's choice.
+
+    ``refresh()`` re-renders BY CALLING ``enable()``, so a target passed only
+    as an argument would be lost here and every repair would quietly put the
+    entry back to ``gui``.
+    """
+    mgr = XdgDesktopAutostart()
+    mgr.enable("daemon")
+
+    mgr.refresh()
+
+    assert mgr.installed_target() == "daemon", (
+        "refresh reset the target to the default"
+    )
+
+
+def test_installed_target_is_none_when_nothing_is_installed(
+    tmp_home: Path,
+) -> None:
+    assert XdgDesktopAutostart().installed_target() is None
+
+
+def test_a_legacy_entry_without_flags_still_reads_as_gui(tmp_home: Path) -> None:
+    """Entries written before #201 say `trcc gui` with no flag."""
+    mgr = XdgDesktopAutostart()
+    mgr.enable()
+    mgr.path.write_text(
+        mgr.path.read_text(encoding="utf-8").replace(" --resume", ""),
+        encoding="utf-8",
+    )
+
+    assert mgr.installed_target() == "gui"
+
+
+# =========================================================================
+# target_from_argv — read the target at its KNOWN position
+# =========================================================================
+
+
+@pytest.mark.parametrize(("argv", "expected"), [
+    (["/usr/bin/trcc", "gui", "--resume"],                 "gui"),
+    (["/usr/bin/trcc", "qtgui", "--resume"],               "qtgui"),
+    (["/usr/bin/trcc", "api"],                             "api"),
+    (["/usr/bin/trcc", "daemon"],                          "daemon"),
+    (["/usr/bin/python3", "-m", "trcc", "gui", "--resume"], "gui"),
+    (["/usr/bin/python3", "-m", "trcc", "daemon"],         "daemon"),
+    (["/usr/bin/trcc", "gui"],                             "gui"),   # pre-#201
+    # A PATH COMPONENT spelled like a target must not be mistaken for one.
+    (["/home/gui/bin/trcc", "daemon"],                     "daemon"),
+    (["/opt/api/trcc", "gui", "--resume"],                 "gui"),
+    # Not our shape → None.  A WRONG target is worse than none: it would
+    # rewrite the user's entry to a ui they never chose.
+    (["/usr/bin/trcc", "--log-file", "daemon", "gui"],     None),
+    (["/usr/bin/something-else"],                          None),
+    (["/usr/bin/trcc"],                                    None),
+    ([],                                                   None),
+])
+def test_target_is_read_at_its_known_position(
+    argv: list[str], expected: str | None,
+) -> None:
+    """Scanning for the first token that IS a target is wrong.
+
+    ``trcc --log-file daemon gui`` answers ``daemon`` under a scan and ``None``
+    under the position rule — and None is the right answer, because that is not
+    a command we write.
+    """
+    assert target_from_argv(argv) == expected
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ('"C:\\Program Files\\trcc\\trcc.exe" gui --resume', "gui"),
+    ('"C:\\Program Files\\trcc\\trcc.exe" daemon',       "daemon"),
+    ('"C:\\trcc\\trcc.exe" gui',                          "gui"),
+    ("/usr/bin/trcc qtgui --resume",                      "qtgui"),
+])
+def test_a_quoted_program_does_not_shift_the_target_position(
+    value: str, expected: str,
+) -> None:
+    """The Windows Run key quotes the program so a Program Files path with
+    spaces survives; a plain split would shred it and move the target."""
+    assert target_from_command(value) == expected
+
+
+@pytest.mark.parametrize("target", sorted(AUTOSTART_TARGETS))
+def test_what_we_write_parses_back_to_what_we_wrote(target: str) -> None:
+    """Round trip — the property the whole design rests on."""
+    assert target_from_argv(autostart_argv(target)) == target
