@@ -15,6 +15,22 @@ from .logs import per_frame
 log = logging.getLogger(__name__)
 frame_log = per_frame(__name__)
 
+# ── Autostart ────────────────────────────────────────────────────────────
+#: The UIs that can start with the computer, each mapped to the extra argv it
+#: needs.  ``gui``/``qtgui`` take ``--resume`` so an autostarted instance comes
+#: up hidden in the tray instead of throwing a window at you on every login
+#: (#201); ``api`` and ``daemon`` accept no flags, and passing one is a launch
+#: error.  Not every CLI verb belongs here — ``shell`` is a REPL and needs a
+#: terminal.
+AUTOSTART_TARGETS: dict[str, tuple[str, ...]] = {
+    "gui": ("--resume",),
+    "qtgui": ("--resume",),
+    "api": (),
+    "daemon": (),
+}
+DEFAULT_AUTOSTART_TARGET = "gui"
+
+
 # =========================================================================
 # Wire protocols and device kinds
 # =========================================================================

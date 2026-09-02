@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ...core.models import AUTOSTART_TARGETS, DEFAULT_AUTOSTART_TARGET
 from ...core.ports import AutostartManager
 
 log = logging.getLogger(__name__)
@@ -144,6 +145,40 @@ class XdgDesktopAutostart(AutostartManager):
         return gui_launch_command("--resume")
 
 
+def launch_argv(subcommand: str, *args: str) -> list[str]:
+    """argv that launches ``trcc <subcommand> [args…]`` for THIS install.
+
+    The one place that knows how to find the program.  Preference order:
+
+      1. the ``trcc`` console script, when installed and on PATH
+      2. ``<sys.executable> -m trcc <subcommand>``
+
+    The second form is robust across pipx / venv / system-python installs
+    because ``sys.executable`` is always the right interpreter.
+
+    Three copies of this used to exist — one per platform, each hardcoding
+    ``gui`` — which is why ``--resume`` reached Linux and neither of the other
+    two for a whole release cycle.
+    """
+    if (exe := shutil.which("trcc")) is not None:
+        argv = [exe, subcommand, *args]
+    else:
+        argv = [sys.executable, "-m", "trcc", subcommand, *args]
+    log.debug("launch_argv(%s): %s", subcommand, argv)
+    return argv
+
+
+def autostart_argv(target: str = DEFAULT_AUTOSTART_TARGET) -> list[str]:
+    """argv for an autostart entry — the target plus the flags IT needs.
+
+    Policy lives in ``AUTOSTART_TARGETS``; ``launch_argv`` stays mechanical so
+    the applications-menu entry can ask for a bare ``gui`` with no flags.
+    """
+    args = AUTOSTART_TARGETS[target]
+    log.info("autostart_argv: target=%s extra=%s", target, list(args))
+    return launch_argv(target, *args)
+
+
 def gui_launch_command(*args: str) -> str:
     """Build a command line that launches the GUI, with *args* appended.
 
@@ -158,9 +193,7 @@ def gui_launch_command(*args: str) -> str:
     write an ``Exec=`` line and both are wrong in the same way if they
     assume ``trcc`` is on PATH.
     """
-    resolved = shutil.which("trcc")
-    base = f"{resolved} gui" if resolved else f"{sys.executable} -m trcc gui"
-    cmd = " ".join((base, *args))
+    cmd = " ".join(launch_argv("gui", *args))
     log.debug("gui_launch_command: %s", cmd)
     return cmd
 
@@ -186,11 +219,10 @@ def _resolve_command() -> str:
     # instance belongs in the tray, not in your face at every login.  Windows
     # and macOS never got it — #201 was reported on Linux and the fix landed
     # only on the XDG path, so two of the three platforms popped a window.
-    if (exe := shutil.which("trcc")) is not None:
-        # Registry values quote the path so spaces in install dirs
-        # (Program Files) don't break the launch.
-        return f'"{exe}" gui --resume'
-    return f'"{sys.executable}" -m trcc gui --resume'
+    argv = autostart_argv()
+    # Registry values quote the program so spaces in install dirs
+    # (Program Files) don't break the launch.
+    return " ".join([f'"{argv[0]}"', *argv[1:]])
 
 
 def _winreg_module() -> Any:
@@ -351,9 +383,7 @@ def _resolve_macos_program_args() -> list[str]:
     log.debug("_resolve_macos_program_args: called")
     # ``--resume`` — see _resolve_command: launch hidden in the tray, the
     # behaviour Linux has had since #201 and these two platforms had not.
-    if (exe := shutil.which("trcc")) is not None:
-        return [exe, "gui", "--resume"]
-    return [sys.executable, "-m", "trcc", "gui", "--resume"]
+    return autostart_argv()
 
 
 def _render_plist(program_args: list[str], *, label: str = _MAC_LABEL) -> str:
