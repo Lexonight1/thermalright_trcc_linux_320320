@@ -186,3 +186,94 @@ def test_qtgui_close_to_tray_does_not_quit(
     assert quits == [], "a close diverted to the tray must NOT quit the app"
     assert event.accepted is False
     assert win._ticker.stopped == 0              # type: ignore[attr-defined]
+
+
+# ── The console scripts skip typer's root callback (and its logging) ──────
+#
+# ``trcc-gui`` and ``trcc-lcd`` are bound straight to ``gui`` in
+# ``[project.scripts]``, so ``_root`` — which is where ``configure_logging``
+# lives — never runs.  Measured before the fix: at the moment the GUI actually
+# launched, the root logger had 0 handlers, level WARNING, and NO FILE.  An
+# entire launch path produced no diagnostics, and ``trcc report`` (which pastes
+# that file, and is the whole diagnosis for hardware we cannot reproduce on)
+# had nothing from it.
+
+
+def test_direct_gui_entry_configures_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A console-script launch writes a log file like every other launch."""
+    import logging
+
+    import trcc.ui.gui as gui_mod
+    from trcc.adapters.infra.logging import _HANDLER_TAG
+    from trcc.ui.cli.main import gui
+
+    seen: dict[str, object] = {}
+
+    def _fake_launch(**_kw: object) -> int:
+        root = logging.getLogger()
+        seen["tagged"] = [h for h in root.handlers
+                          if getattr(h, _HANDLER_TAG, False)]
+        return 0
+
+    monkeypatch.setattr(gui_mod, "launch", _fake_launch)
+    with pytest.raises(SystemExit):
+        gui()
+
+    tagged = seen["tagged"]
+    assert isinstance(tagged, list) and tagged, (
+        "a direct `trcc-gui` launch configured no logging — the whole session "
+        "would produce no report"
+    )
+    assert any("File" in type(h).__name__ for h in tagged), (
+        f"no FILE handler among {[type(h).__name__ for h in tagged]} — a "
+        "stderr-only launch still leaves `trcc report` empty"
+    )
+
+
+def test_direct_entry_does_not_downgrade_an_explicit_verbosity() -> None:
+    """The guard's other half: a bare call must not undo ``-vv``.
+
+    ``configure_logging`` is not idempotent in the way that matters — calling
+    it again with verbose=0 would silently drop the user's level.  That is why
+    CLAUDE.md forbids launch entry points from calling it, and why this one
+    goes through ``ensure_configured``, which no-ops when already configured.
+    """
+    import logging
+
+    from typer.testing import CliRunner
+
+    import trcc.ui.gui as gui_mod
+    from trcc.ui.cli.main import app, gui
+
+    def _stderr_level() -> int:
+        # The ROOT level is DEBUG at EVERY rung by design — the file always
+        # keeps DEBUG so `trcc report` is never missing evidence.  What a
+        # downgrade actually changes is the TERMINAL: -vv puts stderr at
+        # DEBUG, a bare re-configure drops it to WARNING.  This assertion was
+        # written against the root level first, and mutation showed it passed
+        # with the guard deleted.
+        # Select by OUR tag, not by type: pytest attaches its own capture
+        # StreamHandler at NOTSET, and a type-based filter picks that up
+        # instead (it returned 0, which is how this was found).
+        from trcc.adapters.infra.logging import _HANDLER_TAG
+        return next(h.level for h in logging.getLogger().handlers
+                    if getattr(h, _HANDLER_TAG, False)
+                    and not isinstance(h, logging.FileHandler))
+
+    CliRunner().invoke(app, ["-vv", "version"])
+    assert _stderr_level() == logging.DEBUG, (
+        "precondition: -vv puts stderr at DEBUG"
+    )
+
+    original = gui_mod.launch
+    gui_mod.launch = lambda **_kw: 0
+    try:
+        with pytest.raises(SystemExit):
+            gui()
+    finally:
+        gui_mod.launch = original
+
+    assert _stderr_level() == logging.DEBUG, (
+        "a direct-entry launch re-configured logging and threw away the "
+        "user's -vv — stderr fell back to the default rung"
+    )

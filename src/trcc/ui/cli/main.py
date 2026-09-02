@@ -117,6 +117,13 @@ def setup(
     system.setup(yes=yes)
 
 
+def _ensure_logging() -> None:
+    """Configure logging if this process has not already — see gui()."""
+    from ...adapters.infra.logging import ensure_configured
+    if ensure_configured():
+        log.info("_ensure_logging: configured for a direct entry point")
+
+
 @app.command("qtgui")
 def qtgui(
     resume: bool = typer.Option(
@@ -140,6 +147,7 @@ def qtgui(
     # so `resume` can arrive as typer's OptionInfo (truthy!) rather than a
     # bool.  `is True` means "the parsed flag", nothing else.
     start_hidden = resume is True
+    _ensure_logging()   # same reason as gui() — see below
     log.info("cli qtgui: start_hidden=%s", start_hidden)
     from ..qtgui import launch
     # SystemExit (not typer.Exit): gui/qtgui are ALSO direct entry points
@@ -194,6 +202,11 @@ def gui(
     # a bool.  `is True` is the parsed-flag only; direct calls show the window.
     start_hidden = resume is True
     want_frame = decorated is True
+    # ``trcc-gui`` / ``trcc-lcd`` are console scripts bound straight to this
+    # function, so typer's root callback never runs and NOTHING has configured
+    # logging.  Measured: 0 handlers, level WARNING, no file — an entire launch
+    # path with no diagnostics.  No-op under `trcc gui`, where _root already did.
+    _ensure_logging()
     log.info("cli gui: start_hidden=%s decorated=%s", start_hidden, want_frame)
     from ..gui import launch
     # SystemExit (not typer.Exit) — see qtgui above: this is a direct entry
@@ -583,23 +596,14 @@ def _root(
     detection, transport selection, distro probing, skipped downloads — is
     written either way.
     """
-    from ...adapters.infra.logging import configure_logging
-    from ...adapters.system import current_platform
+    from ...adapters.infra.logging import ensure_configured
     from ...core.logs import levels_for
 
-    platform = current_platform()
-    # Windows consoles default to cp1252 and crash on non-ASCII log
-    # output — wrap stdout/stderr UTF-8 BEFORE configure_logging
-    # attaches the StreamHandler.  No-op on other OSes.
-    platform.configure_stdout()
-    # The ladder lives in core.logs.levels_for — one definition, gated.
+    # ``force``: the root callback OWNS verbosity, so it always configures.
+    # Every other entry point calls ``ensure_configured()`` bare and the guard
+    # keeps a bare call from downgrading this one.
+    ensure_configured(verbose, force=True)
     levels = levels_for(verbose)
-    configure_logging(
-        platform.paths().log_file(),
-        level=levels.file,
-        stderr_level=levels.terminal,
-        per_frame=levels.per_frame,
-    )
     # Logged AFTER configuration, so it lands in every report: a reader can see
     # which rung produced the file they are holding without asking.
     logging.getLogger(__name__).info(

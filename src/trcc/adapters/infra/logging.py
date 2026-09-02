@@ -345,3 +345,42 @@ def tail_log_actions(log_file: Path, n_lines: int = 500) -> list[str]:
         return []
     log.info("tail_log_actions: kept %d significant line(s)", len(kept))
     return list(kept)
+
+
+def ensure_configured(verbose: int = 0, *, force: bool = False) -> bool:
+    """Configure logging unless this process already did.  Returns True if it did.
+
+    The CLI root callback owns verbosity and always configures (``force``).
+    Everything else calls this bare, and the guard is what makes that safe:
+    a second ``configure_logging`` with ``verbose=0`` would silently downgrade
+    a user's ``-v`` back to the default, which is why CLAUDE.md forbids launch
+    entry points from calling it directly.
+
+    It exists because that file also said *"none exist today"* — and two did.
+    ``trcc-gui`` and ``trcc-lcd`` are console-script entry points bound
+    straight to the typer command (``pyproject.toml`` ``[project.scripts]``),
+    so they never run the root callback.  Measured before this landed: at the
+    moment the GUI actually started, the root logger had **0 handlers, level
+    WARNING, and no file** — a whole launch path that produced no diagnostics
+    at all, and a ``trcc report`` with nothing in it.
+    """
+    root = logging.getLogger()
+    if not force and any(getattr(h, _HANDLER_TAG, False) for h in root.handlers):
+        log.debug("ensure_configured: already configured — leaving it alone")
+        return False
+
+    from ...core.logs import levels_for
+    from ..system import current_platform
+
+    platform = current_platform()
+    # Windows consoles default to cp1252 and crash on non-ASCII log output —
+    # wrap stdout/stderr UTF-8 BEFORE the StreamHandler is attached.
+    platform.configure_stdout()
+    levels = levels_for(verbose)
+    configure_logging(
+        platform.paths().log_file(),
+        level=levels.file,
+        stderr_level=levels.terminal,
+        per_frame=levels.per_frame,
+    )
+    return True

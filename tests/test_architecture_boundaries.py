@@ -77,10 +77,17 @@ _OS_SNIFF_CALLS = frozenset({
     "system", "machine", "release", "version", "uname", "win32_ver", "mac_ver",
 })
 
-# CLAUDE.md "Logging": ``configure_logging`` is called exactly once — the CLI
-# root callback.  A second call silently downgrades the user's ``-v`` back to
-# INFO.  Only these files may call it.
-_CONFIGURE_LOGGING_ALLOWED = frozenset({"trcc/ui/cli/main.py"})
+# CLAUDE.md "Logging": ``configure_logging`` is called exactly once.  A second
+# call silently downgrades the user's ``-v``.  The one call site now lives
+# inside ``ensure_configured`` (the logging adapter), which no-ops when a
+# ``_trcc_handler``-tagged handler is already attached — so the "exactly once"
+# rule is enforced by a guard rather than by everyone remembering it.
+#
+# It used to be the CLI root callback alone, on the premise that every launch
+# goes through the CLI.  ``trcc-gui`` and ``trcc-lcd`` do not: they are console
+# scripts bound straight to the typer command, so the callback never ran and
+# those launches produced NO log file at all.
+_CONFIGURE_LOGGING_ALLOWED = frozenset({"trcc/adapters/infra/logging.py"})
 
 # CLAUDE.md "Code Style": pathlib.Path preferred; ``os.path`` only where lexical
 # path-STRING normalization is genuinely required — zip-slip member sanitisation
@@ -1349,7 +1356,6 @@ _UI_ADAPTER_COMPOSITION_ROOTS: frozenset[tuple[str, str]] = frozenset({
     ("trcc/ui/api/main.py", "trcc.adapters.render.qt"),
     ("trcc/ui/qapp.py", "trcc.adapters.render.qt"),
     ("trcc/ui/gui/__init__.py", "trcc.adapters.system"),
-    ("trcc/ui/cli/main.py", "trcc.adapters.system"),
     ("trcc/ui/cli/main.py", "trcc.adapters.infra.logging"),
 })
 
