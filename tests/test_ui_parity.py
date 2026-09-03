@@ -262,6 +262,91 @@ def test_every_recorded_reason_is_tagged() -> None:
         )
 
 
+# =========================================================================
+# The collector measures REFERENCE, not reachability — so dead code lies
+# =========================================================================
+#
+# ``reach_by_command`` counts an ``ast.Name`` or an ``ast.alias``: importing a
+# Command is reach.  That breadth is deliberate (matching only inline dispatch
+# undercounted the CLI by 34), but it has one consequence — **a function nobody
+# calls keeps its import alive, and the UI scores a capability it cannot
+# actually perform.**
+#
+# Measured 2026-09-03: gui's ONLY ``RestoreDeviceState`` site was
+# ``restore_inactive_state``, which had zero callers in src/, tests/ or dev/.
+# gui's reach read 83; the truth was 82, and ``RestoreDeviceState`` — the
+# entry contract METHOD_UI.md requires at every display-start — actually sat in
+# the "cli+api, neither GUI" set that no gate watches.
+
+_QT_VIRTUALS = frozenset({
+    "closeEvent", "paintEvent", "resizeEvent", "showEvent", "hideEvent",
+    "mousePressEvent", "mouseMoveEvent", "mouseReleaseEvent", "keyPressEvent",
+    "eventFilter", "enterEvent", "leaveEvent", "wheelEvent", "dragEnterEvent",
+    "dropEvent", "mouseDoubleClickEvent", "contextMenuEvent", "sizeHint",
+    "changeEvent", "focusInEvent", "focusOutEvent", "moveEvent",
+})
+_FRAMEWORK_ENTRIES = frozenset({"main", "run", "launch", "build_app"})
+
+
+def _identifier_corpus() -> str:
+    """Every line of src/ and tests/, for a name-reference check."""
+    return "\n".join(
+        f.read_text(encoding="utf-8")
+        for root in (_SRC, _ROOT / "tests")
+        for f in root.rglob("*.py")
+    )
+
+
+def _dispatching_functions_never_referenced() -> list[str]:
+    """``file:line name`` for every ui/ function that dispatches but is dead."""
+    import ast
+    import re
+
+    blob = _identifier_corpus()
+    dead: list[str] = []
+    for path in sorted((_SRC / "trcc" / "ui").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # A DECORATED function is called by whatever decorated it — every
+            # FastAPI route and Typer command.  Omitting this exemption flags
+            # 95 live entry points; it is load-bearing, not caution.
+            if (node.decorator_list or node.name.startswith("__")
+                    or node.name in _QT_VIRTUALS
+                    or node.name in _FRAMEWORK_ENTRIES):
+                continue
+            dispatches = any(
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr in ("dispatch", "_dispatch")
+                for sub in ast.walk(node)
+            )
+            if not dispatches:
+                continue
+            uses = (len(re.findall(rf"\b{re.escape(node.name)}\b", blob))
+                    - len(re.findall(rf"\bdef\s+{re.escape(node.name)}\b", blob)))
+            if uses == 0:
+                dead.append(f"{path.relative_to(_SRC)}:{node.lineno} {node.name}")
+    return dead
+
+
+def test_no_ui_command_is_reached_only_from_dead_code() -> None:
+    """A dispatch nobody can execute is a capability the UI does not have.
+
+    This guards the collector's premise rather than its arithmetic: reach is
+    measured by reference, so an uncalled function makes a UI *look* capable.
+    Delete the dead function (its import goes with it and the count corrects
+    itself), or wire it up.
+    """
+    dead = _dispatching_functions_never_referenced()
+    assert not dead, (
+        "These ui/ functions dispatch Commands but nothing calls them, so the "
+        "reach they contribute is fiction:\n  " + "\n  ".join(dead)
+    )
+
+
 def test_the_collector_ignores_comments() -> None:
     """The reason this is an AST walk and not a regex.
 

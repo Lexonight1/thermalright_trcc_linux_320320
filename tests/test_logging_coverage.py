@@ -52,7 +52,7 @@ import logging_coverage  # noqa: E402  # pyright: ignore[reportMissingImports]
 #: 1340 -> 1339 the same day: ``TRCCApp._create_i18n_overlays`` builds the whole
 #: About pane and the language picker and said nothing, so a report could not
 #: show which language the labels were rendered in.
-MAX_SILENT = 1338
+MAX_SILENT = 1336
 
 
 def test_logging_coverage_only_improves() -> None:

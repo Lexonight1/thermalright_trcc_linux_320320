@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget
 
-from .....core.commands import LedSnapshot
 from .....core.results import LedSnapshotResult
 
 log = logging.getLogger(__name__)
@@ -52,19 +51,6 @@ class LedTabBase(QWidget):
         self._key_provider = key_provider
 
     # ── For subclasses ───────────────────────────────────────────────
-
-    def current_snapshot(self) -> LedSnapshotResult | None:
-        """The LED state for the current key, or None if no key is selected.
-
-        Asks the bus.  This used to return ``app.settings.for_led(key)`` — a
-        live domain object reached off the App, which raises under
-        TRCC_DAEMON=1 and which CLAUDE.md forbids a UI holding at all.
-        """
-        key = self._key_provider()
-        if not key:
-            return None
-        result = self._dispatch(LedSnapshot(key=key))
-        return result if result.ok else None
 
     def current_key(self) -> str:
         return self._key_provider()
