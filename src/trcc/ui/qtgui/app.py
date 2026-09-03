@@ -35,6 +35,7 @@ from ...core.commands import (
     GetFirstRunStatus,
     GetPlatformInfo,
     ListDevices,
+    RefreshAutostart,
     RenderAndSend,
     TickDisplay,
 )
@@ -81,6 +82,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._app = app
         self._bus = BusBridge(app.events)
+
+        # #201 repair — the same Command cli, api and gui all dispatch, and
+        # the one capability qtgui could not reach.  An entry keeps whatever
+        # launch command it was written with forever, so a moved install stops
+        # autostarting while the panel still reads "enabled" (``is_enabled()``
+        # is ``path.is_file()``, which a stale entry satisfies).  Dispatched
+        # unconditionally because the port's contract is that refresh NEVER
+        # installs an entry that is not there — gui's extra first-launch
+        # auto-enable is gui's own product decision and stays there.
+        autostart = app.dispatch(RefreshAutostart())
+        log.info("MainWindow.__init__: autostart refresh — enabled=%s target=%s",
+                 autostart.enabled, autostart.target)
 
         self.setWindowTitle("TRCC — Thermalright LCD/LED Cooler Control (next)")
         self.resize(960, 640)

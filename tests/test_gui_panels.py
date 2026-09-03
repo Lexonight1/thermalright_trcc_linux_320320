@@ -738,6 +738,46 @@ def test_main_window_constructs_and_includes_panels(gui_app: App) -> None:
     assert window.statusBar() is not None
 
 
+def test_main_window_repairs_a_stale_autostart_entry(gui_app: App) -> None:
+    """qtgui was the ONE ui that could not reach ``RefreshAutostart``.
+
+    Measured: cli, api and gui each had a dispatch site; qtgui had zero.  So a
+    qtgui-only user whose install moved kept an entry pointing at the old path
+    — and the panel still showed "enabled", because ``is_enabled()`` is
+    ``path.is_file()``, which a stale entry satisfies.  gui repairs this from
+    its own window's ``__init__``; this is that, the same Command.
+    """
+    from trcc.core.commands import EnableAutostart
+    from trcc.ui.qtgui.app import MainWindow
+
+    mgr = gui_app.platform.autostart()
+    gui_app.dispatch(EnableAutostart())
+    mgr.command = "/moved/bin/trcc"               # the install moved
+    assert mgr.installed_command != mgr.command, "fixture drift: not stale"
+
+    MainWindow(gui_app)
+
+    assert mgr.installed_command == "/moved/bin/trcc"
+
+
+def test_main_window_does_not_enable_autostart(gui_app: App) -> None:
+    """...and must NOT pick up gui's first-launch auto-enable.
+
+    That half is a documented product decision for gui alone —
+    ``ensure_autostart``'s docstring names qtgui: it "reads and toggles
+    autostart but has never auto-enabled it, and moving this would hand it a
+    behaviour it does not have."  Refresh repairs what the user already chose;
+    enable would choose FOR them.  Pinned so the distinction cannot erode.
+    """
+    from trcc.ui.qtgui.app import MainWindow
+
+    MainWindow(gui_app)
+
+    assert not gui_app.platform.autostart().is_enabled(), (
+        "opening the qtgui window opted the user into autostart"
+    )
+
+
 # =========================================================================
 # GUI launcher entry point
 # =========================================================================
