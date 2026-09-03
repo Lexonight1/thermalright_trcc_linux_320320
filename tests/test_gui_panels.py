@@ -292,6 +292,70 @@ def test_system_panel_constructs(gui_app: App) -> None:
     assert panel.layout() is not None
 
 
+# =========================================================================
+# SystemPanel — the autostart target picker
+# =========================================================================
+#
+# The picker chooses WHICH ui login brings up.  Its rules were comments in
+# the panel until these tests: changing it must never enable autostart the
+# user did not ask for, and what it shows must be what is INSTALLED.
+
+
+def test_autostart_picker_offers_every_target(gui_app: App) -> None:
+    """The picker's list IS the registry — never a second copy to drift."""
+    from trcc.core.models import AUTOSTART_TARGETS
+    from trcc.ui.qtgui.panels.system_panel import SystemPanel
+
+    panel = SystemPanel(gui_app, _bus(gui_app))
+    combo = panel._autostart_target
+    offered = {combo.itemData(i) for i in range(combo.count())}
+    assert offered == set(AUTOSTART_TARGETS)
+
+
+def test_autostart_picker_does_not_install_while_disabled(gui_app: App) -> None:
+    """Choosing a target with autostart OFF must not turn it ON.
+
+    The same invariant ``refresh`` holds: a control that repairs or re-points
+    an entry never creates one.
+    """
+    from trcc.ui.qtgui.panels.system_panel import SystemPanel
+
+    panel = SystemPanel(gui_app, _bus(gui_app))
+    assert not panel._autostart_check.isChecked()
+    panel._autostart_target.setCurrentIndex(
+        panel._autostart_target.findData("daemon"),
+    )
+    assert not gui_app.platform.autostart().is_enabled()
+
+
+def test_autostart_picker_reinstalls_for_the_new_target(gui_app: App) -> None:
+    """With autostart ON, choosing a target re-installs for THAT target."""
+    from trcc.ui.qtgui.panels.system_panel import SystemPanel
+
+    panel = SystemPanel(gui_app, _bus(gui_app))
+    panel._autostart_check.setChecked(True)         # fires the toggle handler
+    assert gui_app.platform.autostart().is_enabled()
+
+    panel._autostart_target.setCurrentIndex(
+        panel._autostart_target.findData("api"),
+    )
+    assert gui_app.platform.autostart().installed_target() == "api"
+
+
+def test_autostart_picker_shows_the_installed_target(gui_app: App) -> None:
+    """A refresh reads the ENTRY, not whatever the widget last showed.
+
+    Another surface (cli, api, a second window) may have changed it, and the
+    installed entry is the only record of what login will actually launch.
+    """
+    from trcc.ui.qtgui.panels.system_panel import SystemPanel
+
+    panel = SystemPanel(gui_app, _bus(gui_app))
+    gui_app.platform.autostart().enable("qtgui")    # changed behind its back
+    panel._refresh_autostart()
+    assert panel._autostart_target.currentData() == "qtgui"
+
+
 def test_activity_sidebar_emits_selection(gui_app: App) -> None:
     """Sidebar click → selected signal fires with the entry key."""
     from trcc.ui.qtgui.panels.sidebar import ActivitySidebar

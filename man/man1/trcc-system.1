@@ -23,12 +23,15 @@ Show this command's help and exit.
 .RE
 .SS autostart enable
 .PP
-\fBtrcc system autostart enable\fR
+\fBtrcc system autostart enable\fR [\fIOPTIONS\fR]
 .PP
-Install the autostart entry (per\-user, no sudo required).
+Install the autostart entry (per\-user, no sudo required). All four UIs can start at login; without \-\-target the entry launches the gui, which is what it always did.
 .PP
 Options:
 .RS 4
+.TP
+\fB\-\-target, \-t \fITARGET\fR\fR
+Which UI starts with the computer (api, daemon, gui, qtgui). Default: gui.
 .TP
 \fB\-\-help\fR
 Show this command's help and exit.

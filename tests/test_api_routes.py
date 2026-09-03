@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from trcc.app import App
-from trcc.core.models import RawFrame
+from trcc.core.models import DEFAULT_AUTOSTART_TARGET, RawFrame
 from trcc.core.ports import Renderer
 from trcc.core.protocol import FBL_PROFILES
 
@@ -205,6 +205,55 @@ def test_autostart_refresh_does_not_enable(api_client: TestClient) -> None:
     assert r.status_code == 200
     assert r.json()["enabled"] is False
     assert api_client.get("/system/autostart").json()["enabled"] is False
+
+
+def test_autostart_enable_installs_the_requested_target(
+    api_client: TestClient,
+) -> None:
+    """POST carries ``target``, and GET reads back the SAME answer.
+
+    The response is the ``AutostartResult`` itself, so ``target`` reaches the
+    client without the route restating it — the point of returning the Result.
+    """
+    r = api_client.post("/system/autostart",
+                        json={"enabled": True, "target": "daemon"})
+    assert r.status_code == 200
+    assert r.json()["target"] == "daemon"
+    assert api_client.get("/system/autostart").json()["target"] == "daemon"
+
+
+def test_autostart_enable_without_target_keeps_the_default(
+    api_client: TestClient,
+) -> None:
+    """A body written before ``target`` existed stays valid and means gui.
+
+    ``target`` is optional for exactly this reason: an API client that predates
+    it must not start failing, and what it used to get is what it still gets.
+    """
+    r = api_client.post("/system/autostart", json={"enabled": True})
+    assert r.status_code == 200
+    assert r.json()["target"] == DEFAULT_AUTOSTART_TARGET
+
+
+def test_autostart_enable_rejects_an_unknown_target(
+    api_client: TestClient,
+) -> None:
+    """An unknown target is a refusal that NAMES the valid set — not a 422.
+
+    The schema deliberately does not constrain the string: pydantic would
+    answer with its own validation error, and the one place that knows the
+    valid targets is the Command.  So the request succeeds at the transport
+    level and the Result carries the refusal.
+    """
+    r = api_client.post("/system/autostart",
+                        json={"enabled": True, "target": "nonesuch"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "nonesuch" in body["message"]
+    assert "daemon" in body["message"], "the valid set was not named"
+    assert api_client.get("/system/autostart").json()["enabled"] is False, \
+        "a refused target must not install anything"
 
 
 # =========================================================================

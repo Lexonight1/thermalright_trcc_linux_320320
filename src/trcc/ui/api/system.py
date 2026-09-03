@@ -335,9 +335,11 @@ def set_autostart(body: AutostartRequest,
     POST in next/ so the verb is conventional for state-changing
     endpoints in this API.
     """
-    log.info("api POST /system/autostart: enabled=%s", body.enabled)
+    log.info("api POST /system/autostart: enabled=%s target=%s",
+             body.enabled, body.target)
     trcc = request.app.state.trcc
-    command = EnableAutostart() if body.enabled else DisableAutostart()
+    command = (EnableAutostart(target=body.target) if body.enabled
+               else DisableAutostart())
     result = trcc.dispatch(command)
     return result
 

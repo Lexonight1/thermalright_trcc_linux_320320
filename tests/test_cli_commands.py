@@ -1365,3 +1365,49 @@ def test_system_paths_without_key_still_reports_generic_dirs(
     assert result.exit_code == 0, result.output
     assert "theme1600720" in result.output
     assert "config_dir" in result.output
+
+
+# =========================================================================
+# system autostart — WHICH ui starts with the computer
+# =========================================================================
+#
+# All four verbs had ZERO CLI coverage.  Measured by matching full command
+# paths from the live Typer app against the argv every test passes to
+# ``invoke``: 144 paths, 45 invoked, 99 never — and all four of these among
+# them.  The Command beneath was tested; the wrapper was not, so `--target`
+# could have been added to a verb nothing would notice breaking.
+
+
+def test_autostart_enable_accepts_a_target(cli_runner, cli_app) -> None:
+    result = cli_runner.invoke(
+        _app(), ["system", "autostart", "enable", "--target", "daemon"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "daemon" in result.output
+
+
+def test_autostart_enable_defaults_to_gui(cli_runner, cli_app) -> None:
+    result = cli_runner.invoke(_app(), ["system", "autostart", "enable"])
+    assert result.exit_code == 0, result.output
+    assert "gui" in result.output
+
+
+def test_autostart_enable_rejects_an_unknown_target(cli_runner, cli_app) -> None:
+    """The refusal must name the valid set — pydantic and typer both accept
+    any string here, so the Command's validation is the only guard."""
+    result = cli_runner.invoke(
+        _app(), ["system", "autostart", "enable", "--target", "nonesuch"],
+    )
+    assert result.exit_code != 0
+    assert "nonesuch" in result.output
+    assert "daemon" in result.output, "the valid set was not named"
+
+
+def test_autostart_status_reports_the_installed_target(
+    cli_runner, cli_app,
+) -> None:
+    cli_runner.invoke(_app(), ["system", "autostart", "enable",
+                               "--target", "qtgui"])
+    result = cli_runner.invoke(_app(), ["system", "autostart", "status"])
+    assert result.exit_code == 0, result.output
+    assert "qtgui" in result.output

@@ -45,6 +45,7 @@ from ....core.commands import (
     RunHealthCheck,
     SetGpuDevice,
 )
+from ....core.models import AUTOSTART_TARGETS, DEFAULT_AUTOSTART_TARGET
 from ..base import BasePanel
 
 log = logging.getLogger(__name__)
@@ -107,6 +108,15 @@ class SystemPanel(BasePanel):
         form = QFormLayout(box)
         self._autostart_check = QCheckBox("Start TRCC on login", box)
         self._autostart_check.toggled.connect(self._on_autostart_toggled)
+        # WHICH ui starts.  All four can; a boolean could only ever mean gui.
+        # The list comes from the ONE registry — a UI that spelled the targets
+        # itself would be a second source to drift from it.
+        self._autostart_target = QComboBox(box)
+        for name in sorted(AUTOSTART_TARGETS):
+            self._autostart_target.addItem(name, name)
+        self._autostart_target.currentIndexChanged.connect(
+            self._on_autostart_target_changed,
+        )
         self._update_btn = QPushButton("Check for updates", box)
         self._update_btn.clicked.connect(self._on_check_update)
         self._maint_status = QLabel("", box)
@@ -114,6 +124,7 @@ class SystemPanel(BasePanel):
         self._maint_status.setTextFormat(Qt.TextFormat.RichText)
         self._maint_status.setOpenExternalLinks(True)
         form.addRow(self._autostart_check)
+        form.addRow("Start:", self._autostart_target)
         form.addRow(self._update_btn)
         form.addRow(self._maint_status)
         self._refresh_autostart()
@@ -228,10 +239,35 @@ class SystemPanel(BasePanel):
         self._autostart_check.blockSignals(True)
         self._autostart_check.setChecked(r.enabled)
         self._autostart_check.blockSignals(False)
+        # Show what is INSTALLED, not what the widget last showed — the entry
+        # is the record, and another surface may have changed it.
+        index = self._autostart_target.findData(r.target or DEFAULT_AUTOSTART_TARGET)
+        if index >= 0:
+            self._autostart_target.blockSignals(True)
+            self._autostart_target.setCurrentIndex(index)
+            self._autostart_target.blockSignals(False)
 
     def _on_autostart_toggled(self, checked: bool) -> None:
-        log.info("_on_autostart_toggled: checked=%s", checked)
-        r = self.dispatch(EnableAutostart() if checked else DisableAutostart())
+        target = self._autostart_target.currentData()
+        log.info("_on_autostart_toggled: checked=%s target=%s", checked, target)
+        r = self.dispatch(
+            EnableAutostart(target=target) if checked else DisableAutostart(),
+        )
+        self._maint_status.setText(r.message)
+        self._refresh_autostart()
+
+    def _on_autostart_target_changed(self, index: int) -> None:
+        """Re-install for the newly chosen target, but only if it is ON.
+
+        Changing the picker while autostart is disabled must not enable it —
+        the same invariant every ``refresh`` holds.
+        """
+        target = self._autostart_target.itemData(index)
+        log.info("_on_autostart_target_changed: target=%s", target)
+        if not self._autostart_check.isChecked():
+            log.debug("_on_autostart_target_changed: disabled — not installing")
+            return
+        r = self.dispatch(EnableAutostart(target=target))
         self._maint_status.setText(r.message)
 
     def _on_check_update(self) -> None:

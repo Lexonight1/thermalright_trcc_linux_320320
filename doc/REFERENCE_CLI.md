@@ -1419,11 +1419,15 @@ trcc system autostart disable
 
 #### `trcc system autostart enable`
 
-Install the autostart entry (per-user, no sudo required).
+Install the autostart entry (per-user, no sudo required). All four UIs can start at login; without `--target` the entry launches the gui, which is what it always did.
 
 ```bash
-trcc system autostart enable
+trcc system autostart enable [OPTIONS]
 ```
+
+| Option | Description |
+|---|---|
+| `--target`, `-t` `TARGET` | Which UI starts with the computer (api, daemon, gui, qtgui). Default: gui. |
 
 #### `trcc system autostart refresh`
 

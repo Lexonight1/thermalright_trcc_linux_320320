@@ -495,6 +495,12 @@ class CreateThemeResponse(ResultBase):
 class AutostartRequest(BaseModel):
     """``POST /system/autostart`` body — toggle the OS autostart entry."""
     enabled: bool
+    #: WHICH ui login brings up; ``None`` keeps the platform default.
+    #: OPTIONAL so a body that predates it stays valid.  NOT validated here on
+    #: purpose — pydantic accepts any string, so an unknown target would reach
+    #: the adapter and raise; ``EnableAutostart`` refuses it with a Result that
+    #: names the valid set.
+    target: str | None = None
 
 
 class AppStatusEntry(BaseModel):

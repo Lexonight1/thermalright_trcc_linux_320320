@@ -35,6 +35,7 @@ from ...core.commands import (
     RunUpgrade,
     SetHddEnabled,
 )
+from ...core.models import AUTOSTART_TARGETS
 from ._ctx import emit_json, get_app
 
 log = logging.getLogger(__name__)
@@ -569,17 +570,34 @@ def autostart_status() -> None:
     r = get_app().dispatch(GetAutostartStatus())
     state = "enabled" if r.enabled else "disabled"
     typer.echo(f"Autostart: {state}")
+    if r.target:
+        # WHICH ui login brings up.  "enabled" alone cannot say, now that all
+        # four are startable — and the Command already carried the answer.
+        typer.echo(f"Target:    {r.target}")
     if r.path:
         typer.echo(f"Path:      {r.path}")
 
 
 @autostart_app.command("enable")
-def autostart_enable() -> None:
-    """Install the autostart entry (per-user, no sudo required)."""
-    log.info("cli system autostart enable")
-    r = get_app().dispatch(EnableAutostart())
+def autostart_enable(
+    target: str = typer.Option(
+        None, "--target", "-t",
+        help=("Which UI starts with the computer "
+              f"({', '.join(sorted(AUTOSTART_TARGETS))}).  "
+              "Default: gui."),
+    ),
+) -> None:
+    """Install the autostart entry (per-user, no sudo required).
+
+    All four UIs can start at login; without ``--target`` the entry launches
+    the gui, which is what it always did.
+    """
+    log.info("cli system autostart enable: target=%s", target)
+    r = get_app().dispatch(EnableAutostart(target=target))
     typer.echo(r.message)
     typer.echo(f"Path: {r.path}")
+    if r.target:
+        typer.echo(f"Target: {r.target}")
     if not r.enabled:
         raise typer.Exit(code=1)
 
