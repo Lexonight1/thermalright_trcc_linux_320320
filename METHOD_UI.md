@@ -67,9 +67,28 @@ path:
 
 - **Before any wire command → `ensure_connected` (idempotent).** A stateless
   process (a CLI invocation, an API request) holds no attached device; a wire
-  command dispatched cold fails "not attached". Every CLI wire command and API
-  wire route attaches first. (#150: `theme cloud-load` / `display load-image`
-  had skipped it.)
+  command dispatched cold fails "not attached". Every CLI wire command attaches
+  first via `cli/_ctx.ensure_connected`. (#150: `theme cloud-load` /
+  `display load-image` had skipped it.)
+
+  **The API does NOT — measured 2026-09-03, and this line used to claim it
+  did.** `api.main.run()` builds its App and serves immediately: no
+  `discover_and_connect`, no `start_hotplug`, so the server starts with zero
+  attached devices and a wire route answers `400 Not attached: <key>` until the
+  client POSTs `/devices/{key}/connect` itself. gui and qtgui attach at launch
+  through `discover_and_connect`, so the API is the ONE surface where a wire
+  command fails on a device that is plugged in — and the only long-lived UI
+  that never listens for hotplug either.
+
+  **Under `TRCC_DAEMON=1` this reverses**, which is what the old wording was
+  really describing: the daemon runs `start_hotplug()`, whose Linux coldplug
+  pass replays already-present devices as `DeviceAttached` and connects them,
+  so an API client of a daemon does find its devices attached. That coldplug
+  is **Linux-only** (`_hotplug.py` marks macOS/Windows/BSD an explicit TODO),
+  and `TRCC_DAEMON` is unset by default — so the gap is the default path on
+  every OS, and every path on the three without coldplug. `EnsureConnected` is idempotent
+  and already exists; whether the API should call it is an open product
+  decision, not an oversight to fix silently.
 - **At any display-start → `RestoreDeviceState` (idempotent).** Beginning to
   *stream* (GUI connect, CLI `display play` / `keepalive`, API `restore-theme`)
   must rehydrate the device's persisted display state — the theme, or the first
