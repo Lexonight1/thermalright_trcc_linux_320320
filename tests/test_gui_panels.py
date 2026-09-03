@@ -738,6 +738,158 @@ def test_main_window_constructs_and_includes_panels(gui_app: App) -> None:
     assert window.statusBar() is not None
 
 
+# =========================================================================
+# MainWindow — display-start restore (METHOD_UI.md's entry contract)
+# =========================================================================
+
+
+class _StubDevice:
+    """A device whose ``info`` is a REAL ``ProductInfo`` from the registry.
+
+    ``ListDevices`` reads ``info.wire`` / ``info.kind`` — fields on
+    ``ProductInfo``, not on ``DeviceInfo`` (which has neither).  Taking the
+    entry from ``products_by_wire`` rather than hand-building one keeps the
+    wire/kind pairing true to the registry, per CLAUDE.md's rule that
+    ``ALL_DEVICES`` is the single source of truth for device-shaped tests.
+    """
+
+    def __init__(self, wire, connected: bool = True) -> None:
+        from trcc.core.registry import products_by_wire
+
+        self.info = products_by_wire(wire)[0]
+        self.is_connected = connected
+        # The Device port declares these; a stub that omits one makes the
+        # window look broken when it reads what every real device has.
+        self.profile = None
+        self.handshake = None
+
+    @property
+    def is_led(self) -> bool:
+        from trcc.core.models import Wire
+        return self.info.wire is Wire.LED
+
+    @property
+    def key(self) -> str:
+        return f"{self.info.vid:04x}:{self.info.pid:04x}"
+
+
+def _spy_on_dispatch(app: App) -> list[str]:
+    """Record ``CommandName:key`` for everything dispatched."""
+    seen: list[str] = []
+    real = app.dispatch
+
+    def _spy(command):
+        seen.append(f"{type(command).__name__}:{getattr(command, 'key', '')}")
+        return real(command)
+
+    app.dispatch = _spy                       # type: ignore[method-assign]
+    return seen
+
+
+def test_main_window_restores_attached_lcds_at_startup(gui_app: App) -> None:
+    """The coldplug fleet is restored, and LED devices are skipped.
+
+    ``discover_and_connect()`` runs at ``app.py:355`` and the window is built
+    at ``:360``, so devices attached at startup NEVER emit a
+    ``DeviceConnected`` this window can hear.  Wiring only ``_on_connected``
+    would restore hotplugged devices and miss the common case entirely.
+
+    The LED skip matters because ``RestoreDeviceState`` on an LED resolves no
+    resolution, warns, and returns ``ok=False`` — noise for a device that has
+    no display state to restore.
+    """
+    from trcc.core.models import Wire
+    from trcc.ui.qtgui.app import MainWindow
+
+    lcd, led = _StubDevice(Wire.SCSI), _StubDevice(Wire.LED)
+    gui_app.devices[lcd.key] = lcd            # type: ignore[assignment]
+    gui_app.devices[led.key] = led            # type: ignore[assignment]
+    seen = _spy_on_dispatch(gui_app)
+
+    MainWindow(gui_app)
+
+    assert f"RestoreDeviceState:{lcd.key}" in seen, (
+        "the LCD attached before the window existed was never restored"
+    )
+    assert f"RestoreDeviceState:{led.key}" not in seen, (
+        "an LED has no display state to restore"
+    )
+
+
+def test_main_window_skips_a_disconnected_device(gui_app: App) -> None:
+    """A device in the registry but not connected is not restored."""
+    from trcc.core.models import Wire
+    from trcc.ui.qtgui.app import MainWindow
+
+    lcd = _StubDevice(Wire.SCSI, connected=False)
+    gui_app.devices[lcd.key] = lcd            # type: ignore[assignment]
+    seen = _spy_on_dispatch(gui_app)
+
+    MainWindow(gui_app)
+
+    assert f"RestoreDeviceState:{lcd.key}" not in seen
+
+
+def test_hotplugged_device_gets_the_same_restore(gui_app: App) -> None:
+    """The other half: a device that arrives later must not sit dark."""
+    from trcc.core.events import DeviceConnected
+    from trcc.core.models import Wire
+    from trcc.ui.qtgui.app import MainWindow
+
+    window = MainWindow(gui_app)                    # nothing attached yet
+    lcd = _StubDevice(Wire.SCSI)
+    gui_app.devices[lcd.key] = lcd            # type: ignore[assignment]
+    seen = _spy_on_dispatch(gui_app)
+
+    window._on_connected(DeviceConnected(key=lcd.key, resolution=(320, 320)))
+
+    assert f"RestoreDeviceState:{lcd.key}" in seen
+
+
+def test_restore_runs_after_the_bus_is_subscribed() -> None:
+    """Ordering trap, pinned structurally — because the invariant IS structural.
+
+    The restore loads a theme, which publishes ``ThemeLoaded``, which is what
+    starts the render ticker.  Called earlier in ``__init__`` the event fires
+    into an unconnected bus and nothing ever animates — a bug that presents as
+    "video just doesn't play" and points nowhere near its cause.
+
+    Asserted over the AST of ``MainWindow.__init__`` rather than at runtime:
+    the subscriptions use ``Qt.QueuedConnection``, so a probe emit would not
+    deliver synchronously and could not tell a connected bus from a bare one.
+    """
+    import ast
+
+    import trcc.ui.qtgui.app as qtgui_app
+
+    source = Path(qtgui_app.__file__).read_text(encoding="utf-8")
+    init = next(
+        node
+        for cls in ast.walk(ast.parse(source))
+        if isinstance(cls, ast.ClassDef) and cls.name == "MainWindow"
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+
+    subscribe_lines, restore_lines = [], []
+    for node in ast.walk(init):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr == "connect" and "_bus" in ast.dump(node.func):
+            subscribe_lines.append(node.lineno)
+        elif node.func.attr == "_restore_display_state":
+            restore_lines.append(node.lineno)
+
+    assert subscribe_lines, "no _bus.*.connect() found — test is measuring nothing"
+    assert restore_lines, "MainWindow.__init__ no longer restores display state"
+    assert min(restore_lines) > max(subscribe_lines), (
+        f"_restore_display_state() runs at line {min(restore_lines)}, before the "
+        f"last bus subscription at line {max(subscribe_lines)} — a restored "
+        f"theme would publish ThemeLoaded into an unconnected bus and the "
+        f"render ticker would never start"
+    )
+
+
 def test_main_window_repairs_a_stale_autostart_entry(gui_app: App) -> None:
     """qtgui was the ONE ui that could not reach ``RefreshAutostart``.
 

@@ -37,6 +37,7 @@ from ...core.commands import (
     ListDevices,
     RefreshAutostart,
     RenderAndSend,
+    RestoreDeviceState,
     TickDisplay,
 )
 
@@ -51,6 +52,7 @@ from ...core.events import (
     VideoStarted,
     VideoStopped,
 )
+from ...core.models import Wire
 from ..bus_bridge import BusBridge
 from ..qt_periodic import PeriodicUpdater
 from ..qt_tray import TrayController
@@ -154,6 +156,18 @@ class MainWindow(QMainWindow):
         self._bus.video_started.connect(self._on_video_started, type=qconn)
         self._bus.video_stopped.connect(self._on_video_stopped, type=qconn)
 
+        # Display-start restore — METHOD_UI.md's entry contract, which qtgui
+        # did not honour at all: `RestoreLastTheme` was reachable ONLY from the
+        # display panel's "Restore last" button, so connecting a device and
+        # opening qtgui showed nothing until you clicked it.  cli and api have
+        # dispatched `RestoreDeviceState` at their display-start since #150.
+        #
+        # It sits HERE, after the subscriptions above, on purpose: the restore
+        # loads a theme, which publishes `ThemeLoaded`, which is what starts
+        # the render ticker.  Dispatched any earlier in __init__ the event
+        # would fire into an unconnected bus and nothing would ever animate.
+        self._restore_display_state()
+
         # Metrics ticker — dispatches RenderAndSend to every device with an
         # active theme, at AppSettings.refresh_interval_s.  Started lazily when
         # a theme gets loaded; stops when no active themes remain.
@@ -216,10 +230,45 @@ class MainWindow(QMainWindow):
 
     # ── Event handlers ────────────────────────────────────────────────
 
+    def _restore_display_state(self, key: str | None = None) -> None:
+        """Give every attached LCD a renderable display state.  Idempotent.
+
+        Enumerates through ``ListDevices`` rather than ``app.devices``: the
+        latter is an ``AttributeError`` under ``TRCC_DAEMON=1``, where a UI
+        holds an ``AppProxy`` that exposes ``dispatch`` and nothing else, and
+        that Query exists precisely because nothing else could answer "which
+        devices are there".
+
+        ``key=None`` covers the coldplug fleet — devices attached by
+        ``discover_and_connect`` BEFORE this window existed, which never emit
+        ``DeviceConnected`` anywhere this window can hear it.  A key restores
+        the one device that just arrived.  ``RestoreDeviceState`` no-ops when a
+        theme is already active, so the two paths may overlap freely.
+        """
+        fleet = self._app.dispatch(ListDevices()).devices
+        # Entry log with the resolved count — THE RULE.  Without it this method
+        # is SILENT on an empty fleet, which is precisely the case a reader
+        # needs to distinguish from "ran and restored nothing".
+        log.info("_restore_display_state: key=%s, %d device(s) attached",
+                 key or "<all>", len(fleet))
+        for entry in fleet:
+            if key is not None and entry.key != key:
+                continue
+            if not entry.connected or entry.wire == Wire.LED.value:
+                log.debug("_restore_display_state: skip %s (wire=%s connected=%s)",
+                          entry.key, entry.wire, entry.connected)
+                continue
+            result = self._app.dispatch(RestoreDeviceState(key=entry.key))
+            log.info("_restore_display_state: %s → ok=%s %s",
+                     entry.key, result.ok, result.message)
+
     def _on_connected(self, event: DeviceConnected) -> None:
-        log.info("_on_connected")
+        log.info("_on_connected: %s", event.key)
         w, h = event.resolution
         self._status.showMessage(f"Connected: {event.key} ({w}×{h})", 5000)
+        # A hotplugged device needs the same display-start restore the
+        # coldplug fleet gets in __init__ — otherwise it attaches and sits dark.
+        self._restore_display_state(event.key)
 
     def _on_disconnected(self, event: DeviceDisconnected) -> None:
         log.info("_on_disconnected")
