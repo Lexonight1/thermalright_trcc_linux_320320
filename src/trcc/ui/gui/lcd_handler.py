@@ -39,7 +39,7 @@ from ...core.commands import (
     LoadTheme,
     PreviewSize,
     ResolveThemeDirectories,
-    RestoreLastTheme,
+    RestoreDeviceState,
     SaveTheme,
     SendScreencastFrame,
     SetBrightness,
@@ -435,7 +435,17 @@ class LCDHandler(BaseHandler):
             self.rebuild_preview()
             return
 
-        result = self._app.dispatch(RestoreLastTheme(key=self._device_key))
+        # METHOD_UI.md's entry contract: display-start dispatches
+        # RestoreDeviceState, not the raw RestoreLastTheme.  It is a SUPERSET
+        # — the persisted theme, else the first available one, and then the
+        # persisted ``background_path`` video replayed on top.  gui wrote that
+        # override on every video pick (``SetBackground``) and never once read
+        # it back, so a user's cloud/user background was lost on every restart
+        # while cli and api both restored it.
+        #
+        # Idempotent, and reached only when ``_refresh``'s auto-load did NOT
+        # fire (``if auto_loaded: return`` above), so it cannot double-load.
+        result = self._app.dispatch(RestoreDeviceState(key=self._device_key))
         if not result.ok:
             self.log.info("_restore_theme_and_preview: no saved theme — %s",
                           result.message)
