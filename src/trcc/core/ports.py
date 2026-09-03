@@ -1796,7 +1796,28 @@ class AutostartManager(ABC):
     def disable(self) -> None: ...
 
     @abstractmethod
-    def refresh(self) -> None: ...
+    def refresh(self) -> None:
+        """Re-render an EXISTING entry; never install one.
+
+        The repair for a moved install (#201): an entry keeps whatever launch
+        command it was written with forever, so a change to that command — a
+        relocated install, a new flag like ``--resume``, a different target —
+        reaches new installs and never reaches existing ones.
+
+        Two branches, and every implementation has both:
+
+          1. no entry installed → do nothing.  A refresh that could enable
+             would silently opt the user into autostart on every launch, which
+             is the whole line between this and :meth:`enable`.
+          2. otherwise → re-render with the CURRENT command and the
+             **installed** target, so a repair never changes which ui the user
+             chose.
+
+        Written here because it was the one method on this port with no
+        contract at all, and a test double duly implemented it as ``pass`` —
+        against which ``RefreshAutostart`` could stop calling ``refresh()``
+        entirely with the whole suite still green.
+        """
 
 
 # =========================================================================

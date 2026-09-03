@@ -85,6 +85,44 @@ def test_autostart_refresh_keeps_an_existing_entry(fake_platform) -> None:
     assert app.dispatch(GetAutostartStatus()).enabled is True
 
 
+def test_autostart_refresh_rewrites_a_stale_entry(fake_platform) -> None:
+    """The repair itself — an entry written by a moved install goes current.
+
+    Every other refresh test observes only ``enabled``, which a refresh that
+    does NOTHING satisfies just as well as one that works.  Measured: with
+    ``mgr.refresh()`` deleted from ``RefreshAutostart.execute``, 4266 tests
+    passed — the 38 real-adapter ones included, because they call the adapter
+    directly and never through the Command.  Nothing anywhere connected the
+    Command to the port, and #201 is the whole reason the Command exists.
+    """
+    app = App(fake_platform)
+    mgr = fake_platform.autostart()
+    app.dispatch(EnableAutostart())
+
+    mgr.command = "/somewhere/else/bin/trcc"        # the install moved
+    assert mgr.installed_command != mgr.command, "fixture drift: not stale"
+
+    app.dispatch(RefreshAutostart())
+
+    assert mgr.installed_command == "/somewhere/else/bin/trcc"
+
+
+def test_autostart_refresh_preserves_the_installed_target(fake_platform) -> None:
+    """A repair must not change WHICH ui the user chose to start.
+
+    ``refresh`` re-renders by re-enabling, so re-enabling with the default
+    instead of the installed target would silently move every non-gui user
+    back to gui.  All three adapters guard this by passing
+    ``installed_target()``; this asserts the Command inherits the guarantee.
+    """
+    app = App(fake_platform)
+    app.dispatch(EnableAutostart(target="daemon"))
+
+    app.dispatch(RefreshAutostart())
+
+    assert app.dispatch(GetAutostartStatus()).target == "daemon"
+
+
 def test_autostart_disable_clears_state(fake_platform) -> None:
     app = App(fake_platform)
     app.dispatch(EnableAutostart())

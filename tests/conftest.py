@@ -119,9 +119,26 @@ class FakePaths(Paths):
 
 
 class FakeAutostart(AutostartManager):
+    """In-memory autostart entry that models the PORT's contract.
+
+    ``command`` is what an entry written right now would launch;
+    ``installed_command`` is what the installed entry actually says.  They
+    diverge exactly when an install has moved — the #201 state ``refresh``
+    exists to repair, and the only thing about a refresh a test can SEE.
+
+    Without them ``refresh`` was ``pass``, which satisfied every assertion in
+    the suite by accident: ``RefreshAutostart`` could stop calling the port
+    altogether and 4266 tests stayed green, the 38 real-adapter ones included.
+    """
+
     def __init__(self) -> None:
         self._enabled = False
         self._target: str | None = None
+        #: What an entry written NOW would launch.  Move it to simulate the
+        #: relocated install that makes an existing entry stale.
+        self.command: str = "trcc"
+        #: What the installed entry says — stale until the next refresh.
+        self.installed_command: str | None = None
 
     def is_enabled(self) -> bool:
         return self._enabled
@@ -135,13 +152,20 @@ class FakeAutostart(AutostartManager):
     def enable(self, target: str | None = None) -> None:
         self._enabled = True
         self._target = target or DEFAULT_AUTOSTART_TARGET
+        self.installed_command = self.command
 
     def disable(self) -> None:
         self._enabled = False
         self._target = None
+        self.installed_command = None
 
     def refresh(self) -> None:
-        pass
+        # The shape XDG, Windows and macOS all share: nothing installed -> do
+        # nothing; otherwise re-render with the CURRENT command and the
+        # INSTALLED target, so a repair never changes the user's choice.
+        if not self._enabled:
+            return
+        self.enable(self.installed_target())
 
 
 class FakeCpu(CpuSource):

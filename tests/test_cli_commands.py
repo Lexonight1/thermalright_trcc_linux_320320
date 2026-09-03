@@ -1411,3 +1411,33 @@ def test_autostart_status_reports_the_installed_target(
     result = cli_runner.invoke(_app(), ["system", "autostart", "status"])
     assert result.exit_code == 0, result.output
     assert "qtgui" in result.output
+
+
+def test_autostart_refresh_repairs_a_stale_entry(
+    cli_runner, cli_app, fake_platform,
+) -> None:
+    """`autostart refresh` had NO test at all, while the API route had one.
+
+    The verb is the user-facing half of the #201 repair, so "the api can prove
+    it and the cli cannot" is the asymmetry, not a missing nicety.
+    ``cli_app`` is built on this same ``fake_platform``, so the entry the CLI
+    writes is the one asserted on here.
+    """
+    mgr = fake_platform.autostart()
+    cli_runner.invoke(_app(), ["system", "autostart", "enable"])
+    mgr.command = "/moved/bin/trcc"
+
+    result = cli_runner.invoke(_app(), ["system", "autostart", "refresh"])
+
+    assert result.exit_code == 0, result.output
+    assert mgr.installed_command == "/moved/bin/trcc"
+
+
+def test_autostart_refresh_reports_when_there_is_nothing_to_refresh(
+    cli_runner, cli_app, fake_platform,
+) -> None:
+    """With no entry installed it says so and installs nothing."""
+    result = cli_runner.invoke(_app(), ["system", "autostart", "refresh"])
+
+    assert result.exit_code == 0, result.output
+    assert not fake_platform.autostart().is_enabled()
