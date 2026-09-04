@@ -96,6 +96,15 @@ def test_command_registry_collects_every_command_subclass() -> None:
         + "\n".join(f"  {n}  (core/commands/{m}.py)"
                      for n, m in sorted(unexported.items()))
     )
+    stray = sorted(n for n, c in COMMAND_TYPES.items()
+                   if not dataclasses.is_dataclass(c))
+    assert not stray, (
+        f"the registry advertises {stray} as dispatchable, but they are not "
+        "frozen dataclasses -- decoding one reaches dataclasses.fields on an "
+        "abstract base and raises a raw TypeError instead of the clean "
+        "'Unknown command'.  The Query ABC was collected this way, which also "
+        "made the contract read 136 where every other count says 135."
+    )
     assert len(defined) >= 100, (
         f"only {len(defined)} Commands discovered — the collector is probably "
         "broken, not the tree"

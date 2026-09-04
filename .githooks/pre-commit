@@ -60,4 +60,19 @@ if printf '%s\n' "$staged" | grep -qE '^src/trcc/'; then
     git add doc/REFERENCE_PORTS.md
 fi
 
+# ── Command reference ──────────────────────────────────────────────────
+# doc/REFERENCE_COMMANDS.md is generated from the live Command classes
+# (dev/gen_commands_reference.py).  It is the contract a third party builds
+# a UI against, and it had no page at all while doc/TRCC_CONTRACT.md -- the
+# file whose name promises exactly that -- described a facade deleted in the
+# cutover.  Derived, so it cannot drift the same way.
+if printf '%s\n' "$staged" | grep -qE '^src/trcc/'; then
+    echo "pre-commit: src changed — regenerating doc/REFERENCE_COMMANDS.md"
+    if ! PYTHONPATH=src python3 dev/gen_commands_reference.py >/dev/null; then
+        echo "pre-commit: command reference generation FAILED (dev/gen_commands_reference.py)" >&2
+        exit 1
+    fi
+    git add doc/REFERENCE_COMMANDS.md
+fi
+
 exit 0

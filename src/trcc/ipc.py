@@ -58,6 +58,7 @@ from .core import commands as _commands_module
 from .core import events as _events_module
 from .core import results as _results_module
 from .core.commands import Command
+from .core.commands._base import Query
 from .core.events import Event
 from .core.logs import per_frame
 from .core.results import Result
@@ -116,9 +117,19 @@ def _collect_classes(module: Any, base: type) -> dict[str, type]:
     }
 
 
-COMMAND_TYPES: dict[str, type[Command[Any]]] = _collect_classes(
-    _commands_module, Command,
-)
+COMMAND_TYPES: dict[str, type[Command[Any]]] = {
+    # ``Query`` is a Command subclass, so ``_collect_classes`` collects the
+    # ABC itself and the registry advertised a dispatchable command that is
+    # not one: decoding {"command": "Query"} reached ``dataclasses.fields``
+    # on an abstract base and raised a raw TypeError instead of the clean
+    # "Unknown command".  It also made the contract read 136 where every
+    # other count says 135 (101 Commands + 34 Queries).  Unlike
+    # ``RESULT_TYPES``, which keeps its base on purpose because
+    # ``decode_result`` degrades to it, nothing decodes to a bare Command.
+    name: cls
+    for name, cls in _collect_classes(_commands_module, Command).items()
+    if cls is not Query
+}
 RESULT_TYPES: dict[str, type[Result]] = {
     Result.__name__: Result,
     **_collect_classes(_results_module, Result),
