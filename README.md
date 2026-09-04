@@ -53,7 +53,7 @@
 
 Native Linux port of the Thermalright LCD Control Center (Windows TRCC 2.1.2). Control and customize the LCD displays and LED segment displays on Thermalright CPU coolers, AIO pump heads, and fan hubs — entirely from Linux.
 
-> **This project wouldn't exist without our testers.** I only own one device. Every supported device in this list works because someone plugged it in, ran `trcc report`, and told me what broke. 32 testers helped us go from "SCSI only" to full C# feature parity with 6 USB protocols, 16 FBL resolutions, and 13 LED styles. Open source at its best — see [Contributors](#contributors) below.
+> **This project wouldn't exist without our testers.** I only own one device. Every supported device in this list works because someone plugged it in, ran `trcc report`, and told me what broke. 32 testers helped us go from "SCSI only" to full C# feature parity with 6 USB protocols, 19 FBL device profiles, and 13 LED styles. Open source at its best — see [Contributors](#contributors) below.
 
 > Unofficial community project, not affiliated with Thermalright. Built with [Claude](https://claude.ai) (AI) for protocol reverse engineering and code generation, guided by human architecture decisions and logical assessment.
 
@@ -165,7 +165,7 @@ trcc doctor                                     # Check system dependencies
 trcc system setup                               # Interactive setup wizard
 ```
 
-> **Command groups:** LCD actions live under `trcc display …`, LED under `trcc led …`, themes under `trcc theme …`; diagnostics (`report`, `detect`, `doctor`, `sensors`) are top-level; OS setup under `trcc system …`. Run `trcc --help` or `trcc display --help` to explore, and see the **[CLI Guide](doc/GUIDE_CLI.md)** for the full walkthrough.
+> **Command groups:** LCD actions live under `trcc display …`, LED under `trcc led …`, themes under `trcc theme …`; diagnostics (`report`, `detect`, `doctor`, `sensors`) are top-level; OS setup under `trcc system …`. Run `trcc --help` or `trcc display --help` to explore, and see the **[CLI reference](doc/REFERENCE_CLI.md)** for every command.
 
 See the **[CLI Reference](doc/REFERENCE_CLI.md)** for the full command list.
 
@@ -180,16 +180,19 @@ trcc serve --host 0.0.0.0     # Listen on all interfaces (LAN access)
 trcc serve --token SECRET     # Require a bearer token (see `trcc api --token`)
 ```
 
-78 endpoints covering devices, display, LED, themes, and system metrics. Use `trcc api` to list all endpoints.
+127 endpoints covering devices, display, LED, themes, and system metrics — every one listed in the **[API reference](doc/REFERENCE_API.md)**, or browse them live at `/docs` while the server runs.
+
+Devices are addressed by **key** — the `vid:pid` string the CLI also uses.
 
 ```bash
 # Examples with curl
-curl http://localhost:9876/devices              # List devices
-curl -X POST http://localhost:9876/display/send \
-  -F "file=@wallpaper.png"                     # Send image
-curl -X POST http://localhost:9876/led/color \
+curl http://127.0.0.1:8080/devices                            # list devices
+curl -X POST http://127.0.0.1:8080/devices/0402:3922/display/color \
   -H "Content-Type: application/json" \
-  -d '{"color": "#ff0000"}'                    # Set LED color
+  -d '{"r": 255, "g": 0, "b": 0}'                             # solid red frame
+curl -X POST http://127.0.0.1:8080/devices/0402:3922/led/color \
+  -H "Content-Type: application/json" \
+  -d '{"r": 255, "g": 0, "b": 0}'                             # set LED colour
 ```
 
 ### Tips
@@ -238,7 +241,7 @@ Set the angle to **90°** (or 270°) in the GUI, then open **Cloud Themes** — 
 | **Multi-device** | Per-device config, auto-detect, multi-device with device selection |
 | **Security** | udev rules, polkit policy, SELinux support, no root required after setup |
 
-**Under the hood**: 223 source files, ~71K lines of Python, 1783 tests across 104 test files. Hexagonal architecture with strict dependency injection — GUI, CLI, and API all talk to the same core services. 6 USB protocols reverse-engineered from the Windows C# app.
+**Under the hood**: 246 source files, ~83K lines of Python, 4,400+ tests across 180 test files. Hexagonal architecture with strict dependency injection — GUI, CLI, and API all talk to the same core services. 6 USB protocols reverse-engineered from the Windows C# app.
 
 ### What we do better than Windows TRCC
 
@@ -304,12 +307,13 @@ src/trcc/
 ├── adapters/       # USB device protocols (SCSI, HID, Bulk, LY, LED)
 ├── ui/
 │   ├── gui/        # PySide6 GUI — themes, video, overlay, LED, sensors
-│   ├── cli/        # Typer CLI — 95 commands across 8 modules
-│   └── api/        # FastAPI REST API — 78 endpoints across 7 modules
-├── _boot.py        # Composition root — returns Trcc or TrccProxy
+│   ├── cli/        # Typer CLI — 144 commands across 8 modules
+│   ├── api/        # FastAPI REST API — 127 endpoints across 9 modules
+│   └── presentation/ # Toolkit-free models shared by the graphical UIs
+├── app.py          # The App — owns devices, services, the bus, dispatch()
+├── _boot.py        # Composition root — returns App, or AppProxy in daemon mode
 ├── daemon.py       # Optional singleton daemon mode (TRCC_DAEMON=1)
-├── ipc.py          # Manifold IPC — UI ↔ daemon over Unix socket
-├── conf.py         # Settings singleton
+├── ipc.py          # Command dispatch over a Unix socket
 └── assets/         # GUI images, desktop entry, polkit policy, systemd service
 ```
 
