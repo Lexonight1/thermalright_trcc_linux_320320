@@ -60,17 +60,46 @@ from trcc.ipc import (
 
 
 def test_command_registry_collects_every_command_subclass() -> None:
-    """Every Command subclass declared in commands.py is reachable by name."""
-    expected = {
-        "DiscoverDevices", "ConnectDevice", "DisconnectDevice", "SendFrame",
-        "SendColor", "RenderAndSend", "LoadTheme", "SaveTheme",
-        "PlayVideo", "StopVideo",
-        "SetOrientation", "SetBrightness", "SetFitMode", "EnableOverlay",
-        "SetSplitMode", "ApplyMask", "SetMaskPosition", "SetMaskVisible",
-        "SetLedColors", "RenderLed", "UploadBootAnimation",
-    }
-    missing = expected - set(COMMAND_TYPES)
-    assert not missing, f"Missing from registry: {missing}"
+    """EVERY Command defined under ``core/commands/`` is reachable by name.
+
+    Enumerated, not sampled.  This assertion used to name 21 commands against
+    a registry of 136 — 15% — which is a sample wearing a gate's name.
+
+    What it guards is a silent failure.  Dispatch is zero-touch
+    (``App.dispatch`` is ``cmd.execute(self)``, no handler map), but
+    ``COMMAND_TYPES`` is collected from the ``core.commands`` package
+    namespace and ``core/commands/__init__.py`` is a hand-maintained export
+    list.  A Command defined in a submodule and not re-exported therefore
+    works in-process, is UNDISPATCHABLE over IPC, is invisible to the parity
+    audit and to any generated reference — and passes the whole suite.
+    """
+    import importlib
+    import pkgutil
+
+    import trcc.core.commands as pkg
+    from trcc.core.commands._base import Command, Query
+
+    defined: dict[str, str] = {}
+    for mod_info in pkgutil.iter_modules(pkg.__path__):
+        module = importlib.import_module(f"trcc.core.commands.{mod_info.name}")
+        for name, obj in vars(module).items():
+            if (inspect.isclass(obj) and issubclass(obj, Command)
+                    and obj not in (Command, Query)
+                    and obj.__module__ == module.__name__):
+                defined[name] = mod_info.name
+
+    unexported = {n: m for n, m in defined.items() if n not in COMMAND_TYPES}
+    assert not unexported, (
+        "these Commands are defined but not re-exported from "
+        "core/commands/__init__.py, so they are undispatchable over IPC and "
+        "invisible to the contract audit:\n"
+        + "\n".join(f"  {n}  (core/commands/{m}.py)"
+                     for n, m in sorted(unexported.items()))
+    )
+    assert len(defined) >= 100, (
+        f"only {len(defined)} Commands discovered — the collector is probably "
+        "broken, not the tree"
+    )
 
 
 def test_result_registry_collects_every_result_subclass() -> None:
