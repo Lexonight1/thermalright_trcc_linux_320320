@@ -130,13 +130,12 @@ def run(platform: Any, *, decorated: bool = False,
     if not run_bootstrap_with_splash(app):
         return 1
 
-    # ── Hotplug listener + metrics broadcast (one cadence drives the
-    # system-info / activity sidebar / overlay refresh) ─────────────
-    app.start_hotplug()
-    app.metrics_loop.start()
-    # Fast LED effect/carousel animation (breathing/colour-cycle/rainbow) —
-    # the slow sensor cadence can't animate them.
-    app.led_animation_loop.start()
+    # ── Session bring-up: hotplug + metrics + LED animation ─────────
+    # The coldplug already ran on the splash worker above, so ``start_session``
+    # skips it and starts only the live loops (one metrics cadence drives the
+    # system-info / activity sidebar / overlay refresh; the LED loop animates
+    # breathing / colour-cycle / rainbow, which the slow cadence can't).
+    app.start_session()
 
     # ── Main window — TRCCApp keeps the legacy chrome ──────────────
     window = TRCCApp(app=app, decorated=decorated)

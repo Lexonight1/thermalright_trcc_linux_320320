@@ -985,10 +985,14 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # gui/qtgui lifecycle — deliberately OUT of burn-down.  A GUI running as a
     # daemon *client* must not own app lifecycle, and an event stream over a
     # socket is a different problem from a data read.
-    "ui/gui/__init__.py": 4,         # start_hotplug / metrics_loop / led_animation_loop / close
+    # 2026-09-04: gui 4 -> 2 and qtgui 8 -> 5.  ``App.start_session()`` gave
+    # ``close()`` the partner it never had, so the four-call bring-up block
+    # that was copy-pasted into run_daemon / run_gui / run_qtgui is ONE call
+    # in one place.  Ground gained, not given back.
+    "ui/gui/__init__.py": 2,         # start_session / close
     "ui/gui/lcd_handler.py": 1,      # .renderer — a Command-signature question
     "ui/gui/splash.py": 1,           # discover_and_connect — lifecycle
-    "ui/qtgui/app.py": 8,            # events / first_run / platform + 5 lifecycle
+    "ui/qtgui/app.py": 5,            # events / first_run / platform / start_session / close
     # 11 -> 9 on 2026-08-30: UCThemeMask stopped being handed a Paths port and
     # a ContentStore.  It composed "which masks does this device have" out of
     # both; ``ListMasks`` had answered that all along for cli/api/qtgui.  What

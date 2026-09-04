@@ -401,10 +401,7 @@ def run(
     # one handshake per attached device is fast, and doing it before the window
     # builds means the pickers/browsers populate at construction.  Live attach/
     # detach afterwards flows through start_hotplug → DeviceConnected events.
-    app.discover_and_connect()
-    app.start_hotplug()
-    app.metrics_loop.start()
-    app.led_animation_loop.start()
+    app.start_session()
 
     window = MainWindow(app)
     # ``--resume``: come up in the tray instead of popping a window on every

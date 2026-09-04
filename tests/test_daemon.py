@@ -31,9 +31,17 @@ def test_ensure_daemon_strips_daemon_flag_from_child_env(
 def test_run_daemon_starts_metrics_loop_and_pops_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#148: the daemon must start the metrics loop (else it owns USB but
-    never ticks → blank display).  #162: it pops the daemon-mode flag from
-    its own env so it can't proxy to itself."""
+    """#148: the daemon must bring its session up (else it owns USB but never
+    ticks → blank display).  #162: it pops the daemon-mode flag from its own
+    env so it can't proxy to itself.
+
+    The daemon reaches the metrics loop through ``App.start_session`` now —
+    the partner of ``close`` — so this asserts the daemon CALLS it, and
+    ``tests/test_app_start_session.py`` asserts that the call actually starts
+    all three loops.  Splitting it that way is what let the daemon gain the
+    coldplug it never had: on Windows / macOS / BSD, whose hotplug monitors
+    report only NEW devices, it used to come up owning USB with nothing
+    connected."""
     monkeypatch.setenv(_ENV_FLAG, "1")
     monkeypatch.setattr(ipc, "daemon_running", lambda: False)
 
@@ -49,8 +57,8 @@ def test_run_daemon_starts_metrics_loop_and_pops_flag(
     rc = daemon.run_daemon()
 
     assert rc == 0
-    app.metrics_loop.start.assert_called_once()   # #148
-    app.close.assert_called_once()                # teardown (stops the loop)
+    app.start_session.assert_called_once()        # #148 — coldplug + 3 loops
+    app.close.assert_called_once()                # teardown (its exact partner)
     assert _ENV_FLAG not in os.environ            # #162 — flag popped
 
 

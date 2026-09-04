@@ -273,6 +273,11 @@ class App:
         # whether to ``start_hotplug``.  In-process CLI scripts that
         # only do one Command don't need it; the daemon and GUI do.
         self._hotplug_started = False
+        # Whether the one-shot coldplug has run this process.  Tracks that it
+        # RAN, not that it succeeded: ``start_session`` must not repeat a
+        # discover the gui's splash worker already did, or a device that
+        # failed to connect is retried and recorded twice.
+        self._coldplug_done = False
         # Seed the persisted GPU choice into the (singleton) enumerator so a
         # restart / CLI / API / daemon honours it, not just an in-session GUI
         # click — the composition root applies persisted state to the port.
@@ -689,6 +694,41 @@ class App:
         if self._display is not None:
             self._display.invalidate(key)
 
+    def start_session(
+        self, on_progress: Callable[[str], None] | None = None,
+    ) -> None:
+        """Bring a long-lived session up: coldplug, then the live loops.
+
+        The exact partner of :meth:`close`, and the reason it exists: the
+        three loop starts were copy-pasted into ``run_daemon``, ``run_gui``
+        and ``run_qtgui`` — qtgui prefixing the coldplug, gui running it on
+        its splash worker, the daemon not running it at all — while the API
+        started none of them.  #148 is what a duplicated bring-up costs:
+        one copy drifted out of step, and a reporter running ``trccd.service``
+        watched a connected device stay permanently blank until the missing
+        ``metrics_loop.start()`` was added to that copy alone.
+
+        The coldplug is the half the daemon never had at all.  Only Linux's
+        monitor replays already-present devices as ``DeviceAttached``;
+        Windows and FreeBSD watch for *new* events only, and the macOS poller
+        deliberately primes its snapshot so present devices raise nothing.
+        Without this, a daemon on those three comes up owning USB with
+        nothing connected until the user physically replugs.
+
+        Idempotent, like everything it calls: a repeat skips the coldplug and
+        the loops early-return.  ``on_progress`` is forwarded to
+        :meth:`discover_and_connect` for splash display.
+        """
+        log.info("start_session: coldplug_done=%s devices=%d",
+                 self._coldplug_done, len(self.devices))
+        if self._coldplug_done:
+            log.info("start_session: coldplug already ran — skipping it")
+        else:
+            self.discover_and_connect(on_progress)
+        self.start_hotplug()
+        self.metrics_loop.start()
+        self.led_animation_loop.start()
+
     def close(self) -> None:
         """Disconnect every attached device + stop background threads.
 
@@ -859,6 +899,7 @@ class App:
                 on_progress(message)
 
         log.info("discover_and_connect: starting coldplug")
+        self._coldplug_done = True
         _say("Discovering devices…")
         result = self.dispatch(DiscoverDevices())
         for product in result.products:

@@ -77,12 +77,11 @@ def run_daemon(
     from ._boot import _ENV_FLAG, _build_local_app
     os.environ.pop(_ENV_FLAG, None)
     app = _build_local_app(platform=platform, renderer=renderer)
-    app.start_hotplug()
-    # Without the metrics loop the daemon owns USB but never ticks — the
-    # device stays connected yet permanently blank (#148).  ``App.close()``
-    # in the finally below stops it on shutdown.
-    app.metrics_loop.start()
-    app.led_animation_loop.start()   # fast LED effect/carousel animation
+    # Coldplug + hotplug + metrics + LED animation.  The daemon used to start
+    # the loops but never coldplug, so on Windows / macOS / BSD — whose hotplug
+    # monitors report only NEW devices — it came up owning USB with nothing
+    # connected.  ``App.close()`` in the finally below is this call's partner.
+    app.start_session()
     server = ipc.IPCServer(app)
     server.start()
     _install_signal_handlers(server)
