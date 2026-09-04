@@ -62,7 +62,7 @@ class FrameSent(Event):
     # colors.  Carried on the SAME event so LED uses the SAME preview path as
     # LCD (one render → FrameSent → handle_frame → preview), not a parallel
     # one.  Empty for LCD / pure-bytes sends.
-    display_colors: list = field(default_factory=list)
+    display_colors: list[tuple[int, int, int]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

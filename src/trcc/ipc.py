@@ -28,6 +28,12 @@ serializes the returned Result back as::
 The serialization is reflective over ``dataclasses.fields`` so adding a
 new Command + Result is zero-touch for IPC.
 
+Events travel the same way on a subscription stream::
+
+      {"event": "FrameSent",
+       "fields": {"key": "0402:3922", "bytes_sent": 204800,
+                  "surface": null, "display_colors": []}}
+
 Bytes are encoded as ``{"__bytes__": "<base64>"}`` so binary payloads
 (``SendFrame``) survive JSON.  ``Path`` survives as ``str(path)``.
 """
@@ -49,14 +55,21 @@ from typing import TYPE_CHECKING, Any
 
 from . import core
 from .core import commands as _commands_module
+from .core import events as _events_module
 from .core import results as _results_module
 from .core.commands import Command
+from .core.events import Event
+from .core.logs import per_frame
 from .core.results import Result
 
 if TYPE_CHECKING:
     from .app import App
 
 log = logging.getLogger(__name__)
+# ``FrameSent`` is published once per rendered frame, so the event codec sits
+# on the per-frame family — silent by default, or every daemon-mode frame
+# writes a record (see core.logs and project_silence_has_a_mirror).
+frame_log = per_frame(__name__)
 
 _SOCK_NAME = "trcc.sock"
 _BYTES_MARKER = "__bytes__"
@@ -109,6 +122,10 @@ COMMAND_TYPES: dict[str, type[Command[Any]]] = _collect_classes(
 RESULT_TYPES: dict[str, type[Result]] = {
     Result.__name__: Result,
     **_collect_classes(_results_module, Result),
+}
+EVENT_TYPES: dict[str, type[Event]] = {
+    Event.__name__: Event,
+    **_collect_classes(_events_module, Event),
 }
 
 
@@ -230,9 +247,7 @@ def encode_command(cmd: Command[Any]) -> dict[str, Any]:
         f"{type(cmd).__name__} is not a dataclass — every Command subclass "
         "must use @dataclass(frozen=True, slots=True)"
     )
-    kwargs = {f.name: _to_wire(getattr(cmd, f.name))
-              for f in dataclasses.fields(cmd)}
-    return {"command": type(cmd).__name__, "kwargs": kwargs}
+    return {"command": type(cmd).__name__, "kwargs": _to_wire(cmd)}
 
 
 def decode_command(envelope: dict[str, Any]) -> Command[Any]:
@@ -253,9 +268,7 @@ def decode_command(envelope: dict[str, Any]) -> Command[Any]:
 def encode_result(result: Result) -> dict[str, Any]:
     """Serialize a Result into a response envelope (carries the class name)."""
     log.debug("encode_result: result=%s", type(result).__name__)
-    body = {f.name: _to_wire(getattr(result, f.name))
-            for f in dataclasses.fields(result)}
-    return {"type": type(result).__name__, **body}
+    return {"type": type(result).__name__, **_to_wire(result)}
 
 
 def decode_result(envelope: dict[str, Any]) -> Result:
@@ -265,6 +278,44 @@ def decode_result(envelope: dict[str, Any]) -> Result:
     cls = RESULT_TYPES.get(str(type_name), Result)
     body = {k: v for k, v in envelope.items() if k != "type"}
     return _build_dataclass(cls, body)
+
+
+def encode_event(event: Event) -> dict[str, Any]:
+    """Serialize an Event for the subscription stream.
+
+    The payload is nested under ``fields`` rather than flattened the way
+    ``encode_result`` flattens, for two reasons: an event field can never
+    collide with the discriminator, and a client reading a mixed stream can
+    tell an event from a response by shape alone.
+
+    ``FrameSent.surface`` is a live renderer surface and cannot cross JSON —
+    ``_to_wire`` drops it to ``None`` and the receiver re-renders.
+    """
+    frame_log.debug("encode_event: event=%s", type(event).__name__)
+    return {"event": type(event).__name__, "fields": _to_wire(event)}
+
+
+def decode_event(envelope: dict[str, Any]) -> Event:
+    """Reconstruct an Event from a subscription envelope.
+
+    Raises on an unknown name rather than falling back to the base ``Event``
+    the way :func:`decode_result` falls back to ``Result``.  That asymmetry is
+    deliberate: ``EventBus.publish`` fans out on ``type(event)`` — an exact
+    match, not ``isinstance`` — so a base-``Event`` stand-in would be
+    delivered to nobody at all.  A client on an older build than the daemon
+    must hear about the event it cannot decode, not silently lose it.
+    """
+    frame_log.debug("decode_event: keys=%s", sorted(envelope))
+    name = envelope.get("event")
+    if not isinstance(name, str):
+        raise ValueError("envelope missing 'event' key")
+    cls = EVENT_TYPES.get(name)
+    if cls is None:
+        raise ValueError(f"Unknown event: {name!r}")
+    fields = envelope.get("fields", {})
+    if not isinstance(fields, dict):
+        raise ValueError("envelope 'fields' must be an object")
+    return _build_dataclass(cls, fields)
 
 
 # =========================================================================

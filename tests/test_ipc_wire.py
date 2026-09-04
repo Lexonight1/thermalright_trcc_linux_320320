@@ -7,7 +7,13 @@ gets its own coverage in test_ipc_server.py.
 """
 from __future__ import annotations
 
+import dataclasses
+import inspect
+import json
+import typing
 from pathlib import Path
+
+import pytest
 
 from trcc.core.commands import (
     LoadTheme,
@@ -17,9 +23,16 @@ from trcc.core.commands import (
     SetOrientation,
     UploadBootAnimation,
 )
+from trcc.core.events import (
+    Event,
+    FrameSent,
+    SensorsUpdated,
+    SystemResumed,
+)
 from trcc.core.models import (
     DeviceInfo,
     HandshakeResult,
+    HardwareMetrics,
     Kind,
     PanelCutout,
     ProductInfo,
@@ -33,10 +46,13 @@ from trcc.core.results import (
 )
 from trcc.ipc import (
     COMMAND_TYPES,
+    EVENT_TYPES,
     RESULT_TYPES,
     decode_command,
+    decode_event,
     decode_result,
     encode_command,
+    encode_event,
     encode_result,
 )
 
@@ -253,3 +269,160 @@ def test_missing_command_key_decode_raises() -> None:
 
     with pytest.raises(ValueError, match="missing 'command'"):
         decode_command({"kwargs": {}})
+
+
+# ── Event round-trip — the whole registry, not a sample ─────────────
+#
+# Events are the half daemon mode never had: ``AppProxy`` exposes dispatch
+# only, so both GUIs raise ``AttributeError`` on ``app.events`` the moment
+# TRCC_DAEMON=1.  This gates the codec that unblocks them.
+
+
+def _sample(hint: object, field_name: str) -> object:
+    """A non-default value for *hint*, so a dropped field can't pass.
+
+    Raises on a type it doesn't know: a new event field whose type the wire
+    has never carried should fail here loudly rather than go untested.
+    """
+    import types as _types
+
+    origin = typing.get_origin(hint)
+    args = typing.get_args(hint)
+
+    if origin in (typing.Union, _types.UnionType):
+        return _sample([a for a in args if a is not type(None)][0], field_name)
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            return (_sample(args[0], field_name),)
+        return tuple(_sample(a, field_name) for a in args)
+    if origin is list:
+        return [_sample(args[0], field_name)] if args else []
+    if origin is dict:
+        return {"sample_key": _sample(args[1], field_name)} if args else {}
+    if hint is str:
+        return f"value-for-{field_name}"
+    if hint is bool:
+        return True
+    if hint is int:
+        return 7
+    if hint is float:
+        return 1.5
+    if hint is typing.Any:
+        return None          # in-process-only field; None is the wire value
+    if dataclasses.is_dataclass(hint) and isinstance(hint, type):
+        hints = typing.get_type_hints(hint)
+        return hint(**{f.name: _sample(hints[f.name], f.name)
+                       for f in dataclasses.fields(hint)})
+    raise AssertionError(
+        f"no wire sample defined for {hint!r} (field {field_name!r}) — "
+        "teach _sample about it, or the field is untested",
+    )
+
+
+def _populated(cls: type) -> object:
+    hints = typing.get_type_hints(cls)
+    return cls(**{f.name: _sample(hints[f.name], f.name)
+                  for f in dataclasses.fields(cls)})
+
+
+@pytest.mark.parametrize("name", sorted(EVENT_TYPES))
+def test_every_event_type_survives_the_wire(name: str) -> None:
+    """Exhaustive: every registered event, every field, JSON-clean and equal.
+
+    Parametrized over the registry rather than a hand-written list, so an
+    event added later is covered without anyone remembering to add it.
+    """
+    event = _populated(EVENT_TYPES[name])
+    envelope = encode_event(event)
+
+    json.dumps(envelope)          # must survive the actual transport
+    assert envelope["event"] == name
+
+    assert decode_event(envelope) == event
+
+
+def test_event_registry_covers_every_bus_bridge_subscription() -> None:
+    """The 20 types both GUIs subscribe to must all be decodable, or a
+    daemon-mode window silently stops receiving one of them."""
+    from trcc.core import events as events_module
+
+    subscribed = {
+        "DeviceDiscovered", "DeviceConnected", "DeviceDisconnected", "FrameSent",
+        "OrientationChanged", "BrightnessChanged", "ThemeLoaded",
+        "LedColorsChanged", "SensorsUpdated", "ErrorOccurred", "MaskApplied",
+        "MaskPositionChanged", "MaskVisibilityChanged", "VideoStarted",
+        "VideoStopped", "ScreencastStarted", "ScreencastStopped",
+        "SystemSuspending", "SystemResumed", "DataInstalled",
+    }
+    assert subscribed <= set(EVENT_TYPES), subscribed - set(EVENT_TYPES)
+    # ...and the registry is the module, not a list that can drift from it.
+    declared = {
+        n for n, c in vars(events_module).items()
+        if inspect.isclass(c) and issubclass(c, Event) and c is not Event
+    }
+    assert declared <= set(EVENT_TYPES), declared - set(EVENT_TYPES)
+
+
+def test_frame_sent_keeps_its_colours_as_tuples() -> None:
+    """``display_colors`` carries ``(r, g, b)`` triples.  Annotated bare
+    ``list`` they came back as lists — equal-looking, but the coercion had
+    nothing to rebuild from and the round-trip was not an identity."""
+    event = FrameSent(key="0402:3922", bytes_sent=12,
+                      display_colors=[(255, 0, 0), (0, 128, 255)])
+
+    rebuilt = decode_event(encode_event(event))
+
+    assert isinstance(rebuilt, FrameSent)
+    assert rebuilt.display_colors == [(255, 0, 0), (0, 128, 255)]
+    assert all(isinstance(c, tuple) for c in rebuilt.display_colors)
+    assert rebuilt == event
+
+
+def test_a_live_surface_is_dropped_rather_than_crashing_the_stream() -> None:
+    """``FrameSent.surface`` is a renderer surface — unserializable by design.
+    It must become None, not raise: one un-encodable frame event cannot be
+    allowed to take down the subscription."""
+    event = FrameSent(key="0402:3922", bytes_sent=12, surface=object())
+
+    envelope = encode_event(event)
+    json.dumps(envelope)
+
+    assert envelope["fields"]["surface"] is None
+    assert decode_event(envelope).surface is None
+
+
+def test_sensors_updated_carries_its_typed_snapshot() -> None:
+    """The one event with a nested dataclass the UIs read attributes off."""
+    metrics = HardwareMetrics(cpu_temp=55.5, readings={"cpu:temp": 55.5})
+    event = SensorsUpdated(reading_count=1, readings={"cpu:temp": 55.5},
+                           temp_unit="F", metrics=metrics)
+
+    rebuilt = decode_event(encode_event(event))
+
+    assert isinstance(rebuilt, SensorsUpdated)
+    assert rebuilt.metrics.cpu_temp == 55.5
+    assert rebuilt.metrics.readings == {"cpu:temp": 55.5}
+    assert rebuilt.temp_unit == "F"
+
+
+def test_an_event_with_no_fields_round_trips() -> None:
+    """Suspend/resume carry nothing but their type — and they are two of the
+    four unkeyed events a key filter must never drop."""
+    assert decode_event(encode_event(SystemResumed())) == SystemResumed()
+
+
+def test_unknown_event_raises_instead_of_falling_back() -> None:
+    """Unlike ``decode_result``, which degrades to the base ``Result``.
+    ``EventBus.publish`` dispatches on exact ``type()``, so a base ``Event``
+    stand-in would reach zero subscribers — a silent loss."""
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="Unknown event"):
+        decode_event({"event": "NotAnEvent", "fields": {}})
+
+
+def test_missing_event_key_raises() -> None:
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="missing 'event'"):
+        decode_event({"fields": {}})
