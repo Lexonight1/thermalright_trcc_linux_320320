@@ -75,4 +75,17 @@ if printf '%s\n' "$staged" | grep -qE '^src/trcc/'; then
     git add doc/REFERENCE_COMMANDS.md
 fi
 
+# ── API reference ──────────────────────────────────────────────────────
+# doc/REFERENCE_API.md is generated from the live FastAPI app
+# (dev/gen_api_reference.py).  Hand-written it claimed 59 routes of which 55
+# did not exist, and documented 4 of the 133 actually served.
+if printf '%s\n' "$staged" | grep -qE '^src/trcc/'; then
+    echo "pre-commit: src changed — regenerating doc/REFERENCE_API.md"
+    if ! PYTHONPATH=src python3 dev/gen_api_reference.py >/dev/null; then
+        echo "pre-commit: API reference generation FAILED (dev/gen_api_reference.py)" >&2
+        exit 1
+    fi
+    git add doc/REFERENCE_API.md
+fi
+
 exit 0

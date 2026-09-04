@@ -1,896 +1,190 @@
-# API Reference
+# API reference
 
-TRCC Linux includes a REST API for headless and remote control of LCD and LED devices. Start the server with:
+**Generated — do not edit.** `PYTHONPATH=src python3 dev/gen_api_reference.py`
 
-```bash
-trcc serve                          # localhost:9876
-trcc serve --port 8080              # custom port
-trcc serve --token mysecret         # require X-API-Token header
-trcc serve --tls                    # HTTPS with auto-generated self-signed cert
-trcc serve --host 0.0.0.0           # listen on all interfaces (use with --token)
-```
+A REST interface to the same command bus every other UI uses. Each endpoint builds a Command, dispatches it, and returns the Result as JSON — so anything here is also reachable from the CLI, the GUI, or your own client. The Commands themselves are documented in [`REFERENCE_COMMANDS.md`](REFERENCE_COMMANDS.md).
 
-Interactive docs available at `http://localhost:9876/docs` (Swagger UI) when the server is running.
+**128 endpoints.**
 
-When the `qrcode` package is installed (`pip install qrcode`), startup prints a terminal QR code containing `{"host","port","token","tls"}` as compact JSON — scan with TRCC Remote to connect instantly.
-
----
-
-## Table of Contents
-
-1. [Authentication](#authentication)
-2. [Health](#health)
-3. [Pairing](#post-pair)
-4. [Devices](#devices)
-5. [Display (LCD)](#display-lcd)
-6. [Video Playback](#video-playback)
-7. [Preview / Live Stream](#preview--live-stream)
-8. [Screencast](#screencast)
-9. [Themes](#themes)
-10. [LED](#led)
-11. [System Metrics](#system-metrics)
-12. [i18n (Internationalization)](#i18n-internationalization)
-13. [Request/Response Models](#requestresponse-models)
-
----
-
-## Authentication
-
-When started with `--token`, all endpoints except `/health` require the `X-API-Token` header:
+## Running it
 
 ```bash
-curl -H "X-API-Token: mysecret" http://localhost:9876/devices
+trcc api                              # http://127.0.0.1:8080
+trcc api --port 9000                  # another port
+trcc api --token random:32            # require X-API-Token
+trcc api --host 0.0.0.0 --token ...   # a public bind REQUIRES a token
 ```
 
-WebSocket connections use a query parameter instead:
+Without `--token` on loopback the API is unauthenticated (dev mode). Binding any other interface without one is refused rather than allowed — an open device-control API on a LAN is not a default worth having. `--pair` prints a one-time 6-character code that a remote device exchanges for the token via `POST /pair`.
 
-```text
-ws://localhost:9876/display/preview/stream?token=mysecret
-```
+Devices are addressed by **key** — the `vid:pid` string, e.g. `0402:3922` — the same identifier the CLI and the wire use. Every response carries `ok` and `message`.
 
----
-
-## Health
-
-### `GET /health`
-
-Health check. Always accessible, no auth required.
-
-**Response:**
-```json
-{"status": "ok", "version": "9.3.2"}
-```
-
----
-
-### `POST /pair`
-
-Pair a remote client (e.g. TRCC Remote app). Returns connection info and device status.
-
-**Response:**
-```json
-{"paired": true, "version": "9.3.2"}
-```
-
----
+Interactive docs are served at `/docs` while the API is running.
 
 ## Devices
 
-### `GET /devices`
-
-List currently known devices.
-
-**Response:** `DeviceResponse[]`
-```json
-[
-  {
-    "id": 0,
-    "name": "FROZEN VISION V2",
-    "vid": 34765,
-    "pid": 28891,
-    "protocol": "scsi",
-    "resolution": [320, 320],
-    "path": "/dev/sg2"
-  }
-]
-```
-
-### `POST /devices/detect`
-
-Rescan USB for LCD/LED devices. Returns updated device list.
-
-**Response:** `DeviceResponse[]`
-
-### `GET /devices/{device_id}`
-
-Get details for a specific device by index.
-
-**Response:** `DeviceResponse`
-
-**Errors:** `404` if device index out of range.
-
-### `POST /devices/{device_id}/select`
-
-Select a device for control. Initializes LCD or LED dispatcher, mounts static file directories, and restores last theme if available.
-
-If the GUI daemon is running, the API routes commands through IPC automatically.
-
-**Response:**
-```json
-{"selected": "FROZEN VISION V2", "resolution": [320, 320]}
-```
-
-### `POST /devices/{device_id}/send`
-
-Upload and send an image directly to the device LCD.
-
-**Content-Type:** `multipart/form-data`
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `image` | file | required | Image file (PNG, JPEG, etc.) |
-| `rotation` | int | 0 | Rotation in degrees (0, 90, 180, 270) |
-| `brightness` | int | 100 | Brightness percentage (0-100) |
-
-**Limits:** 10 MB max upload size. Validated by file extension.
-
-**Response:**
-```json
-{"sent": true, "resolution": [320, 320]}
-```
-
-**Errors:** `400` invalid image, `404` device not found, `413` too large, `503` can't discover resolution.
-
----
-
-## Display (LCD)
-
-All display endpoints require a device to be selected first (`POST /devices/{id}/select`). Returns `409` if no LCD device is active.
-
-### `POST /display/color`
-
-Send a solid color to the LCD.
-
-**Body:**
-```json
-{"hex": "ff0000"}
-```
-
-### `POST /display/brightness`
-
-Set display brightness. Persists to config.
-
-**Body:**
-```json
-{"level": 3}
-```
-
-| Level | Brightness |
-|-------|-----------|
-| 1 | 25% |
-| 2 | 50% |
-| 3 | 100% |
-
-### `POST /display/rotation`
-
-Set display rotation. Persists to config.
-
-**Body:**
-```json
-{"degrees": 90}
-```
-
-Values: `0`, `90`, `180`, `270`.
-
-### `POST /display/split`
-
-Set split mode (Dynamic Island). Persists to config.
-
-**Body:**
-```json
-{"mode": 0}
-```
-
-Values: `0` (off), `1`-`3` (Dynamic Island variants).
-
-### `POST /display/test`
-
-Run a color cycle test on the connected LCD. Cycles through 7 colors (red, green, blue, yellow, magenta, cyan, white) with 1-second pauses. Stops any running video/overlay first.
-
-**Response:**
-```json
-{"success": true, "message": "Test complete — cycled 7 colors on 320x320"}
-```
-
-### `POST /display/reset`
-
-Reset device by sending a solid red frame. Useful for clearing stuck display state.
-
-### `POST /display/mask`
-
-Upload and apply a mask overlay (PNG with transparency).
-
-**Content-Type:** `multipart/form-data`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `image` | file | PNG mask image (max 10 MB) |
-
-### `POST /display/overlay`
-
-Render an overlay from a DC config file path.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `dc_path` | string | required | Path to config1.dc file |
-| `send` | bool | true | Send rendered frame to device |
-
-### `GET /display/status`
-
-Get current display state.
-
-**Response:**
-```json
-{
-  "connected": true,
-  "resolution": [320, 320],
-  "device_path": "/dev/sg2"
-}
-```
-
-### `POST /display/upload`
-
-Upload an image or video file to the server for use with `POST /display/create-theme`.
-
-**Request:** `multipart/form-data`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `file` | file | yes | Image (`.png`, `.jpg`, `.gif`) or video (`.mp4`, `.webm`, `.avi`, `.mkv`, `.zt`) |
-
-**Response:**
-```json
-{"path": "/home/user/.trcc/uploads/abc123.png", "filename": "abc123.png", "size": 204800}
-```
-
-Returns the server-side path to pass as `background` or `mask` in a subsequent `POST /display/create-theme` call.
-
----
-
-### `POST /display/create-theme`
-
-Send a custom theme to the LCD device from uploaded files. Accepts a background image or video, optional mask PNG, and optional overlay configuration. Auto-detects animated backgrounds (video, animated GIF).
-
-**Request:** `multipart/form-data`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `background` | file | yes | Background image or video |
-| `mask` | file | no | Mask PNG overlay |
-| `overlay` | file | no | JSON overlay config (`{"elements": [...]}`) — takes precedence over `metric` |
-| `metric` | string (repeatable) | no | Metric spec: `key:x,y[:color[:size[:font[:style]]]]` |
-| `loop` | bool | no | Loop video (default: `true`) |
-| `font_size` | int | no | Default font size (default: `14`) |
-| `color` | string | no | Default color hex (default: `"ffffff"`) |
-| `font` | string | no | Default font name (default: `"Microsoft YaHei"`) |
-| `font_style` | string | no | Default font style (default: `"regular"`) |
-| `temp_unit` | int | no | Temperature unit: 0=Celsius, 1=Fahrenheit (default: `0`) |
-| `time_format` | int | no | Time format: 0=24h, 1=12h (default: `0`) |
-| `date_format` | int | no | Date format index (default: `0`) |
-
-**Response (static):**
-```json
-{"success": true, "animated": false, "resolution": "320x320"}
-```
-
-**Response (animated):**
-```json
-{"success": true, "animated": true, "loop": true, "resolution": "320x320"}
-```
-
----
-
-## Video Playback
-
-Video playback runs in a background thread, pumping decoded frames to the LCD and updating the preview stream.
-
-### `POST /display/video/stop`
-
-Stop background video playback.
-
-### `POST /display/video/pause`
-
-Toggle pause on video playback. Returns `409` if no video is playing.
-
-**Response:**
-```json
-{"success": true, "paused": true}
-```
-
-### `GET /display/video/status`
-
-Get current video playback state.
-
-**Response:**
-```json
-{
-  "playing": true,
-  "paused": false,
-  "progress": 0.45,
-  "current_time": "0:13",
-  "total_time": "0:30",
-  "fps": 30.0,
-  "source": "/path/to/video.mp4",
-  "loop": true
-}
-```
-
----
-
-## Preview / Live Stream
-
-### `GET /display/preview`
-
-Return the current LCD frame as a PNG image. Useful for single-shot screenshots.
-
-**Response:** `image/png` binary
-
-**Errors:** `503` if no image available.
-
-### `WS /display/preview/stream`
-
-WebSocket live JPEG stream of the LCD. Frames are sent as binary messages at a configurable framerate.
-
-When the GUI daemon is running, frames come via IPC. In standalone mode, frames come from the `on_frame_sent` capture.
-
-**Auth:** `?token=` query parameter (if token auth is configured).
-
-**Client control messages (JSON text frames):**
-
-| Message | Default | Range | Description |
-|---------|---------|-------|-------------|
-| `{"fps": N}` | 10 | 1-30 | Target framerate |
-| `{"quality": N}` | 85 | 10-100 | JPEG quality |
-| `{"pause": bool}` | false | — | Pause/resume stream |
-
-**Example (JavaScript):**
-```javascript
-const ws = new WebSocket('ws://localhost:9876/display/preview/stream');
-ws.binaryType = 'arraybuffer';
-ws.onmessage = (e) => {
-  const blob = new Blob([e.data], {type: 'image/jpeg'});
-  document.getElementById('preview').src = URL.createObjectURL(blob);
-};
-// Adjust quality
-ws.send(JSON.stringify({quality: 70, fps: 15}));
-```
-
----
-
-## Screencast
-
-Stream screen capture to the LCD device. Auto-detects backend: ffmpeg x11grab on X11/XWayland, PipeWire on pure Wayland. Mutually exclusive with video playback, overlay loops, and keepalive loops.
-
-### `POST /display/screencast/start`
-
-Start screen capture streaming.
-
-**Body:**
-```json
-{"x": 0, "y": 0, "w": 0, "h": 0, "fps": 10}
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `x` | int | 0 | Capture region X offset |
-| `y` | int | 0 | Capture region Y offset |
-| `w` | int | 0 | Capture width (0 = full screen) |
-| `h` | int | 0 | Capture height (0 = full screen) |
-| `fps` | int | 10 | Target frame rate |
-
-**Response:** `{"success": true, "backend": "x11"}` or `{"success": true, "backend": "pipewire"}`
-
-### `POST /display/screencast/stop`
-
-Stop screen capture streaming.
-
-**Response:** `{"success": true, "message": "Screencast stopped"}`
-
-### `GET /display/screencast/status`
-
-Check screencast state.
-
-**Response:**
-```json
-{"running": true, "backend": "x11", "fps": 10, "region": {"x": 0, "y": 0, "w": 0, "h": 0}, "frames": 142}
-```
-
----
-
-## Themes
-
-### `POST /themes/init`
-
-Initialize the theme system for a given resolution. Downloads theme/mask/web archives if not cached locally.
-
-**Body:**
-```json
-{"resolution": "320x320"}
-```
-
-**Response:**
-```json
-{"initialized": true, "resolution": "320x320"}
-```
-
-### `GET /themes`
-
-List available local themes for a given resolution.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `resolution` | string | "320x320" | Resolution filter (e.g. "480x480") |
-
-**Response:** `ThemeResponse[]`
-```json
-[
-  {
-    "name": "CyberPunk",
-    "category": "Tech",
-    "is_animated": false,
-    "has_config": true,
-    "preview_url": "/static/themes/CyberPunk/Theme.png"
-  }
-]
-```
-
-### `POST /themes/load`
-
-Load a theme by name and send to device. Handles static images, animated themes (video/Theme.zt), and overlay configs (config1.dc) automatically.
-
-**Body:**
-```json
-{"name": "CyberPunk", "resolution": "320x320"}
-```
-
-`resolution` is optional — defaults to the connected device's resolution.
-
-### `POST /themes/save`
-
-Save current device display as a named theme. Saves to `~/.trcc-user/` so custom themes survive uninstall and data re-downloads. Routes through `LCDDevice.save()` → `DisplayService.save_theme()`.
-
-**Body:**
-```json
-{"name": "MyTheme"}
-```
-
-**Requires:** An image loaded on the device (via theme load, send, etc.). Returns 409 if no image.
-
-### `POST /themes/import`
-
-Import a `.tr` theme archive. Max 50 MB.
-
-**Content-Type:** `multipart/form-data`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `file` | file | `.tr` theme archive |
-
-### `POST /themes/export`
-
-Export a theme as a downloadable `.tr` archive.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `theme_name` | string | required | Theme name (exact or partial match) |
-| `resolution` | string | "320x320" | Resolution filter |
-
-**Response:** Binary `.tr` file download (`application/octet-stream`).
-
-**Errors:** `400` invalid name, `404` theme not found.
-
-### `GET /themes/web`
-
-List available cloud theme previews for a given resolution.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `resolution` | string | "320x320" | Resolution filter |
-
-**Response:** `WebThemeResponse[]`
-```json
-[
-  {
-    "id": "a001",
-    "category": "a",
-    "preview_url": "/static/web/a001.png",
-    "has_video": true,
-    "download_url": "/themes/web/a001/download"
-  }
-]
-```
-
-### `POST /themes/web/{theme_id}/download`
-
-Download a cloud theme to local cache. Optionally starts video playback on the device.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `resolution` | string | device res | Target resolution |
-| `send` | bool | false | Start playback after download |
-
-**Response:**
-```json
-{
-  "id": "a001",
-  "cached_path": "/home/user/.trcc/data/web/320320/a001.mp4",
-  "resolution": "320x320",
-  "already_cached": false
-}
-```
-
-### `GET /themes/masks`
-
-List available mask overlays for a given resolution.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `resolution` | string | "320x320" | Resolution filter |
-
-**Response:** `MaskResponse[]`
-```json
-[
-  {"name": "mask01", "preview_url": "/static/masks/mask01/Theme.png"}
-]
-```
-
----
+| Endpoint | Returns | Description |
+|---|---|---|
+| `GET /devices` | `DiscoverResponse` | — |
+| `GET /devices/issues` | `ConnectionIssuesView` | Every device that failed to connect, and why. |
+| `GET /devices/{key}` | `ProductSchema` | Detail for one discovered device — 404 if not currently present. |
+| `POST /devices/{key}/connect` | `ConnectView` | Connect *key*.  Returns the full handshake — including the raw device response as hex, the field issue triage always asks for. |
+| `POST /devices/{key}/disconnect` | `DisconnectResult` | — |
+| `POST /devices/{key}/reset` | `DisconnectResult` | Power-cycle the device: disconnect, reconnect, restore its display. |
+
+## Display, themes and frames
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `POST /devices/{key}/display/background` | `BackgroundResult` | Set a FILE as the device's persistent background override. |
+| `POST /devices/{key}/display/background-mode` | `BackgroundModeResult` | Pick what fills the LCD behind overlays (theme/color/transparent). |
+| `POST /devices/{key}/display/boot-animation` | `BootAnimationResult` | Upload a multi-frame compressed boot animation to a SCSI LCD's flash. |
+| `POST /devices/{key}/display/brightness` | `BrightnessResult` | — |
+| `POST /devices/{key}/display/color` | `SendResult` | Push a solid-color frame to a connected LCD device. |
+| `POST /devices/{key}/display/create-theme` | `CreateThemeResponse` | Create + apply a custom theme from uploaded multipart files. |
+| `POST /devices/{key}/display/fit-mode` | `FitModeResult` | — |
+| `POST /devices/{key}/display/keepalive` | `KeepaliveResult` | Run a keepalive burst (resend the last frame N times). |
+| `POST /devices/{key}/display/loop-video` | `LoopVideoResult` | Toggle whether playback wraps or sticks at the last frame. |
+| `POST /devices/{key}/display/mask` | `MaskApplyResult` | Apply a user-supplied mask. |
+| `POST /devices/{key}/display/mask-position` | `MaskPositionResult` | — |
+| `POST /devices/{key}/display/mask-visible` | `MaskVisibilityResult` | — |
+| `POST /devices/{key}/display/media-player` | `MediaPlayerResult` | Set the media-player source for *key* — a local file or a web URL/stream. |
+| `POST /devices/{key}/display/orientation` | `OrientationResult` | — |
+| `POST /devices/{key}/display/overlay` | `OverlayResult` | — |
+| `POST /devices/{key}/display/overlay-background` | `OverlayBackgroundResult` | Set the solid background color used when background-mode=color. |
+| `POST /devices/{key}/display/overlay-elements` | `OverlayElementResult` | Add a user-edited overlay element. |
+| `PUT /devices/{key}/display/overlay-elements` | `OverlayConfigResult` | Bulk replace the user-overlay element list. |
+| `DELETE /devices/{key}/display/overlay-elements/{element_id}` | `OverlayElementDeleteResult` | Remove an overlay element by id. |
+| `PATCH /devices/{key}/display/overlay-elements/{element_id}` | `OverlayElementResult` | Mutate fields on an existing user-edited overlay element. |
+| `POST /devices/{key}/display/overlay-elements/{element_id}/flash` | `OverlayElementResult` | Briefly highlight an overlay element in the GUI. |
+| `POST /devices/{key}/display/pause-video` | `PauseVideoResult` | Pause / resume video playback. |
+| `POST /devices/{key}/display/play-video` | `VideoResult` | Start a video playback override on the device. |
+| `GET /devices/{key}/display/preview` | — | Return the device's current rendered frame as a PNG image. |
+| `WS /devices/{key}/display/preview/stream` | — | Stream JPEG-encoded preview frames over a WebSocket at ~5 fps. |
+| `POST /devices/{key}/display/push-image` | `SendResult` | Push a server-side image to the panel ONCE — nothing staged or persisted. |
+| `POST /devices/{key}/display/render-dc` | `RenderDcResult` | Render a legacy DC config to an image with no device and no theme load. |
+| `POST /devices/{key}/display/reset` | `SendResult` | Reset the display — stop any active video, then send a solid red frame. |
+| `POST /devices/{key}/display/restore-theme` | `ThemeResponse` | Restore the device's display state (persisted theme + background). |
+| `POST /devices/{key}/display/screencast/start` | `ScreencastResult` | Begin a screen-capture session for *key*. |
+| `POST /devices/{key}/display/screencast/stop` | `ScreencastResult` | End the screen-capture session for *key*. |
+| `POST /devices/{key}/display/seek-video` | `SeekVideoResult` | Jump to a specific frame. |
+| `POST /devices/{key}/display/send-image` | `ThemeResponse` | One-shot image-to-LCD via multipart upload. |
+| `POST /devices/{key}/display/sleep` | `SendResult` | Blank the panel so it goes dark — the shutdown / turn-off action. |
+| `POST /devices/{key}/display/slideshow` | `SlideshowResult` | Turn the device's slideshow on / off. |
+| `PUT /devices/{key}/display/slideshow` | `SlideshowResult` | Set the theme list + interval for a device's slideshow. |
+| `POST /devices/{key}/display/slideshow/drive` | `SlideshowResult` | Start or stop actually ROTATING the configured slideshow. |
+| `GET /devices/{key}/display/snapshot` | `LcdSnapshotResult` | Return the persisted LCD state for one device. |
+| `POST /devices/{key}/display/split-mode` | `SplitModeResult` | — |
+| `POST /devices/{key}/display/stop-video` | `VideoResult` | Clear the video playback override on the device. |
+| `POST /devices/{key}/display/theme` | `ThemeResponse` | — |
+| `POST /devices/{key}/display/tick` | `RenderResult` | Render the active theme with live sensors + send one frame. |
+| `POST /devices/{key}/display/upload-mask` | `MaskUploadResult` | Upload a mask file (server-side path) + apply it. |
+| `GET /devices/{key}/display/video-status` | `VideoStatusResponse` | Current playback state for the device's video background override. |
+| `GET /display/masks` | `MasksListResult` | List masks for a device resolution. |
+
+## Theme library
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `DELETE /theme` | `DeleteThemeResult` | Delete a theme directory at an absolute path. |
+| `GET /theme/cloud` | `CloudThemesListResult` | List Thermalright cloud catalog (offline — catalog is static). |
+| `POST /theme/cloud/{key}` | `CloudThemeLoadResult` | Download a cloud theme + apply it to *key*. |
+| `POST /theme/config/import-upload` | `ImportConfigResponse` | Restore a device's settings from an uploaded JSON snapshot. |
+| `POST /theme/export` | `ThemeExportResult` | — |
+| `POST /theme/export-overlay` | `ThemeExportResult` | Copy a theme's overlay config file out to *output_path*. |
+| `POST /theme/import` | `ThemeImportResult` | Import a theme archive from a server-side path. |
+| `POST /theme/import-upload` | `ThemeImportResult` | Import a theme archive uploaded via multipart form-data. |
+| `POST /theme/init` | `EnsureDataDownloadResult` | Prefetch theme/web/mask archives for a resolution (idempotent). |
+| `GET /theme/list` | `ThemesListResult` | List themes for a device resolution. |
+| `POST /theme/save` | `ThemeResponse` | — |
+| `GET /theme/web` | `list` | Cloud-theme preview gallery for a resolution (e.g. ``320x320``). |
+| `GET /theme/{key}/config-download` | — | Stream a device's settings snapshot as a JSON download. |
+| `GET /theme/{key}/{theme_name}/download` | — | Stream a theme archive as a multipart download. |
+| `POST /theme/{name}/export-dc` | `ThemeDcExportResult` | Write a theme out as legacy ``config1.dc``. |
 
 ## LED
 
-All LED endpoints require an LED device to be selected first. Returns `409` if no LED device is active.
-
-### Global Operations
-
-#### `POST /led/color`
-
-Set LED static color.
-
-**Body:**
-```json
-{"hex": "00ff88"}
-```
-
-#### `POST /led/mode`
-
-Set LED effect mode.
-
-**Body:**
-```json
-{"mode": "breathing"}
-```
-
-Values: `static`, `breathing`, `colorful`, `rainbow` (device-dependent).
-
-#### `POST /led/brightness`
-
-Set LED brightness (0-100).
-
-**Body:**
-```json
-{"level": 80}
-```
-
-#### `POST /led/off`
-
-Turn all LEDs off.
-
-#### `POST /led/sensor`
-
-Set CPU/GPU sensor source for temperature/load-linked modes.
-
-**Body:**
-```json
-{"source": "cpu"}
-```
-
-### Zone Operations
-
-#### `POST /led/zones/{zone}/color`
-
-Set color for a specific LED zone.
-
-**Body:** `{"hex": "ff0000"}`
-
-#### `POST /led/zones/{zone}/mode`
-
-Set effect mode for a specific zone.
-
-**Body:** `{"mode": "breathing"}`
-
-#### `POST /led/zones/{zone}/brightness`
-
-Set brightness for a specific zone (0-100).
-
-**Body:** `{"level": 50}`
-
-#### `POST /led/zones/{zone}/toggle`
-
-Toggle a specific LED zone on/off.
-
-**Body:** `{"on": true}`
-
-#### `POST /led/sync`
-
-Enable/disable zone sync (circulate mode).
-
-**Body:**
-```json
-{"enabled": true, "interval": 500}
-```
-
-`interval` is optional (milliseconds between zone rotations).
-
-### Segment Operations
-
-#### `POST /led/segments/{index}/toggle`
-
-Toggle a specific LED segment on/off.
-
-**Body:** `{"on": true}`
-
-#### `POST /led/clock`
-
-Set segment display clock format.
-
-**Body:** `{"is_24h": true}`
-
-#### `POST /led/temp-unit`
-
-Set segment display temperature unit.
-
-**Body:** `{"unit": "C"}`
-
-Values: `C` (Celsius), `F` (Fahrenheit).
-
-### Test
-
-#### `POST /led/test`
-
-Run LED preview with real system metrics. No device needed — useful for testing without hardware.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `mode` | string | "static" | LED mode: static, breathing, colorful, rainbow |
-| `segments` | int | 64 | Number of LED segments to simulate |
-
-**Response:**
-```json
-{
-  "success": true,
-  "mode": "static",
-  "segments": 10,
-  "colors": [
-    {"r": 255, "g": 0, "b": 0},
-    {"r": 255, "g": 0, "b": 0}
-  ]
-}
-```
-
-### Status
-
-#### `GET /led/status`
-
-Get current LED state.
-
-**Response:**
-```json
-{"connected": true, "status": "..."}
-```
-
----
-
-## System Metrics
-
-### `GET /system/metrics`
-
-All system metrics as JSON — CPU, GPU, memory, disk, network, fans.
-
-**Response:** Flat dict with prefixed keys:
-```json
-{
-  "cpu_temp": 52,
-  "cpu_usage": 12,
-  "cpu_freq": 4200,
-  "gpu_temp": 45,
-  "gpu_usage": 8,
-  "mem_used": 8192,
-  "mem_total": 32768,
-  "disk_read": 15,
-  "disk_write": 3,
-  "net_up": 120,
-  "net_down": 450,
-  "fan_speed": 850
-}
-```
-
-### `GET /system/metrics/{category}`
-
-Filtered metrics by category.
-
-| Category | Aliases | Prefix |
-|----------|---------|--------|
-| `cpu` | — | `cpu_` |
-| `gpu` | — | `gpu_` |
-| `mem` | `memory` | `mem_` |
-| `disk` | — | `disk_` |
-| `net` | `network` | `net_` |
-| `fan` | — | `fan_` |
-
-### `GET /system/report`
-
-Generate diagnostic report (same as `trcc report` CLI command).
-
-**Response:**
-```json
-{"report": "TRCC Linux v9.3.2\n..."}
-```
-
-### `GET /system/perf`
-
-Run software performance benchmarks (rendering, encoding, compositing).
-
-**Response:**
-```json
-{
-  "benchmarks": [
-    {"name": "encode_rgb565_320x320", "mean_ms": 0.8, "iterations": 100}
-  ]
-}
-```
-
-### `GET /system/perf/device`
-
-Run hardware USB I/O benchmarks. Requires a connected LCD device. Pauses any running GUI daemon for exclusive access.
-
-**Response:**
-```json
-{
-  "benchmarks": [
-    {"name": "send_frame_320x320", "mean_ms": 42.1, "iterations": 50}
-  ]
-}
-```
-
----
-
-## i18n (Internationalization)
-
-### `GET /i18n/languages`
-
-List all available languages with ISO codes and native names.
-
-**Response:**
-```json
-[
-  {"code": "en", "name": "English"},
-  {"code": "de", "name": "Deutsch"},
-  {"code": "ja", "name": "日本語"}
-]
-```
-
-### `GET /i18n/language`
-
-Get the current application language.
-
-**Response:**
-```json
-{"code": "en", "name": "English"}
-```
-
-### `PUT /i18n/language/{code}`
-
-Set the application language by ISO 639-1 code. Persists to config.
-
-**Response:**
-```json
-{"code": "de", "name": "Deutsch"}
-```
-
-**Errors:** `400` if language code is not supported.
-
----
-
-## Request/Response Models
-
-All request bodies are JSON. All responses are JSON unless noted (preview endpoints return binary).
-
-### Common Error Responses
-
-| Status | Meaning |
-|--------|---------|
-| 400 | Invalid request (bad hex color, unknown category, corrupt image) |
-| 401 | Invalid or missing API token |
-| 404 | Device or theme not found |
-| 409 | No device selected — call `POST /devices/{id}/select` first |
-| 413 | Upload exceeds size limit |
-| 500 | Device send failed |
-| 503 | Device resolution unknown, or no frame available for preview |
-
-### Static File Mounts
-
-After device selection, theme and cloud directories are mounted as static files:
-
-| Mount | Directory | Content |
-|-------|-----------|---------|
-| `/static/themes/` | Local theme packs | Theme images, videos, configs |
-| `/static/web/` | Cloud theme previews | PNG previews, MP4 videos |
-| `/static/masks/` | Cloud mask overlays | Mask PNGs, overlay configs |
-
-These mounts are resolution-specific and update when a different device is selected.
-
----
-
-## Daemon Mode vs Standalone
-
-The API detects whether the GUI daemon is running:
-
-- **Daemon mode:** Commands route through IPC (Unix socket) to the GUI. Preview stream fetches frames from the daemon. Both GUI and API control the same device simultaneously.
-- **Standalone mode:** API manages the device directly. No GUI required. Preview stream uses the `on_frame_sent` callback to capture outgoing frames.
-
-The mode is selected automatically — no configuration needed.
-
----
-
-## Examples
-
-### Send an image via curl
-
-```bash
-curl -X POST http://localhost:9876/devices/detect
-curl -X POST http://localhost:9876/devices/0/select
-curl -X POST -F "image=@photo.png" http://localhost:9876/devices/0/send
-```
-
-### Load a theme
-
-```bash
-curl -X POST http://localhost:9876/themes/load \
-  -H "Content-Type: application/json" \
-  -d '{"name": "CyberPunk"}'
-```
-
-### Set LED color
-
-```bash
-curl -X POST http://localhost:9876/led/color \
-  -H "Content-Type: application/json" \
-  -d '{"hex": "ff6600"}'
-```
-
-### Monitor system metrics
-
-```bash
-# All metrics
-curl http://localhost:9876/system/metrics
-
-# CPU only
-curl http://localhost:9876/system/metrics/cpu
-
-# Watch metrics (updates every 2s)
-watch -n 2 'curl -s http://localhost:9876/system/metrics/cpu | python3 -m json.tool'
-```
-
-### Live preview in browser
-
-```html
-<img id="preview" />
-<script>
-  const ws = new WebSocket('ws://localhost:9876/display/preview/stream');
-  ws.binaryType = 'arraybuffer';
-  ws.onmessage = (e) => {
-    const blob = new Blob([e.data], {type: 'image/jpeg'});
-    document.getElementById('preview').src = URL.createObjectURL(blob);
-  };
-</script>
-```
+| Endpoint | Returns | Description |
+|---|---|---|
+| `POST /devices/{key}/led/brightness` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/clock-format` | `ClockFormatResult` | Set the 12h/24h clock display. |
+| `POST /devices/{key}/led/color` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/colors` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/load-source` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/memory-ratio` | `MemoryRatioResult` | Set the DDR memory multiplier (1, 2, or 4). |
+| `POST /devices/{key}/led/mode` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/render` | `LedColorsResult` | One tick — engine reads Settings, advances counters, sends a frame. |
+| `POST /devices/{key}/led/select-zone` | `LedColorsResult` | Pick the currently-active zone. |
+| `GET /devices/{key}/led/snapshot` | `LedSnapshotResult` | Return the persisted LED state for one device. |
+| `POST /devices/{key}/led/temp-source` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/test-mode` | `LedColorsResult` | — |
+| `POST /devices/{key}/led/toggle` | `LedColorsResult` | Turn the LED device (or one zone) on/off. |
+| `POST /devices/{key}/led/toggle-segment` | `LedColorsResult` | Flip one segment on/off. |
+| `POST /devices/{key}/led/week-start` | `WeekStartResult` | Pick the week-start day (Sunday-first vs Monday-first). |
+| `POST /devices/{key}/led/zone-brightness` | `LedColorsResult` | Set one zone's persistent brightness (0-100). |
+| `POST /devices/{key}/led/zone-color` | `LedColorsResult` | Set one zone's persistent color. |
+| `POST /devices/{key}/led/zone-mode` | `LedColorsResult` | Set one zone's persistent LED mode. |
+| `POST /devices/{key}/led/zone-sync` | `LedColorsResult` | Enable/disable the zone-sync carousel (optionally set interval). |
+| `POST /devices/{key}/led/zone-sync-zones` | `LedColorsResult` | Choose WHICH zones take part in the zone-sync carousel. |
+| `GET /led/modes` | `LedModesListResult` | Enumerate animation modes. |
+| `GET /led/styles` | `LedStylesListResult` | Enumerate every LED style in the PM byte registry. |
+
+## System and diagnostics
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `GET /system/autostart` | `AutostartResult` | Snapshot the autostart entry — whether it's installed + its path. |
+| `POST /system/autostart` | `AutostartResult` | Toggle the OS autostart entry (per-user, no sudo). |
+| `POST /system/autostart/refresh` | `AutostartResult` | Re-render an existing autostart entry so it picks up a new launch path. |
+| `GET /system/check-update` | `UpdateCheckResult` | Ask GitHub whether a newer version of trcc-linux is published. |
+| `POST /system/debug-report` | `DebugReportPayload` | Generate a debug report bundle. |
+| `GET /system/disk-sensors` | `DiskSensorsResult` | Drive thermal sensors — the list ``disk_temp`` comes from. |
+| `POST /system/disk-sensors/active` | `DiskDeviceResult` | Pin which drive supplies ``disk_temp``.  Empty key = hottest. |
+| `GET /system/disks` | `DisksListResult` | List mounted partitions — NOT the drive list `disk_temp` comes from. |
+| `GET /system/doctor` | `DoctorResultPayload` | Same as `/health` but adds an exit code + a rendered text view. |
+| `GET /system/fans` | `FansListResult` | List fans the sensors aggregator exposes, with live readings. |
+| `GET /system/first-run-status` | `FirstRunStatusResult` | Has trcc finished onboarding on this machine? |
+| `GET /system/fonts` | `FontsListResult` | List font families Qt can see. |
+| `GET /system/gpus` | `GpusListResult` | List GPUs exposed by the sensors aggregator. |
+| `POST /system/hdd-enabled` | `HddEnabledResult` | Toggle inclusion of HDD metrics in sensor broadcasts. |
+| `GET /system/health` | `HealthReportResult` | Run the health check suite + return structured results. |
+| `GET /system/info` | `dict` | — |
+| `GET /system/language` | `LanguageResult` | Return the currently active UI language (ISO 639-1 code). |
+| `GET /system/languages` | `LanguagesListResult` | Enumerate UI languages the i18n table supports. |
+| `POST /system/mark-setup-done` | `FirstRunStatusResult` | Mark the first-run flow as completed. |
+| `GET /system/memory-slots` | `MemorySlotsResult` | DRAM slots — identity everywhere, timings on Linux (empty = not probed). |
+| `GET /system/metrics` | `dict` | Raw flat metric map: ``sensor_id`` → current (personalized) value. |
+| `POST /system/quickstart` | `QuickstartResult` | Walk the new-user happy path — doctor, then scan — as one sequence. |
+| `GET /system/sensors` | `SensorsResult` | — |
+| `GET /system/sensors/catalog` | `SensorsListResult` | Every sensor this machine can measure — identities, no values. |
+| `GET /system/sensors/{category}` | `SensorsResult` | Filter the live sensor list by category prefix. |
+| `POST /system/setup` | `SetupResult` | — |
+| `GET /system/snapshot` | `ControlCenterSnapshotResult` | Return the AppSettings snapshot. |
+| `GET /system/status` | `AppStatusResponse` | Unified snapshot: app-level prefs + per-device attach list. |
+| `POST /system/upgrade` | `UpgradeResult` | Upgrade trcc-linux via the detected package manager. |
+
+## Preferences
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `POST /config/date-format` | `DateFormatResult` | — |
+| `POST /config/gpu` | `GpuDeviceResult` | — |
+| `POST /config/language` | `LanguageResult` | — |
+| `POST /config/refresh-interval` | `RefreshIntervalResult` | — |
+| `POST /config/temp-unit` | `TempUnitResult` | — |
+| `POST /config/time-format` | `TimeFormatResult` | — |
+
+## Daemon control
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `POST /trcc/kill` | `DaemonKillResponse` | Stop the running TRCC daemon. |
+| `GET /trcc/status` | `DaemonStatusResponse` | Snapshot of the running daemon: pid, uptime, device counts. |
+
+## Meta
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `GET /` | `dict` | — |
+| `GET /health` | `dict` | Liveness probe — always reachable, no auth required. |
+| `POST /pair` | — | Exchange the terminal pairing code for the persistent API token. |
