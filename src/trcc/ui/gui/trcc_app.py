@@ -82,7 +82,6 @@ from .uc_video_cut import UCVideoCut
 
 if TYPE_CHECKING:
     from ...app import App
-    from ...ipc import IPCServer
 
 from ...core.models import MEDIA, MediaKind
 
@@ -425,9 +424,6 @@ class TRCCApp(QMainWindow):
         self._cut_mode = 'background'
         self._mask_upload_filename = ''
         self._pixmap_refs: list = []
-
-        # IPC server set by composition root after construction
-        self._ipc_server: IPCServer | None = None
 
         # Build UI
         self._apply_dark_theme()
@@ -2528,8 +2524,6 @@ class TRCCApp(QMainWindow):
         self.uc_system_info.stop_updates()
         self.uc_info_module.stop_updates()
         self.uc_activity_sidebar.stop_updates()
-        if self._ipc_server:
-            self._ipc_server.shutdown()
         # ``app.close()`` detaches every device + stops hotplug.
         self._app.close()
         TRCCApp._instance = None

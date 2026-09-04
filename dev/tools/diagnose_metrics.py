@@ -108,7 +108,7 @@ def main() -> None:
         QTimer.singleShot(_SETTLE_MS, lambda: _inspect_and_exit(window, key))
 
     from trcc.ui.gui import run_gui
-    run_gui(platform, single_instance=False, ipc=False, force_exit=False,
+    run_gui(platform, single_instance=False, force_exit=False,
             start_hidden=True, on_ready=on_ready)
 
 

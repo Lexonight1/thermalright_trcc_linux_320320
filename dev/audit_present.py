@@ -235,7 +235,7 @@ def main() -> None:
 
     from trcc.ui.gui import run_gui
     run_gui(cast(Any, platform), decorated=False, single_instance=False,
-            ipc=False, force_exit=False, start_hidden=True, on_ready=_run_audit)
+            force_exit=False, start_hidden=True, on_ready=_run_audit)
 
     failed = [f for f in _FINDINGS if not f.ok]
     sys.exit(1 if failed else 0)

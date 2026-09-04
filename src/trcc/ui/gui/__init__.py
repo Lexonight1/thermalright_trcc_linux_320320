@@ -7,9 +7,16 @@ to ``MainWindow``.  ``discover`` runs in a background ``BootstrapWorker``
 so the splash shows immediate feedback.
 
 Composition root — this is the ONE place that imports concrete adapters
-(``Platform``, ``QtRenderer``, ``IPCServer``, ``SingleInstance``).  Every
-other file under ``next/ui/gui/`` holds an ``App`` handle and dispatches
-Commands.
+(``Platform``, ``QtRenderer``, ``SingleInstance``).  Every other file under
+``ui/gui/`` holds an ``App`` handle and dispatches Commands.
+
+This UI does NOT host an IPC server.  It used to construct one, but only
+``IPCServer.start()`` (bind + listen) was ever called and nothing served it,
+so it squatted on the daemon's socket answering nothing — ``daemon_running()``
+reported a daemon that did not exist, ``trcc daemon`` refused to start while
+the GUI was open, and a live ``trccd`` was orphaned by the unconditional
+unlink.  The daemon is the only process that may own that socket; a UI
+reaches it as a client, and only when ``TRCC_DAEMON=1``.
 """
 from __future__ import annotations
 
@@ -64,7 +71,7 @@ def launch(verbosity: int = 0, decorated: bool = False,
 
 def run(platform: Any, *, decorated: bool = False,
         start_hidden: bool = False, single_instance: bool = True,
-        ipc: bool = True, force_exit: bool = True,
+        force_exit: bool = True,
         on_ready: Callable[[Any], None] | None = None) -> int:
     """Run the GUI composition from an injected ``platform``.  Returns exit code.
 
@@ -83,8 +90,6 @@ def run(platform: Any, *, decorated: bool = False,
 
       * ``single_instance`` — acquire the cross-process GUI lock (off for the
         dev mock so it never collides with a real install).
-      * ``ipc`` — bind the daemon-style IPC server (off for the dev mock to
-        avoid socket collision).
       * ``force_exit`` — ``os._exit`` to reap native threads (psutil / pyusb /
         pynvml can outlive ``qapp.exec()``); the dev mock returns normally.
 
@@ -136,14 +141,6 @@ def run(platform: Any, *, decorated: bool = False,
     # ── Main window — TRCCApp keeps the legacy chrome ──────────────
     window = TRCCApp(app=app, decorated=decorated)
 
-    # ── IPC server bound to App — daemon-style Command dispatch ─────
-    ipc_server = None
-    if ipc:
-        from ...ipc import IPCServer
-        ipc_server = IPCServer(app=app)
-        ipc_server.start()
-        window._ipc_server = ipc_server
-
     # ── Wire raise-existing-window callback ─────────────────────────
     # SingleInstance invokes this from its accept thread; emitting the Qt
     # signal is thread-safe and the QueuedConnection marshals the window
@@ -193,8 +190,6 @@ def run(platform: Any, *, decorated: bool = False,
     try:
         exit_code = qapp.exec()
     finally:
-        if ipc_server is not None:
-            ipc_server.shutdown()
         if instance is not None:
             instance.close()
         app.close()

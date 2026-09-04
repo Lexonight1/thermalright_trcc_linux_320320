@@ -306,7 +306,7 @@ def main() -> None:
 
     sys.exit(run_gui(
         cast(Any, platform), decorated=decorated,
-        single_instance=False, ipc=False, force_exit=False,
+        single_instance=False, force_exit=False,
         on_ready=_on_ready,
     ))
 

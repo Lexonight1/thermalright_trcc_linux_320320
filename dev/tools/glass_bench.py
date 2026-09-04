@@ -336,7 +336,7 @@ def _run_gui_arm(n: int) -> None:
         timer.start()
         state["timer"] = timer          # keep it alive past this scope
 
-    run(platform, single_instance=False, ipc=False, force_exit=False,
+    run(platform, single_instance=False, force_exit=False,
         on_ready=on_ready)
     print(f"RESULT requested={n} sent={counter['frames']}", file=sys.stderr)
 

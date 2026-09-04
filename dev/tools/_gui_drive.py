@@ -111,7 +111,7 @@ def drive_gui(*, frames: int, on_mark: Callable[[], None],
         state["timer"] = timer          # keep it alive past this scope
 
     try:
-        run(current_platform(), single_instance=False, ipc=False,
+        run(current_platform(), single_instance=False,
             force_exit=False, on_ready=on_ready)
     finally:
         DisplayService.build_frame = real_build  # type: ignore[method-assign]
