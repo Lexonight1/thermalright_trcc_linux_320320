@@ -9,10 +9,10 @@ This page is the one an outside contributor needs most and the one that did not
 exist.  ``doc/REFERENCE_CLI.md`` documents one UI's spelling of the contract;
 this documents **the contract** — the single surface every UI dispatches
 against, and the only thing a new UI (a browser client, a VR panel, a TUI) has
-to speak.  Until now that surface was 136 classes with no page at all, while
-``doc/TRCC_CONTRACT.md`` — the file whose *name* promises exactly this —
-described a ``Trcc`` facade and three Command classes deleted in the cutover.
-Someone would have written code against them before finding out.
+to speak.  Until this page existed that surface had no documentation at all,
+while a file named ``doc/TRCC_CONTRACT.md`` described a ``Trcc`` facade and
+three Command classes deleted in the cutover.  Someone would have written code
+against them before finding out; it was removed when this landed.
 
 Derived from ``trcc.ipc.COMMAND_TYPES``, which is the registry the IPC layer
 itself dispatches through, so the page cannot advertise a Command that daemon

@@ -3,9 +3,9 @@
 ``doc/REFERENCE_COMMANDS.md`` is the page an outside contributor needs to build
 their own UI: the one surface every UI dispatches against, with each Command's
 kind, fields and Result.  Before it existed there was no page for it at all —
-while ``doc/TRCC_CONTRACT.md``, whose *name* promises exactly this, described a
-``Trcc`` facade and three Command classes deleted in the cutover.  Someone
-would have written code against them before finding out.
+while a file named ``doc/TRCC_CONTRACT.md`` described a ``Trcc`` facade and
+three Command classes deleted in the cutover.  Someone would have written code
+against them before finding out; it was removed when this landed.
 
 Same contract as the man pages, the CLI reference and the port reference: the
 committed copy must match what the generator produces right now.
