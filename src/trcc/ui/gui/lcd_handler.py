@@ -37,6 +37,7 @@ from ...core.commands import (
     ListThemes,
     LoadCloudTheme,
     LoadTheme,
+    OrientedThemeTarget,
     PreviewSize,
     ResolveThemeDirectories,
     RestoreDeviceState,
@@ -54,7 +55,6 @@ from ...core.commands import (
     UploadCustomMask,
     VideoStatus,
 )
-from ...services.theme_directories import oriented_theme_reload_target
 from ..presentation.lcd_presentation_model import LcdPresentationModel
 from ..presentation.overlay_serialization import dc_as_legacy_overlay_config
 from .base_handler import BaseHandler
@@ -1172,27 +1172,25 @@ class LCDHandler(BaseHandler):
         active = self._pm.state.current_theme_path
         if active is None:
             return
-        dirs = self._app.dispatch(
-            ResolveThemeDirectories(key=self._device_key))
-        if not dirs.ok:
+        answer = self._app.dispatch(
+            OrientedThemeTarget(key=self._device_key, active_theme=active))
+        if not answer.ok:
             self.log.warning(
-                "_reload_theme_for_orientation: %s", dirs.message)
+                "_reload_theme_for_orientation: %s", answer.message)
             return
-        target = oriented_theme_reload_target(
-            active, Path(dirs.user_theme_dir), Path(dirs.theme_dir),
-        )
-        if target is None:
+        if not answer.target:
             self.log.info(
                 "_reload_theme_for_orientation: no oriented variant of '%s' in the "
                 "%dx%d catalog — keeping current theme (pixel-rotate fallback)",
-                active.name, *dirs.catalog_size,
+                active.name, *answer.catalog_size,
             )
             return
         self.log.info(
             "_reload_theme_for_orientation: reloading '%s' from the %dx%d catalog "
-            "→ %s", active.name, *dirs.catalog_size, target,
+            "→ %s", active.name, *answer.catalog_size, answer.target,
         )
-        self._select_theme_from_path(target, persist=True, overlay_config=True)
+        self._select_theme_from_path(
+            Path(answer.target), persist=True, overlay_config=True)
 
     def set_split_mode(self, mode: int) -> None:
         self.log.info("set_split_mode: %d -> %d device=%s",

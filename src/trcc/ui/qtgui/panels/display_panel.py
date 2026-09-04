@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 from ....core.commands import (
+    LcdSnapshot,
     LoadTheme,
+    OrientedThemeTarget,
     PlayVideo,
     RestoreLastTheme,
     SetBrightness,
@@ -161,6 +163,34 @@ class DisplayPanel(BasePanel):
         result = self.dispatch(StopVideo(key=key))
         self._status.setText(result.message)
 
+    def _reload_theme_for_orientation(self, key: str) -> str:
+        """Reload the active theme's oriented variant after a rotation.
+
+        A rotation swaps the catalog (``theme1600720`` <-> ``theme7201600``)
+        but not the rendered theme, so without this the panel keeps the
+        old-orientation background -- a landscape image letterboxed into the
+        portrait buffer (#169).  The gui skin has done this since that issue;
+        qtgui dispatched ``SetOrientation`` and stopped, so the same rotation
+        gave a different result depending on which skin you used.
+
+        Both steps are Commands the panel already knows how to dispatch;
+        ``OrientedThemeTarget`` answers whether a same-name variant exists in
+        the new catalog, and an empty answer means keep what is loaded.
+        """
+        snap = self.dispatch(LcdSnapshot(key=key))
+        if not snap.ok or not snap.current_theme:
+            return "no active theme to re-orient"
+        answer = self.dispatch(OrientedThemeTarget(
+            key=key, active_theme=Path(snap.current_theme),
+        ))
+        if not answer.ok:
+            log.warning("_reload_theme_for_orientation: %s", answer.message)
+            return answer.message
+        if not answer.target:
+            return answer.message
+        return self.dispatch(
+            LoadTheme(key=key, path=Path(answer.target))).message
+
     def _on_apply(self) -> None:
         log.info("_on_apply")
         key = self._require_key()
@@ -174,6 +204,8 @@ class DisplayPanel(BasePanel):
             degrees=int(self._orientation.currentData()),
         ))
         messages.append(r_orient.message)
+        if r_orient.ok:
+            messages.append(self._reload_theme_for_orientation(key))
 
         r_bright = self.dispatch(SetBrightness(
             key=key, percent=self._brightness.value(),
