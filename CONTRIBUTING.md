@@ -15,11 +15,18 @@ trcc system setup              # interactive wizard — checks deps, udev, deskt
 ### Git hooks
 
 Run `git config core.hooksPath .githooks` once per clone to enable the tracked
-hooks in [`.githooks/`](.githooks/). The `pre-commit` hook keeps code-derived
-artifacts in sync with the source: when a commit touches the CLI surface
-(`src/trcc/ui/cli/`) or the version, it regenerates the man pages
-(`dev/gen_manpages.py` → `man/man1/*.1`) and folds them into the same commit, so
-the committed pages can never drift (CI's `test_manpages` is the backstop).
+hooks in [`.githooks/`](.githooks/). The `pre-commit` hook keeps every
+code-derived document in sync with the source and folds the result into the same
+commit, so a committed page can never drift from the tree it describes:
+
+| Touching | Regenerates |
+|---|---|
+| `src/trcc/ui/cli/` or the version | man pages (`man/man1/*.1`) |
+| `src/trcc/ui/cli/` | `doc/REFERENCE_CLI.md` |
+| `src/trcc/` | `doc/REFERENCE_PORTS.md` |
+| `src/trcc/` | `doc/REFERENCE_COMMANDS.md` |
+
+Each has a test as the backstop, so CI fails if a page is stale.
 
 Or manually:
 
@@ -31,22 +38,20 @@ trcc system setup         # install udev rules (auto-prompts for sudo)
 ## Running Tests and Linting
 
 ```bash
-PYTHONPATH=src pytest tests/ -x -q   # run all tests
-PYTHONPATH=src pytest tests/core/    # run domain layer tests only
-PYTHONPATH=src pytest tests/services/  # run service layer tests only
-PYTHONPATH=src pytest tests/adapters/  # run adapter layer tests only
-pytest --cov                         # run with coverage
-ruff check .                         # lint
-python -m pyright                    # type check
+pytest                       # the whole suite — pyproject sets testpaths,
+                             # pythonpath and -n auto, so no wrapper is needed
+pytest tests/test_ipc_wire.py   # one file
+pytest -k flock              # one topic
+ruff check .                 # lint
+pyright                      # type check
 ```
 
-Tests are organized to mirror `src/trcc/` hexagonal layers:
-- `tests/core/` — domain logic (pure unit tests)
-- `tests/services/` — application/use case layer
-- `tests/adapters/{device,infra,system}/` — infrastructure adapters
-- `tests/cli/`, `tests/api/`, `tests/gui/` — presentation adapters
+Most tests sit directly in `tests/`, named after what they cover
+(`test_ipc_wire.py`, `test_app_start_session.py`). Three subdirectories group
+the ones that benefit from it: `tests/adapters/{infra,system}/` and
+`tests/ui/presentation/`.
 
-All PRs must pass tests, `ruff check`, and `pyright` with 0 errors.
+All PRs must pass the suite, `ruff check`, and `pyright` with 0 errors.
 
 ## Branch Strategy
 
@@ -59,6 +64,6 @@ All PRs must pass tests, `ruff check`, and `pyright` with 0 errors.
 ## Ways to Contribute
 
 - **Bug fixes** — Reproduce, write a test, fix it
-- **Device support** — Add new Thermalright USB VID:PID mappings to `adapters/device/detector.py`
+- **Device support** — Add a row to `src/trcc/core/registry.py`. It is pure data: the App picks the right `Device` subclass from the row's `wire` field, so a new cooler needs no code elsewhere
 - **Hardware testing** — Own a HID device? See [doc/GUIDE_DEVICE_TESTING.md](doc/GUIDE_DEVICE_TESTING.md) for how to help validate support
 - **Documentation** — Install guides, troubleshooting tips, translations
