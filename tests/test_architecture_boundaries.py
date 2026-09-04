@@ -1366,9 +1366,6 @@ _UI_ADAPTER_COMPOSITION_ROOTS: frozenset[tuple[str, str]] = frozenset({
 #: Real breaches, to burn down.  Delete an entry when its call site moves to the
 #: bus; a stale entry FAILS, so a fix cannot leave cruft that re-permits it.
 KNOWN_UI_ADAPTER_IMPORTS: frozenset[tuple[str, str]] = frozenset({
-    # ``GetPlatformInfo.install_method`` already answers this — the Command
-    # exists and the UI never switched.
-    ("trcc/ui/gui/uc_about.py", "trcc.adapters.diagnostics.install"),
     # Sys-info panel config read straight from an infra adapter.
     ("trcc/ui/gui/trcc_app.py", "trcc.adapters.infra.sysinfo_config"),
     ("trcc/ui/gui/uc_system_info.py", "trcc.adapters.infra.sysinfo_config"),

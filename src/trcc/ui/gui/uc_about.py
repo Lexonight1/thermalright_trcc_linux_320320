@@ -42,6 +42,7 @@ from ...core.commands import (
     DisableAutostart,
     EnableAutostart,
     GetAutostartStatus,
+    GetPlatformInfo,
     RefreshAutostart,
 )
 from .assets import Assets
@@ -111,41 +112,37 @@ def _check_latest_release() -> tuple[str, dict[str, str]] | None:
         return None
 
 
-def _detect_distro() -> str:
-    """Detect the Linux distro ID (e.g. 'fedora', 'arch', 'ubuntu')."""
-    try:
-        with Path('/etc/os-release').open() as f:
-            for line in f:
-                if line.startswith('ID='):
-                    return line.strip().split('=', 1)[1].strip('"')
-    except OSError:
-        pass
-    return 'unknown'
+def _get_install_info(
+    app: App | None, ui_state: UiStateStore | None = None,
+) -> tuple[str, str]:
+    """Install method + distro from UiState; ask the bus on first call.
 
+    One ``GetPlatformInfo`` answers both.  It used to be two hand-rolled
+    detectors here: one imported ``detect_installer`` from an adapter — the
+    Command reaches the identical function, so that half was always the same
+    answer by a longer route — and the other opened ``/etc/os-release`` and
+    parsed ``ID=`` itself, which no gate could see.  A UI reading an OS file
+    is not an adapter import, not a service import and not a subprocess, so
+    all three boundary checks stayed green over it.
 
-def _detect_install_method() -> str:
-    """How trcc-linux was installed — delegated to the one honest detector.
-
-    This used to be a second, divergent copy of the logic: it fell back to
-    probing for `pacman`/`dnf`/`apt` on PATH, which reports the package
-    manager the DISTRO ships rather than the one that installed trcc — so a
-    pip install on Fedora read "dnf". The shared detector answers "package"
-    when a distro package manager owns it and cannot be named.
+    The distro string changes shape as a result: the port reports the pretty
+    name ("Fedora Linux 44") where the old parser reported the ID ("fedora").
+    Nothing reads it — it is cached and handed back to a field with no
+    consumer — so the value is preserved rather than dropped, and removing
+    the dead state is a separate cleanup.
     """
-    from ...adapters.diagnostics.install import detect_installer
-    method = detect_installer()
-    log.info("_detect_install_method: %s", method)
-    return method
-
-
-def _get_install_info(ui_state: UiStateStore | None = None) -> tuple[str, str]:
-    """Get install method + distro from UiState; detect+save on first call."""
     if ui_state is not None:
         cached = ui_state.get_install_info()
         if cached is not None:
             return cached['method'], cached['distro']
-    method = _detect_install_method()
-    distro = _detect_distro()
+    if app is None:
+        # Panels are constructed without an App in some harnesses; report
+        # unknown rather than falling back to a second detector, which is the
+        # divergence this replaced.
+        log.warning("_get_install_info: no App — install method unknown")
+        return "unknown", "unknown"
+    info = app.dispatch(GetPlatformInfo())
+    method, distro = info.install_method, info.distro_name
     if ui_state is not None:
         ui_state.set_install_info(method, distro)
     log.info("Recorded install info: method=%s, distro=%s", method, distro)
@@ -305,7 +302,7 @@ class UCAbout(BasePanel):
         self._update_available.connect(self._on_update_result)
         self._upgrade_finished.connect(self._on_upgrade_done)
         self._latest_version: str | None = None
-        self._install_method, self._distro = _get_install_info(self._ui_state)
+        self._install_method, self._distro = _get_install_info(self._app, self._ui_state)
 
         # Check GitHub for updates in background, then every hour
         self._update_timer = QTimer(self)
