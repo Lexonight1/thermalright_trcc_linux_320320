@@ -181,6 +181,9 @@ class LinuxScsiTransport(ScsiTransport):
     def __init__(self, device_path: str) -> None:
         self._path = device_path
         self._fd: int | None = None
+        # /dev/sd* is the root-only block fallback used when the sg module
+        # isn't loaded; it takes neither the advisory claim nor the sg hint.
+        self._is_block = device_path.startswith("/dev/sd")
         # Cache for send_cdb: {data_len: (cdb_buf, data_buf, sense_buf, hdr, ioctl_buf)}
         self._write_bufs: dict[int, tuple] = {}
         log.info("LinuxScsiTransport: bound to %s", device_path)
@@ -197,9 +200,7 @@ class LinuxScsiTransport(ScsiTransport):
                       self._path, self._fd)
             return True
         try:
-            self._fd = os.open(self._path, os.O_RDWR | os.O_NONBLOCK)
-            log.info("LinuxScsiTransport: opened %s (fd=%d)", self._path, self._fd)
-            return True
+            fd = os.open(self._path, os.O_RDWR | os.O_NONBLOCK)
         except OSError as e:
             log.error("LinuxScsiTransport: open failed for %s: %s", self._path, e)
             if e.errno == errno.EACCES:
@@ -208,15 +209,62 @@ class LinuxScsiTransport(ScsiTransport):
                 # 0666 rule only covers scsi_generic), and even /dev/sg* is
                 # root-only until the setup rule lands.  Name the remediation
                 # instead of a bare EACCES.  (#217)
-                is_block = self._path.startswith("/dev/sd")
                 detail = ("this is a root-only block node (the sg kernel module "
-                          "isn't loaded) — " if is_block else "")
+                          "isn't loaded) — " if self._is_block else "")
                 log.warning(
                     "LinuxScsiTransport: permission denied on %s — %srun "
                     "`trcc system setup` then reboot to load sg and grant "
                     "0666 access without sudo (#217)", self._path, detail,
                 )
             return False
+        if not self._claim(fd):
+            os.close(fd)
+            return False
+        self._fd = fd
+        log.info("LinuxScsiTransport: opened %s (fd=%d)", self._path, fd)
+        return True
+
+    def _claim(self, fd: int) -> bool:
+        """Take the advisory whole-device lock, or refuse the open.
+
+        SCSI generic has NO kernel-level exclusion: two processes can each
+        ``os.open`` /dev/sgN and both write frames, which interleave with no
+        error and nothing logged (measured on real hardware).  ``flock`` is
+        advisory, so only other TRCC processes are excluded -- smartctl,
+        lsblk, udisks and automounters open the node exactly as before -- and
+        the kernel releases it when the fd closes OR the process dies, so a
+        crash leaves nothing to clean up.
+
+        Block nodes are skipped: the /dev/sd* fallback is root-only and its
+        locking interacts with the kernel's mount claiming, which is not
+        verified.  A lock error that isn't "busy" degrades to today's
+        behaviour rather than failing a device we could otherwise drive.
+        """
+        log.debug("_claim: fd=%d path=%s is_block=%s",
+                  fd, self._path, self._is_block)
+        if self._is_block:
+            log.info("_claim: %s is a block node — advisory claim skipped",
+                     self._path)
+            return True
+        import fcntl  # Linux-only stdlib -- lazy so linux.py imports on Windows (#166)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                log.warning(
+                    "LinuxScsiTransport: %s is already claimed by another TRCC "
+                    "process (GUI, daemon or CLI) — refusing to open it.  Two "
+                    "owners interleave frames on this wire, so close the other "
+                    "one, or run `trcc kill` if a daemon holds it.", self._path,
+                )
+                return False
+            log.warning(
+                "LinuxScsiTransport: flock unavailable on %s (%s) — continuing "
+                "WITHOUT the single-owner guard", self._path, e,
+            )
+            return True
+        log.info("LinuxScsiTransport: claimed %s (advisory flock)", self._path)
+        return True
 
     def close(self) -> None:
         if self._fd is None:
