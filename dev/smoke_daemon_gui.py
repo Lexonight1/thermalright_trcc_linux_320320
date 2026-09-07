@@ -18,11 +18,18 @@ The socket is shared by pointing ``$XDG_RUNTIME_DIR`` at a tmp dir — the same
 mechanism ``ipc.socket_path()`` honours in production — so nothing patches
 ``ipc`` internals.
 
-NOTE: frame / event streaming over IPC is intentionally NOT tested.  The
-current daemon is dispatch-only — ``AppProxy`` exposes ``dispatch()`` alone,
-and ``ipc`` flags ``FrameSent.surface`` as an in-process-only field.  A
-frame-over-IPC test returns if/when the "GUI as remote daemon client"
-event-streaming feature is built (see CLAUDE.md "Daemon Mode → still pending").
+  TEST 4  EVENT STREAM — the observe half.  ``AppProxy.events`` opens a
+          subscription on the real daemon and a ``ConnectDevice`` dispatched
+          afterwards arrives back as a typed ``DeviceConnected`` instance.
+
+TEST 4 is the one that matters for the unified bus: until it passed, a GUI
+could not run as a daemon client at all, because both Qt skins build a
+``BusBridge(app.events)`` at construction and ``AppProxy`` had no such
+attribute.  That single ``AttributeError`` is why ``TRCC_DAEMON=1`` stayed off
+by default and the Command bus stayed optional.
+
+``FrameSent.surface`` remains an in-process-only field — a remote client falls
+back to re-rendering via ``BuildPreview``, which is a separate increment.
 """
 from __future__ import annotations
 
@@ -64,6 +71,7 @@ def main() -> int:
 
     from trcc import ipc
     from trcc.core.commands import ConnectDevice, DiscoverDevices, SetBrightness
+    from trcc.core.events import DeviceConnected
     from trcc.daemon import kill_daemon
     from trcc.proxy import AppProxy
 
@@ -91,6 +99,15 @@ def main() -> int:
         _check(got == expected, "TEST 1: device identity intact over IPC",
                f"expected {expected}, got {got}")
 
+        # ── TEST 4 (armed before TEST 2, which is what fires it) ──────────
+        # ``AppProxy.events`` is the attribute that did not exist.  Subscribe
+        # BEFORE the connect so the event we are waiting for is produced by a
+        # real dispatch rather than a synthetic publish.
+        import time
+        observed: list[object] = []
+        proxy.events.subscribe(DeviceConnected, observed.append)
+        time.sleep(0.5)   # let the reader thread attach its subscription
+
         # ── TEST 2: ConnectDevice handshakes daemon-side over IPC ─────────
         key = "87ad:70db"  # the bulk 854x480 panel (scripted handshake)
         conn = proxy.dispatch(ConnectDevice(key=key))
@@ -103,6 +120,22 @@ def main() -> int:
         bright = proxy.dispatch(SetBrightness(key=key, percent=75))
         _check(bright.ok, "TEST 3: SetBrightness(75) ok",
                getattr(bright, "message", ""))
+
+        # ── TEST 4: the event crossed the socket as a typed instance ──────
+        deadline = time.time() + 5.0
+        while not observed and time.time() < deadline:
+            time.sleep(0.05)
+        _check(bool(observed),
+               "TEST 4: DeviceConnected arrived over the event stream",
+               "no event received — the observe half is not working")
+        if observed:
+            evt = observed[0]
+            _check(isinstance(evt, DeviceConnected),
+                   "TEST 4: it decoded to a typed Event, not a dict",
+                   f"got {type(evt).__name__}")
+            _check(getattr(evt, "key", None) == key,
+                   "TEST 4: the event's key survived the wire",
+                   f"expected {key}, got {getattr(evt, 'key', None)!r}")
 
         if _FAILURES:
             print(f"\nFAIL: {len(_FAILURES)} assertion(s) failed: {_FAILURES}")

@@ -45,7 +45,9 @@ import inspect
 import json
 import logging
 import os
+import queue
 import socket
+import threading
 import time
 import types
 import typing
@@ -75,6 +77,18 @@ frame_log = per_frame(__name__)
 _SOCK_NAME = "trcc.sock"
 _BYTES_MARKER = "__bytes__"
 _DEFAULT_TIMEOUT_S = 30.0
+
+#: Events buffered between the publishing thread and the fan-out thread.
+#: BOUNDED on purpose: a subscriber that stops reading must not be able to
+#: grow the daemon's memory without limit.  At the measured 270 events/s for
+#: nine panels at full frame rate this is ~2s of slack, which is far longer
+#: than a healthy client needs and short enough that a dead one is obvious.
+_EVENT_QUEUE_MAX = 512
+#: How long the fan-out thread will wait on one subscriber's socket before
+#: giving up on it.  Kept short because the fan-out is shared: a stalled
+#: client must not hold up delivery to the healthy ones for longer than this,
+#: and a client that cannot absorb 103 bytes in half a second is gone.
+_SUBSCRIBER_SEND_TIMEOUT_S = 0.5
 
 
 # =========================================================================
@@ -376,6 +390,41 @@ def one_shot_request(
         return _recv_json(sock)
 
 
+def open_event_stream(
+    types: list[str] | None = None,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> socket.socket:
+    """Connect, subscribe, and hand back the still-open stream socket.
+
+    The caller owns the socket and reads newline-delimited event envelopes
+    from it until EOF.  Raises :class:`ConnectionError` if the daemon refuses
+    the subscription, so a caller never ends up holding a socket that will
+    stay silent forever.
+    """
+    wanted = types or ["*"]
+    log.info("open_event_stream: types=%s", wanted)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        sock.connect(str(socket_path()))
+        _send_json(sock, {"subscribe": wanted})
+        ack = _recv_json(sock)
+    except OSError:
+        sock.close()
+        raise
+    if not ack.get("ok"):
+        sock.close()
+        raise ConnectionError(
+            f"daemon refused the subscription: {ack.get('message', ack)}",
+        )
+    # The stream carries no further requests, so a read timeout would kill a
+    # healthy but idle subscriber.
+    sock.settimeout(None)
+    log.info("open_event_stream: subscribed to %s", ack.get("subscribed"))
+    return sock
+
+
 # =========================================================================
 # IPCServer — bound to one App, serves requests on a Unix socket
 # =========================================================================
@@ -383,6 +432,33 @@ def one_shot_request(
 
 class _ShutdownRequested(Exception):
     """Internal marker — the request handler asked the server to exit."""
+
+
+class _Subscriber:
+    """One connected client that asked for an event stream.
+
+    Holds the socket and the set of event-type names it wants.  It does NOT
+    hold a queue or a thread of its own: the server owns one queue and one
+    fan-out thread for every subscriber, so an event is encoded ONCE no matter
+    how many clients are listening (measured 3.3 us/event -- cheap, but N
+    encodes for N clients is still N times nothing for no reason).
+    """
+
+    __slots__ = ("sock", "types", "wants_all")
+
+    def __init__(self, sock: socket.socket, types: set[str]) -> None:
+        self.sock = sock
+        self.types = types
+        self.wants_all = "*" in types
+        log.info("_Subscriber: %d type(s)%s",
+                 len(types), " (all)" if self.wants_all else "")
+
+    def close(self) -> None:
+        log.info("_Subscriber.close: dropping subscriber")
+        try:
+            self.sock.close()
+        except OSError:
+            log.debug("_Subscriber.close: socket close failed", exc_info=True)
 
 
 class IPCServer:
@@ -397,7 +473,21 @@ class IPCServer:
     def __init__(self, app: App) -> None:
         self._app = app
         self._sock: socket.socket | None = None
+        # The path we actually BOUND.  ``shutdown`` must unlink this, not a
+        # freshly-computed ``socket_path()``: that reads XDG_RUNTIME_DIR, and
+        # if the environment moved between start and shutdown we would delete
+        # a path we never owned -- plausibly a live daemon's socket.
+        self._bound_path: Path | None = None
         self._stop = False
+        # Event fan-out state.  A subscriber connection is long-lived, unlike
+        # the one-shot dispatch connections, so it is tracked here rather than
+        # living and dying inside ``_serve_client``.
+        self._subscribers: list[_Subscriber] = []
+        self._sub_lock = threading.Lock()
+        self._event_q: queue.Queue[Event] = queue.Queue(maxsize=_EVENT_QUEUE_MAX)
+        self._fanout_thread: threading.Thread | None = None
+        self._bridged: set[str] = set()   # event names already subscribed on the bus
+        self._dropped = 0
         self._workers: list[Any] = []   # threading.Thread, kept for join on shutdown
 
     def start(self) -> None:
@@ -420,6 +510,7 @@ class IPCServer:
         sock.listen(8)
         path.chmod(0o600)
         self._sock = sock
+        self._bound_path = path
         log.info("IPC server listening on %s", path)
 
     def serve_forever(self) -> None:
@@ -439,6 +530,11 @@ class IPCServer:
                 daemon=True, name="trcc-ipc",
             )
             t.start()
+            # Reap finished workers.  This list only ever grew: one entry per
+            # connection for the life of the daemon, and a subscriber stream
+            # makes each entry long-lived.  Pruning here keeps it bounded by
+            # the number of IN-FLIGHT connections, which is what it was for.
+            self._workers = [w for w in self._workers if w.is_alive()]
             self._workers.append(t)
 
     def shutdown(self) -> None:
@@ -453,18 +549,34 @@ class IPCServer:
                           exc_info=True)
             self._sock.close()
             self._sock = None
-        path = socket_path()
-        if path.exists():
+        path = self._bound_path
+        if path is not None and path.exists():
             try:
                 path.unlink()
             except OSError:
                 log.debug("shutdown: socket unlink failed", exc_info=True)
+        self._bound_path = None
+        with self._sub_lock:
+            subs, self._subscribers = self._subscribers, []
+        for sub in subs:
+            sub.close()
+        if subs:
+            log.info("shutdown: closed %d subscriber stream(s)", len(subs))
         log.info("IPC server shut down")
 
     def _serve_client(self, client: socket.socket) -> None:
+        # A subscriber connection outlives this function; everything else is
+        # one-request-one-response-close.
+        keep_open = False
         try:
             client.settimeout(_DEFAULT_TIMEOUT_S)
             envelope = _recv_json(client)
+            if "subscribe" in envelope:
+                # A stream, not a request/response: hand the socket over and
+                # return WITHOUT closing it (the ``finally`` below is skipped
+                # via ``keep_open``).  The fan-out thread owns it from here.
+                keep_open = self._handle_subscribe(client, envelope["subscribe"])
+                return
             if envelope.get("kill") is True:
                 _send_json(client, {"ok": True, "message": "shutting down"})
                 self._stop = True
@@ -486,10 +598,143 @@ class IPCServer:
             log.exception("IPC dispatch error")
             self._send_error(client, str(e))
         finally:
+            if not keep_open:
+                try:
+                    client.close()
+                except OSError:
+                    log.debug("client close failed", exc_info=True)
+
+    # ── Event fan-out ────────────────────────────────────────────────
+
+    def _handle_subscribe(self, client: socket.socket, raw: Any) -> bool:
+        """Turn *client* into a long-lived event subscriber.
+
+        Returns True when the stream was ACCEPTED and this server now owns the
+        socket.  A refusal returns False so the caller still closes it —
+        getting that wrong leaks one fd per bad subscribe request.
+
+        ``{"subscribe": ["FrameSent", ...]}`` or ``{"subscribe": ["*"]}``.
+        The connection is NOT closed and its receive timeout is lifted -- both
+        are correct for the one-shot dispatch path this shares, and both are
+        wrong for a stream.
+        """
+        names = [str(n) for n in raw] if isinstance(raw, list) else []
+        log.info("_handle_subscribe: requested %s", names or "<nothing>")
+        if not names:
+            _send_json(client, {"ok": False,
+                                "message": "subscribe needs a non-empty list"})
+            return False
+        unknown = [n for n in names if n != "*" and n not in EVENT_TYPES]
+        if unknown:
+            # Naming an event that does not exist is a client bug, and a silent
+            # accept would look like a working subscription that never fires.
+            log.warning("_handle_subscribe: unknown event type(s) %s", unknown)
+            _send_json(client, {
+                "ok": False,
+                "message": f"unknown event type(s): {', '.join(sorted(unknown))}",
+            })
+            return False
+
+        wanted = set(names)
+        self._bridge_events(wanted)
+        sub = _Subscriber(client, wanted)
+        # The stream has no further requests on it, so the 30s read timeout
+        # that guards a one-shot dispatch would kill a healthy subscriber.
+        client.settimeout(None)
+        _send_json(client, {"ok": True, "subscribed": sorted(wanted)})
+        with self._sub_lock:
+            self._subscribers.append(sub)
+        self._ensure_fanout()
+        log.info("_handle_subscribe: %d subscriber(s) now attached",
+                 len(self._subscribers))
+        return True
+
+    def _bridge_events(self, names: set[str]) -> None:
+        """Subscribe this server to the bus for every name in *names*, once.
+
+        One handler per event TYPE for the whole server, not one per client:
+        the handler's only job is to hand the event to the fan-out thread, and
+        doing that twice for two clients would double the work on the
+        publishing thread -- which is the render tick for ``FrameSent`` and the
+        udev thread for eleven others.
+        """
+        targets = set(EVENT_TYPES) if "*" in names else names
+        fresh = targets - self._bridged
+        log.info("_bridge_events: %d requested, %d new", len(targets), len(fresh))
+        for name in sorted(fresh):
+            self._app.events.subscribe(EVENT_TYPES[name], self._on_bus_event)
+            self._bridged.add(name)
+
+    def _on_bus_event(self, event: Event) -> None:
+        """Bus handler -- ENQUEUE ONLY.
+
+        This runs synchronously on whichever thread published, so it must not
+        encode, must not write to a socket and must not block.  ``EventBus``'s
+        own docstring prescribes exactly this, and ``BusBridge`` models it.
+        """
+        try:
+            self._event_q.put_nowait(event)
+        except queue.Full:
+            # A subscriber has stopped reading and the buffer is full.  Drop
+            # the NEWEST rather than block the render thread; the count is
+            # logged so a report shows the stall instead of hiding it.
+            self._dropped += 1
+            if self._dropped % 100 == 1:
+                log.warning("_on_bus_event: event queue full — dropped %d "
+                            "event(s); a subscriber is not reading",
+                            self._dropped)
+
+    def _ensure_fanout(self) -> None:
+        """Start the fan-out thread on the first subscriber."""
+        if self._fanout_thread is not None and self._fanout_thread.is_alive():
+            log.debug("_ensure_fanout: already running")
+            return
+        log.info("_ensure_fanout: starting fan-out thread")
+        self._fanout_thread = threading.Thread(
+            target=self._fanout_loop, daemon=True, name="trcc-ipc-events",
+        )
+        self._fanout_thread.start()
+
+    def _fanout_loop(self) -> None:
+        """Drain the queue, encode ONCE per event, write to every listener."""
+        log.info("_fanout_loop: started")
+        while not self._stop:
             try:
-                client.close()
-            except OSError:
-                log.debug("client close failed", exc_info=True)
+                event = self._event_q.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            name = type(event).__name__
+            with self._sub_lock:
+                targets = [s for s in self._subscribers
+                           if s.wants_all or name in s.types]
+            if not targets:
+                continue
+            # ONE encode, N writes -- the whole reason the fan-out is central.
+            line = json.dumps(encode_event(event)).encode() + b"\n"
+            frame_log.debug("_fanout_loop: %s -> %d subscriber(s), %d bytes",
+                            name, len(targets), len(line))
+            for sub in targets:
+                self._write_or_evict(sub, line)
+        log.info("_fanout_loop: stopped")
+
+    def _write_or_evict(self, sub: _Subscriber, line: bytes) -> None:
+        """Send *line*; drop the subscriber on any failure."""
+        try:
+            sub.sock.settimeout(_SUBSCRIBER_SEND_TIMEOUT_S)
+            sub.sock.sendall(line)
+        except (OSError, ValueError) as e:
+            log.info("_write_or_evict: evicting subscriber — %s: %s",
+                     type(e).__name__, e)
+            self._evict(sub)
+
+    def _evict(self, sub: _Subscriber) -> None:
+        """Remove *sub* and close its socket.  Idempotent."""
+        with self._sub_lock:
+            if sub in self._subscribers:
+                self._subscribers.remove(sub)
+            remaining = len(self._subscribers)
+        sub.close()
+        log.info("_evict: %d subscriber(s) remain", remaining)
 
     def _dispatch_envelope(self, envelope: dict[str, Any]) -> dict[str, Any]:
         try:
