@@ -204,6 +204,19 @@ class App:
         LibraryMigration(platform.paths()).run()
         # First-run flag — lightweight marker-file check.
         self.first_run = FirstRunService(platform.paths())
+        # Sensor-dashboard layout (the legacy UCSystemInfoOptions grid).
+        # Owned here, like ``settings``, because it is user state a Command
+        # must be able to read: every UI reaches it through
+        # ``GetSensorDashboard`` / ``SetSensorDashboard``, and before this the
+        # GUI imported the adapter directly so cli / api / qtgui could not see
+        # the file at all.  The path comes off the ``Paths`` port rather than
+        # the adapter's own ``Path.home() / ".trcc"`` default — identical on
+        # Linux and BSD, and the correct location on Windows and macOS, which
+        # do not put config under the home directory.
+        from .adapters.infra.sysinfo_config import SysInfoConfig
+        self.sysinfo = SysInfoConfig(
+            platform.paths().config_dir() / "system_config.json",
+        )
         # Diagnostics port — health / doctor / debug-report / package-manager /
         # gpu-reader, bound to this platform.  Core Commands + quickstart reach
         # diagnostics through this injected port (never importing the adapter).

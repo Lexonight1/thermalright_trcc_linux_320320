@@ -1453,6 +1453,18 @@ Ask GitHub Releases whether a newer version is available.
 trcc system check-update
 ```
 
+### `trcc system dashboard`
+
+Print the sensor-dashboard layout — panels, rows and their bindings. The grid the GUI's System Info screen edits, stored at `<config_dir>/system_config.json`. Unbound rows render as `--` in the GUI and are shown here as `<unbound>`: the row's target sensor does not exist on this machine (no DDR5 SPD temp, no SMART disk temp, fewer fan headers than slots). Reading is non-destructive — auto-mapping is recomputed every time and NOT written back, so the layout heals itself when hardware changes. Pass `--save-auto-map` to freeze what you see.
+
+```bash
+trcc system dashboard [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--save-auto-map` | Persist the auto-mapped bindings instead of only showing them. |
+
 ### `trcc system debug-report`
 
 Generate a debug report bundle for GitHub issues.

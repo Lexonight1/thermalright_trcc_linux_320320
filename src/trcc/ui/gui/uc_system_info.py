@@ -10,7 +10,7 @@ Matches Windows TRCC UCSystemInfoOptions:
 - Selector buttons (↓) to open sensor picker per row
 - Add (+) button to add custom panels
 - Page navigation for >12 panels
-- Config persistence via system_config.json
+- Config persistence via the bus (Get/SetSensorDashboard)
 """
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPainter
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
 
 if TYPE_CHECKING:
-    from ...adapters.infra.sysinfo_config import SysInfoConfig
     from ...core.models import HardwareMetrics
 
+from ...app import App
+from ...core.commands import GetSensorDashboard, SetSensorDashboard
 from ...core.models import (
     CATEGORY_COLORS,
     CATEGORY_IMAGES,
     PanelConfig,
     SensorBinding,
 )
-from ...core.ports import SensorEnumerator
 from ..presentation.sensor_display import format_sensor_value
 from .assets import Assets
 from .base import set_background_pixmap
@@ -270,7 +270,7 @@ class UCSystemInfo(QWidget):
 
     Windows UCSystemInfoOptions layout:
     - Grid: 4 columns, starting at (44, 36), spacing (300, 199)
-    - Panels: loaded from system_config.json
+    - Panels: loaded via GetSensorDashboard
     - "+" button to add custom panels
     - Page navigation for >12 panels
 
@@ -279,15 +279,17 @@ class UCSystemInfo(QWidget):
 
     panel_clicked = Signal(object)  # SystemInfoPanel
 
-    def __init__(self, enumerator: SensorEnumerator,
-                 sysinfo_config: SysInfoConfig,
-                 parent=None):
+    def __init__(self, app: App, parent=None):
         super().__init__(parent)
         _, _, w, h = Layout.SYSINFO_PANEL
         self.setFixedSize(w, h)
 
-        self._enumerator = enumerator
-        self._config = sysinfo_config
+        self._app = app
+        # The layout being edited — the Result's COPIES, so mutating a row
+        # changes nothing until ``_save`` dispatches it back.  This panel used
+        # to import the persistence adapter itself, which is why cli / api /
+        # qtgui could not read the dashboard at all.
+        self._dashboard: list[PanelConfig] = []
         self._page = 0
         self._temp_unit = 0  # 0=Celsius, 1=Fahrenheit
         self._panels_list: list[SystemInfoPanel] = []
@@ -310,29 +312,42 @@ class UCSystemInfo(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        """Build from config, auto-map empty bindings."""
-        log.info("UCSystemInfo._setup_ui: loading sysinfo_config")
+        """Build from the dashboard the bus hands back, auto-mapped."""
+        log.info("UCSystemInfo._setup_ui: dispatching GetSensorDashboard")
         # Background image (sidebar_sysinfo_bg.png — Windows UCSystemInfoOptions)
         # ImageLayout.None in Windows — draw once, no tiling
         _, _, w, h = Layout.SYSINFO_PANEL
         set_background_pixmap(self, Assets.SYSINFO_BG, width=w, height=h)
 
-        # Load config and auto-map any empty bindings
-        self._config.load()
-        self._config.auto_map(self._enumerator)
-        self._config.save()
+        # Auto-mapping runs server-side, off the unfiltered sensor list.
+        # Nothing is written here — the Query is a read, and the layout is
+        # persisted when the user actually edits it.  So a dashboard
+        # re-derives its unbound rows every launch instead of freezing at
+        # whatever the very first run happened to see.
+        result = self._app.dispatch(GetSensorDashboard())
+        self._dashboard = result.panels
         log.info(
-            "UCSystemInfo._setup_ui: configured panels=%d",
-            len(self._config.panels),
+            "UCSystemInfo._setup_ui: %d panel(s), %d row(s) auto-mapped",
+            len(self._dashboard), result.auto_mapped,
         )
 
         self._rebuild_grid()
+
+    def _save(self) -> None:
+        """Persist the edited layout through the bus."""
+        result = self._app.dispatch(
+            SetSensorDashboard(panels=tuple(self._dashboard)),
+        )
+        if not result.ok:
+            log.warning("UCSystemInfo._save: refused — %s", result.message)
+            return
+        log.info("UCSystemInfo._save: %s", result.message)
 
     def _rebuild_grid(self):
         """Clear and rebuild all panels from the current config."""
         log.info(
             "UCSystemInfo._rebuild_grid: page=%d configured=%d",
-            self._page, len(self._config.panels),
+            self._page, len(self._dashboard),
         )
         # Remove all existing panel widgets
         for panel in self._panels_list:
@@ -351,14 +366,14 @@ class UCSystemInfo(QWidget):
             self._add_btn = None
 
         # Determine page range
-        total_panels = len(self._config.panels)
+        total_panels = len(self._dashboard)
         max_page = max(0, (total_panels) // PANELS_PER_PAGE)  # +1 slot for add button
         if self._page > max_page:
             self._page = max_page
 
         start_idx = self._page * PANELS_PER_PAGE
         end_idx = min(start_idx + PANELS_PER_PAGE, total_panels)
-        visible_panels = self._config.panels[start_idx:end_idx]
+        visible_panels = self._dashboard[start_idx:end_idx]
 
         # Create panel widgets for this page
         for i, panel_config in enumerate(visible_panels):
@@ -540,7 +555,7 @@ class UCSystemInfo(QWidget):
             panel.config.name, row, current_id or "<unbound>",
         )
 
-        dialog = SensorPickerDialog(self._enumerator, self)
+        dialog = SensorPickerDialog(self._app, self)
         if current_id:
             dialog.set_current_sensor(current_id)
 
@@ -558,7 +573,7 @@ class UCSystemInfo(QWidget):
                         panel.config.name, row, sensor.id,
                     )
                     panel.update_binding(row, panel.config.sensors[row])
-                    self._config.save()
+                    self._save()
             else:
                 log.info("UCSystemInfo._on_selector_clicked: dialog accepted but no sensor selected")
         else:
@@ -572,7 +587,7 @@ class UCSystemInfo(QWidget):
     def _on_add_clicked(self):
         """Add a new custom panel."""
         log.info("UCSystemInfo._on_add_clicked: existing=%d",
-                 len(self._config.panels))
+                 len(self._dashboard))
         new_panel = PanelConfig(
             category_id=0, name="Custom",
             sensors=[
@@ -582,20 +597,20 @@ class UCSystemInfo(QWidget):
                 SensorBinding("Sensor 4", "", ""),
             ],
         )
-        self._config.panels.append(new_panel)
-        self._config.save()
+        self._dashboard.append(new_panel)
+        self._save()
 
         # Navigate to the page where the new panel is
-        new_idx = len(self._config.panels) - 1
+        new_idx = len(self._dashboard) - 1
         self._page = new_idx // PANELS_PER_PAGE
         self._rebuild_grid()
 
     def _on_delete_clicked(self, panel: SystemInfoPanel):
         """Delete a custom panel."""
         log.info("UCSystemInfo._on_delete_clicked: %r", panel.config.name)
-        if panel.config in self._config.panels:
-            self._config.panels.remove(panel.config)
-            self._config.save()
+        if panel.config in self._dashboard:
+            self._dashboard.remove(panel.config)
+            self._save()
             self._rebuild_grid()
         else:
             log.warning(
@@ -608,7 +623,7 @@ class UCSystemInfo(QWidget):
         log.info("UCSystemInfo._on_name_changed: %r → %r",
                  panel.config.name, new_name)
         panel.config.name = new_name
-        self._config.save()
+        self._save()
 
     def start_updates(self) -> None:
         """No-op — retained for caller compatibility.

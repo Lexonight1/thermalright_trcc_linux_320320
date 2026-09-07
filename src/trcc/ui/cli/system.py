@@ -18,6 +18,7 @@ from ...core.commands import (
     GetFirstRunStatus,
     GetPaths,
     GetPlatformInfo,
+    GetSensorDashboard,
     ListDisks,
     ListDiskSensors,
     ListFans,
@@ -34,6 +35,7 @@ from ...core.commands import (
     RunSetup,
     RunUpgrade,
     SetHddEnabled,
+    SetSensorDashboard,
 )
 from ...core.models import AUTOSTART_TARGETS
 from ._ctx import emit_json, get_app
@@ -176,6 +178,41 @@ def list_sensors() -> None:
         unit = f" [{s.unit}]" if s.unit else ""
         label = f"  {s.label}" if s.label else ""
         typer.echo(f"  {s.sensor_id:32} {s.category:14}{unit}{label}")
+
+
+@app.command("dashboard")
+def dashboard(
+    auto_map: bool = typer.Option(
+        False, "--save-auto-map",
+        help="Persist the auto-mapped bindings instead of only showing them.",
+    ),
+) -> None:
+    """Print the sensor-dashboard layout — panels, rows and their bindings.
+
+    The grid the GUI's System Info screen edits, stored at
+    ``<config_dir>/system_config.json``.  Unbound rows render as ``--`` in the
+    GUI and are shown here as ``<unbound>``: the row's target sensor does not
+    exist on this machine (no DDR5 SPD temp, no SMART disk temp, fewer fan
+    headers than slots).
+
+    Reading is non-destructive — auto-mapping is recomputed every time and
+    NOT written back, so the layout heals itself when hardware changes.  Pass
+    ``--save-auto-map`` to freeze what you see.
+    """
+    log.info("cli system dashboard: save_auto_map=%s", auto_map)
+    result = get_app().dispatch(GetSensorDashboard())
+    typer.echo(result.message)
+    for panel in result.panels:
+        typer.echo(f"  [{panel.category_id}] {panel.name}")
+        for binding in panel.sensors:
+            target = binding.sensor_id or "<unbound>"
+            unit = f" [{binding.unit}]" if binding.unit else ""
+            typer.echo(f"      {binding.label:12} -> {target}{unit}")
+    if auto_map:
+        written = get_app().dispatch(
+            SetSensorDashboard(panels=tuple(result.panels)),
+        )
+        typer.echo(written.message)
 
 
 @app.command("list-languages")

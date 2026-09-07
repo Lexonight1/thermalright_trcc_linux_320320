@@ -385,7 +385,6 @@ class TRCCApp(QMainWindow):
         # holds an AppProxy that exposes dispatch alone.
         platform_info = app.dispatch(GetPlatformInfo())
         self._minimize_on_close = platform_info.minimize_on_close
-        self._sensors = app.platform.sensors()
         self._ui_state = UiStateStore(Path(platform_info.config_dir))
         # Observability state for the metrics fan-out — first call
         # after construction logs INFO, subsequent ticks DEBUG unless
@@ -1101,12 +1100,12 @@ class TRCCApp(QMainWindow):
         self.uc_about.setGeometry(*Layout.FORM_CONTAINER)
         self.uc_about.setVisible(False)
 
-        # System info dashboard
-        from ...adapters.infra.sysinfo_config import SysInfoConfig
-        self.uc_system_info = UCSystemInfo(
-            self._sensors,
-            sysinfo_config=SysInfoConfig(),
-            parent=central)
+        # System info dashboard — takes the App and asks the bus for its
+        # layout (``GetSensorDashboard``).  It used to be handed a live
+        # ``SensorEnumerator`` plus a ``SysInfoConfig`` built here, which it
+        # then passed on to the sensor picker; both are gone, so nothing in
+        # this window holds a sensor port any more.
+        self.uc_system_info = UCSystemInfo(self._app, parent=central)
         self.uc_system_info.setGeometry(*Layout.SYSINFO_PANEL)
         self.uc_system_info.setVisible(False)
 

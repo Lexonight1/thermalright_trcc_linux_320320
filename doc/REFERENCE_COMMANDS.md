@@ -4,7 +4,7 @@
 
 Every capability in TRCC, as the one surface all four UIs dispatch against. A new UI — a browser client, a VR panel, a TUI — needs only this page and an event subscription; it never imports a service or an adapter.
 
-**136 total: 101 Commands and 35 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
+**138 total: 102 Commands and 36 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
 
 ## Dispatching one
 
@@ -1233,6 +1233,14 @@ Snapshot of OS identity + paths + permission warnings.
 
 Takes no arguments.
 
+### `GetSensorDashboard`
+
+Read the sensor-dashboard layout, auto-mapping any unbound row.
+
+*Query* → `SensorDashboardResult`
+
+Takes no arguments.
+
 ### `KeepAliveLoop`
 
 Confirm or hold a device's screen keepalive.
@@ -1428,6 +1436,16 @@ Set the global metrics-refresh interval — when metric data is polled and updat
 | Field | Type | Required |
 |---|---|---|
 | `seconds` | `float` | yes |
+
+### `SetSensorDashboard`
+
+Replace the sensor-dashboard layout wholesale and persist it.
+
+*Command* → `SensorDashboardResult`
+
+| Field | Type | Required |
+|---|---|---|
+| `panels` | `tuple[PanelConfig, Ellipsis]` | no |
 
 ### `SetSlideshow`
 

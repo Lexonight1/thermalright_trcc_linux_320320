@@ -25,6 +25,8 @@ from ..models import (
     MAX_REFRESH_INTERVAL_S,
     MIN_REFRESH_INTERVAL_S,
     SLIDESHOW_POLL_S,
+    PanelConfig,
+    SensorBinding,
 )
 from ..results import (
     AutostartResult,
@@ -56,6 +58,7 @@ from ..results import (
     QuickstartResult,
     QuickstartStepEntry,
     RefreshIntervalResult,
+    SensorDashboardResult,
     SensorInfoEntry,
     SensorsListResult,
     SensorsResult,
@@ -480,6 +483,123 @@ class ListSensors(Query[SensorsListResult]):
             ok=True,
             sensors=entries,
             message=f"{len(entries)} sensor(s) registered",
+        )
+
+def _copy_panels(panels: list[PanelConfig]) -> list[PanelConfig]:
+    """Deep-copy the dashboard layout so a caller cannot write through it.
+
+    ``app.sysinfo.panels`` is App state.  Handing the live objects to a UI
+    would let a widget rebind a row by assignment and never dispatch, which
+    is precisely the bypass this pair of Commands exists to remove — and it
+    would only work in-process, since the daemon socket hands back fresh
+    objects rebuilt from JSON.  Copying makes both paths behave identically.
+    """
+    log.debug("_copy_panels: panels=%d", len(panels))
+    return [
+        PanelConfig(
+            category_id=p.category_id,
+            name=p.name,
+            sensors=[
+                SensorBinding(label=b.label, sensor_id=b.sensor_id, unit=b.unit)
+                for b in p.sensors
+            ],
+        )
+        for p in panels
+    ]
+
+@dataclass(frozen=True, slots=True)
+class GetSensorDashboard(Query[SensorDashboardResult]):
+    """Read the sensor-dashboard layout, auto-mapping any unbound row.
+
+    The legacy ``UCSystemInfoOptions`` grid — 4-row panels (CPU / GPU /
+    Memory / Disk / Network / Fan + custom) each bound to a sensor id,
+    persisted as ``<config_dir>/system_config.json``.  Until this Command
+    existed the GUI imported the persistence adapter directly, so cli / api /
+    qtgui could not read the file at all.
+
+    Auto-mapping runs HERE rather than in each UI, from
+    :meth:`SensorEnumerator.discover` — every sensor on the host, with
+    values, unfiltered by user prefs.  Both halves matter:
+
+    * **Unfiltered**, because auto-map answers "what exists on this box", not
+      "what does the user want shown".  A personalised read drops ``disk:*``
+      for a user who merely turned the Disk panel off, and the four disk rows
+      would then silently bind to nothing.
+    * **With values**, because the fan fallback orders candidates by whether
+      they are spinning, and that ordering IS the #145 fix — a super-I/O chip
+      publishes every header whether or not a fan is plugged into it.
+
+    **Pure read: it does not save.**  What comes back may therefore differ
+    from what is on disk (``auto_mapped`` says by how many rows); persisting
+    it is :class:`SetSensorDashboard`'s job, and the UI dispatches that when
+    the user actually edits something.  The upshot is that auto-mapping
+    re-derives every launch, so a dashboard heals itself when a fan is
+    replaced or a drive appears, instead of staying frozen at whatever the
+    very first run happened to see.
+    """
+
+    def execute(self, app: App) -> SensorDashboardResult:
+        log.info("GetSensorDashboard.execute")
+        app.sysinfo.load()
+        auto_mapped = app.sysinfo.auto_map(app.platform.sensors().discover())
+        panels = _copy_panels(app.sysinfo.panels)
+        unbound = sum(
+            1 for p in panels for b in p.sensors if not b.sensor_id
+        )
+        # An unbound row renders "--" forever, and the reason is always
+        # host-specific (no DDR5 SPD temp, no SMART disk temp, fewer fan
+        # headers than slots).  Name them, or the next report says only
+        # "some rows are blank".
+        if unbound:
+            log.info(
+                "GetSensorDashboard.execute: %d row(s) unbound on this host: %s",
+                unbound,
+                [f"{p.name}/{i}" for p in panels
+                 for i, b in enumerate(p.sensors) if not b.sensor_id],
+            )
+        return SensorDashboardResult(
+            ok=True,
+            panels=panels,
+            auto_mapped=auto_mapped,
+            message=(f"{len(panels)} panel(s), {auto_mapped} row(s) auto-mapped, "
+                     f"{unbound} unbound"),
+        )
+
+@dataclass(frozen=True, slots=True)
+class SetSensorDashboard(Command[SensorDashboardResult]):
+    """Replace the sensor-dashboard layout wholesale and persist it.
+
+    One bulk verb rather than four (rebind / add / delete / rename), matching
+    the ``SetOverlayConfig`` precedent: the UI already holds the whole layout
+    it just edited, and a per-row verb would need a panel address that
+    ``PanelConfig`` does not carry (custom panels share ``category_id=0``).
+
+    Rows may be left unbound — ``sensor_id=""`` is how the user says "nothing
+    here", and the next :class:`GetSensorDashboard` will offer to auto-map it
+    again.
+    """
+    panels: tuple[PanelConfig, ...] = ()
+
+    def execute(self, app: App) -> SensorDashboardResult:
+        log.info("SetSensorDashboard.execute: panels=%d", len(self.panels))
+        if not self.panels:
+            # Saving an empty list would make ``load`` fall back to defaults
+            # on the next read — a wipe dressed up as a write.  Refuse it.
+            log.warning("SetSensorDashboard.execute: refusing an empty layout")
+            return SensorDashboardResult(
+                ok=False, panels=_copy_panels(app.sysinfo.panels),
+                message="A dashboard needs at least one panel",
+            )
+        app.sysinfo.panels = _copy_panels(list(self.panels))
+        app.sysinfo.save()
+        bound = sum(1 for p in app.sysinfo.panels
+                    for b in p.sensors if b.sensor_id)
+        log.info("SetSensorDashboard.execute: saved %d panel(s), %d bound row(s) → %s",
+                 len(app.sysinfo.panels), bound, app.sysinfo.path)
+        return SensorDashboardResult(
+            ok=True,
+            panels=_copy_panels(app.sysinfo.panels),
+            message=f"Saved {len(app.sysinfo.panels)} panel(s), {bound} bound row(s)",
         )
 
 @dataclass(frozen=True, slots=True)

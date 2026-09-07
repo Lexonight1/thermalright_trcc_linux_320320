@@ -220,6 +220,33 @@ class HddEnabledRequest(BaseModel):
     enabled: bool
 
 
+class SensorBindingRequest(BaseModel):
+    """One dashboard row: a display label bound to a sensor id."""
+    label: str = ""
+    #: Empty means "nothing here" — the row renders ``--`` and the next read
+    #: offers to auto-map it again.
+    sensor_id: str = ""
+    unit: str = ""
+
+
+class PanelRequest(BaseModel):
+    """One dashboard panel — a name and its rows."""
+    #: 1=CPU 2=GPU 3=Memory 4=Disk 5=Network 6=Fan; 0 for a custom panel.
+    #: Drives both the panel artwork and which auto-map targets apply.
+    category_id: int = 0
+    name: str = "Custom"
+    sensors: list[SensorBindingRequest] = Field(default_factory=list)
+
+
+class SensorDashboardRequest(BaseModel):
+    """A replacement dashboard layout.
+
+    Bulk replace, matching the Command — the caller sends the whole grid it
+    just edited, exactly as ``/display/overlay/config`` does for overlays.
+    """
+    panels: list[PanelRequest] = Field(default_factory=list)
+
+
 class BackgroundFileRequest(BaseModel):
     """A file to use as the persistent background override."""
     path: str

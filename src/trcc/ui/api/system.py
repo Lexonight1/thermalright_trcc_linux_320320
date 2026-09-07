@@ -16,6 +16,7 @@ from ...core.commands import (
     GetAutostartStatus,
     GetFirstRunStatus,
     GetPlatformInfo,
+    GetSensorDashboard,
     ListDevices,
     ListDisks,
     ListDiskSensors,
@@ -35,8 +36,9 @@ from ...core.commands import (
     RunUpgrade,
     SetDiskDevice,
     SetHddEnabled,
+    SetSensorDashboard,
 )
-from ...core.models import Kind
+from ...core.models import Kind, PanelConfig, SensorBinding
 from ...core.results import (
     AutostartResult,
     ControlCenterSnapshotResult,
@@ -55,6 +57,7 @@ from ...core.results import (
     LanguagesListResult,
     MemorySlotsResult,
     QuickstartResult,
+    SensorDashboardResult,
     SensorsListResult,
     SensorsResult,
     SetupResult,
@@ -69,6 +72,7 @@ from .schemas import (
     DebugReportRequest,
     DiskDeviceRequest,
     HddEnabledRequest,
+    SensorDashboardRequest,
     UpgradeRequest,
 )
 
@@ -98,6 +102,59 @@ def sensor_catalog(request: Request) -> SensorsListResult:
     """
     log.info("api GET /system/sensors/catalog")
     return request.app.state.trcc.dispatch(ListSensors())
+
+
+@router.get("/dashboard")
+def sensor_dashboard(request: Request) -> SensorDashboardResult:
+    """The sensor-dashboard layout — the grid the GUI's System Info screen edits.
+
+    Stored at ``<config_dir>/system_config.json``.  Until this route existed
+    the file was readable by exactly one UI: the desktop GUI imported the
+    persistence adapter directly, so no script could see a user's panel
+    layout, let alone build one. (unified-UI contract)
+
+    Non-destructive: unbound rows are auto-mapped against this machine's
+    sensors on every read and NOT written back, so the answer heals itself
+    when hardware changes.  ``auto_mapped`` reports how many rows that filled
+    — non-zero means what you are holding differs from what is on disk.
+
+    Declared BEFORE /sensors/{category} is not a concern here (different
+    prefix), but it IS why the catalog route above sits where it does.
+    """
+    log.info("api GET /system/dashboard")
+    return request.app.state.trcc.dispatch(GetSensorDashboard())
+
+
+@router.post("/dashboard")
+def set_sensor_dashboard(body: SensorDashboardRequest,
+                         request: Request) -> SensorDashboardResult:
+    """Replace the sensor-dashboard layout wholesale.
+
+    One bulk verb covers rebind / add / delete / rename — the same shape
+    ``POST /display/overlay/config`` uses, and the same reason: the caller
+    already holds the whole grid it edited.  An empty ``panels`` list is
+    refused (it would make the next read fall back to defaults — a wipe
+    dressed up as a write), which surfaces as ``ok=false``.
+    """
+    log.info("api POST /system/dashboard: panels=%d", len(body.panels))
+    result = request.app.state.trcc.dispatch(SetSensorDashboard(
+        panels=tuple(
+            PanelConfig(
+                category_id=panel.category_id,
+                name=panel.name,
+                sensors=[
+                    SensorBinding(label=b.label, sensor_id=b.sensor_id,
+                                  unit=b.unit)
+                    for b in panel.sensors
+                ],
+            )
+            for panel in body.panels
+        ),
+    ))
+    # A refusal is a client error (an empty layout), so it gets a 400 rather
+    # than a 200 carrying ok=false — same shape POST /theme/cloud/{key} uses.
+    http_error_if_failed(result)
+    return result
 
 
 @router.get("/sensors/{category}")

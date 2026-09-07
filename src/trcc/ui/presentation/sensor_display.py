@@ -32,13 +32,21 @@ _SOURCE_ORDER = ("cpu", "gpu", "fan", "memory", "mem", "disk", "net")
 def format_sensor_value(value: float, unit: str, temp_unit: int = 0) -> str:
     """Render a sensor ``value`` with its ``unit``.
 
-    ``temp_unit`` (0=°C, 1=°F) only swaps the SYMBOL for ``°C`` bindings — the
-    value is already converted upstream (metrics broadcast).  Default 0 matches
-    the picker, which always shows °C.
+    The value is ALWAYS already converted upstream (``ReadSensors`` and the
+    metrics broadcast both personalise before publishing) — only the symbol is
+    decided here, and two callers spell the same fact differently:
+
+    * The dashboard binds a row once and stores ``"°C"`` in the saved layout
+      forever, so it passes ``temp_unit`` (0=°C, 1=°F) alongside.
+    * The picker renders whatever the reading declares, and a personalised
+      reading declares ``"°F"`` outright.
+
+    Both are honoured, so a °F reading keeps its degree sign instead of
+    falling through to the unit-less default and rendering "122.0".
     """
     log.debug("format_sensor_value: %.2f unit=%s temp_unit=%d", value, unit, temp_unit)
-    if unit == "°C":
-        symbol = "°F" if temp_unit == 1 else "°C"
+    if unit in ("°C", "°F"):
+        symbol = "°F" if (unit == "°F" or temp_unit == 1) else "°C"
         return f"{value:.0f}{symbol}"
     if unit in ("%", "RPM", "W"):
         return f"{value:.0f}{unit}"

@@ -24,6 +24,18 @@ def test_format_celsius_swaps_symbol_on_temp_unit() -> None:
     assert format_sensor_value(60.4, "°C") == "60°C"          # default = celsius
 
 
+def test_format_fahrenheit_reading_keeps_its_degree_sign() -> None:
+    """A personalised reading declares °F itself — the ladder must know it.
+
+    ``ReadSensors`` rewrites ``unit`` to "°F" when the user picks Fahrenheit.
+    Without this branch that fell past every case to the unit-less default and
+    a 122°F CPU rendered as "122.0" in the sensor picker.
+    """
+    assert format_sensor_value(122.0, "°F") == "122°F"
+    assert format_sensor_value(122.0, "°F", temp_unit=0) == "122°F"
+    assert format_sensor_value(122.0, "°F", temp_unit=1) == "122°F"
+
+
 def test_format_integer_unit_ladder() -> None:
     assert format_sensor_value(37.6, "%") == "38%"
     assert format_sensor_value(1200.0, "RPM") == "1200RPM"

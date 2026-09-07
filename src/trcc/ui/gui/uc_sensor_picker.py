@@ -24,8 +24,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...app import App
+from ...core.commands import ReadSensors
 from ...core.models import SensorInfo
-from ...core.ports import SensorEnumerator
 from ..presentation.sensor_display import format_sensor_value, group_sensors
 from .assets import Assets
 from .base import set_background_pixmap
@@ -127,9 +128,16 @@ class SensorRow(QWidget):
 class SensorPickerDialog(QDialog):
     """Sensor selection dialog matching Windows FormSystemInfo (490x800)."""
 
-    def __init__(self, enumerator: SensorEnumerator, parent=None):
+    def __init__(self, app: App, parent=None):
         super().__init__(parent)
-        self._enumerator = enumerator
+        self._app = app
+        # One ``ReadSensors`` per tick feeds BOTH the row list and the live
+        # values — the shape qtgui's SensorPickerWidget already uses.  The
+        # dialog held a ``SensorEnumerator`` and called discover() + read_all()
+        # on it, which no daemon-mode client can do.  Readings are personalised
+        # (°F when the user picked °F, no disk:* when HDD is off), so the
+        # picker now shows exactly the numbers the dashboard will render.
+        self._readings: list = []
         self._selected_id: str | None = None
         self._rows: list[SensorRow] = []
         self._result_sensor: SensorInfo | None = None
@@ -186,26 +194,27 @@ class SensorPickerDialog(QDialog):
         self._list_layout.setSpacing(0)
         self._scroll.setWidget(self._list_widget)
 
-        # Populate
+        # Populate — the first read supplies the rows themselves.
+        self._refresh()
         self._populate_sensors()
 
         # Live value update timer
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_values)
         self._timer.start(1000)
-        self._update_values()  # Initial read
+        self._update_values()  # Initial values
 
     def _populate_sensors(self):
-        """Create rows for all discovered sensors, grouped by source.
+        """Create rows for every readable sensor, grouped by source.
 
         Adaptation + grouping + ordering live in the Qt-free
-        :func:`group_sensors`; this just renders the headers + rows.
+        :func:`group_sensors`, which takes the ``SensorReading`` list
+        ``ReadSensors`` already returns; this just renders headers + rows.
         """
-        sensors = self._enumerator.discover()
-        log.info("SensorPickerDialog._populate_sensors: discovered %d sensors",
-                 len(sensors))
+        log.info("SensorPickerDialog._populate_sensors: %d reading(s)",
+                 len(self._readings))
 
-        for header_label, group in group_sensors(sensors):
+        for header_label, group in group_sensors(self._readings):
             header = QLabel(header_label)
             header.setFixedHeight(24)
             header.setStyleSheet(
@@ -251,16 +260,35 @@ class SensorPickerDialog(QDialog):
                     break
         self.accept()
 
+    def _refresh(self) -> list:
+        """Dispatch one ``ReadSensors`` and cache the readings.
+
+        Called before the rows are built and on every tick after — one bus
+        round-trip serves the identities AND the values, so the list and the
+        numbers beside it can never disagree about what exists.
+        """
+        result = self._app.dispatch(ReadSensors())
+        # Per-tick (1s); DEBUG.  A picker with nothing in it is a real fault
+        # (no enumerator plugin loaded) and worth a louder line.
+        if not result.readings:
+            log.warning("SensorPickerDialog._refresh: no readings — %s",
+                        result.message)
+        else:
+            log.debug("SensorPickerDialog._refresh: %d reading(s)",
+                      len(result.readings))
+        self._readings = result.readings
+        return self._readings
+
     def _update_values(self):
         """Update all sensor values in the list."""
         # Per-tick (1s); DEBUG.
-        readings = self._enumerator.read_all()
+        values = {r.sensor_id: r.value for r in self._refresh()}
         log.debug(
             "SensorPickerDialog._update_values: readings=%d rows=%d",
-            len(readings), len(self._rows),
+            len(values), len(self._rows),
         )
         for row in self._rows:
-            row.update_value(readings.get(row.sensor.id))
+            row.update_value(values.get(row.sensor.id))
 
     def closeEvent(self, event):
         log.info("SensorPickerDialog.closeEvent: closing")

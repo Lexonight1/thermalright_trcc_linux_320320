@@ -17,6 +17,7 @@ from .models import (
     HandshakeResult,
     HardwareMetrics,
     LedHandshakeResult,
+    PanelConfig,
     ProductInfo,
     SensorReading,
     WebPreviewInfo,
@@ -156,6 +157,29 @@ class SensorsListResult(Result):
     without paying the polling cost on every refresh.
     """
     sensors: list[SensorInfoEntry] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class SensorDashboardResult(Result):
+    """The sensor-dashboard layout — 4-row panels bound to sensor ids.
+
+    The legacy ``UCSystemInfoOptions`` grid, persisted as
+    ``<config_dir>/system_config.json``.  Carried as the domain
+    :class:`~trcc.core.models.PanelConfig` rather than a flattened dict so a
+    UI gets the contract instead of guessing key names, and so the answer
+    survives the daemon socket (``_coerce`` rebuilds the nested
+    ``SensorBinding`` list from its type hint).
+
+    **The panels are copies.**  Mutating one changes nothing until
+    ``SetSensorDashboard`` is dispatched — the same thing that happens over
+    the wire, where JSON round-tripping hands back fresh objects anyway.  A
+    Result a caller can write through is a bus with a hole in it.
+    """
+    panels: list[PanelConfig] = field(default_factory=list)
+    #: Rows ``GetSensorDashboard``'s auto-map filled in this call.  Zero on a
+    #: dashboard the user has already customised end to end; non-zero says the
+    #: layout in hand is not (yet) the layout on disk.
+    auto_mapped: int = 0
 
 
 @dataclass(frozen=True, slots=True)

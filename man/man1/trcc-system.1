@@ -72,6 +72,21 @@ Options:
 \fB\-\-help\fR
 Show this command's help and exit.
 .RE
+.SS dashboard
+.PP
+\fBtrcc system dashboard\fR [\fIOPTIONS\fR]
+.PP
+Print the sensor\-dashboard layout  \-  panels, rows and their bindings. The grid the GUI's System Info screen edits, stored at <config_dir>/system_config.json. Unbound rows render as \-\- in the GUI and are shown here as <unbound>: the row's target sensor does not exist on this machine (no DDR5 SPD temp, no SMART disk temp, fewer fan headers than slots). Reading is non\-destructive  \-  auto\-mapping is recomputed every time and NOT written back, so the layout heals itself when hardware changes. Pass \-\-save\-auto\-map to freeze what you see.
+.PP
+Options:
+.RS 4
+.TP
+\fB\-\-save\-auto\-map\fR
+Persist the auto\-mapped bindings instead of only showing them.
+.TP
+\fB\-\-help\fR
+Show this command's help and exit.
+.RE
 .SS debug\-report
 .PP
 \fBtrcc system debug\-report\fR [\fIOPTIONS\fR]

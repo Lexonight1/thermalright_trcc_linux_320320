@@ -221,13 +221,18 @@ def test_sensor_picker_renders_hardware_metrics(
 ) -> None:
     """The metric chooser must render rows for the category-prefixed
     sensors (cpu/gpu/…), not only legacy sources — else it shows blank.
-    Clock sources (time/date) are excluded, matching legacy."""
+    Clock sources (time/date) are excluded, matching legacy.
+
+    Takes the App, not a ``SensorEnumerator``: the dialog asks the bus
+    (``ReadSensors``) for identities AND values in one call, so a daemon-mode
+    client can open it.
+    """
     del qapp
     from trcc.ui.gui.assets import _PKG_ASSETS_DIR, set_assets_dir
     from trcc.ui.gui.uc_sensor_picker import SensorPickerDialog
     set_assets_dir(_PKG_ASSETS_DIR)
 
-    dlg = SensorPickerDialog(gui_app.platform.sensors())
+    dlg = SensorPickerDialog(gui_app)
     try:
         ids = {r.sensor.id for r in dlg._rows}
         assert dlg._rows  # non-empty — was blank under the hardcoded list

@@ -1037,7 +1037,12 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # ``config_dir`` and ``user_content_dir`` are fields on its Result.
     # ``UiStateStore`` now takes the config DIRECTORY rather than a Paths port,
     # which is all it ever used the port for.
-    "ui/gui/trcc_app.py": 3,
+    # 3 -> 2 on 2026-09-07: ``platform.sensors()`` is gone.  The window held a
+    # live ``SensorEnumerator`` for one reason — to hand it to UCSystemInfo,
+    # which passed it on to the sensor picker — so ONE reach was laundering a
+    # port into two widgets.  Both take the App now and dispatch
+    # ``GetSensorDashboard`` / ``SetSensorDashboard`` / ``ReadSensors``.
+    "ui/gui/trcc_app.py": 2,
     # led/_base.py and led_panel.py reached ZERO on 2026-08-31: the six LED
     # tabs take a ``LedSnapshotResult`` instead of a live ``LedDeviceSettings``.
     # Same rule as UCThemeMask before them — the Result was short four fields
@@ -1384,9 +1389,11 @@ _UI_ADAPTER_COMPOSITION_ROOTS: frozenset[tuple[str, str]] = frozenset({
 #: Real breaches, to burn down.  Delete an entry when its call site moves to the
 #: bus; a stale entry FAILS, so a fix cannot leave cruft that re-permits it.
 KNOWN_UI_ADAPTER_IMPORTS: frozenset[tuple[str, str]] = frozenset({
-    # Sys-info panel config read straight from an infra adapter.
-    ("trcc/ui/gui/trcc_app.py", "trcc.adapters.infra.sysinfo_config"),
-    ("trcc/ui/gui/uc_system_info.py", "trcc.adapters.infra.sysinfo_config"),
+    # 2026-09-07: BOTH sys-info entries deleted.  The dashboard layout at
+    # ``<config_dir>/system_config.json`` is on the bus now
+    # (``GetSensorDashboard`` / ``SetSensorDashboard``), and the App owns the
+    # persistence — so cli / api / qtgui can read a file that until then only
+    # the desktop GUI could see, and the GUI reaches it the same way they do.
     # A startup banner ("API reachable at http://<ip>:<port>").  Defensible at
     # a launch site, but it is still system information the ``Platform`` port
     # could answer, so it stays visible rather than being called a root.

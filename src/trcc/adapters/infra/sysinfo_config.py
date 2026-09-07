@@ -11,9 +11,9 @@ API:
 * ``load()``      — read the JSON file, replacing :attr:`panels`.
                     Falls back to :meth:`defaults` if missing/corrupt.
 * ``save()``      — atomic-write ``self.panels`` back.
-* ``auto_map(enumerator)`` — fill empty ``sensor_id`` fields by asking
-                              the platform's :class:`SensorEnumerator`
-                              for its best-guess default per legacy key.
+* ``auto_map(readings)`` — fill empty ``sensor_id`` fields from a
+                            :meth:`SensorEnumerator.discover` snapshot,
+                            per legacy key.  Returns the rows bound.
 """
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ class SysInfoConfig:
         except OSError as e:
             log.error("Failed to save sysinfo config %s: %s", self._path, e)
 
-    def auto_map(self, enumerator) -> None:
+    def auto_map(self, readings: list[SensorReading]) -> int:
         """Fill every empty ``sensor_id`` from ``_PANEL_ROW_BINDINGS``.
 
         Two passes:
@@ -237,22 +237,19 @@ class SysInfoConfig:
         is left alone).  Non-fan rows whose target id is not
         available on this host stay unbound — the panel renders
         ``--``.
-        """
-        log.info("auto_map: panels=%d", len(self.panels))
-        discover = getattr(enumerator, "discover", None)
-        if discover is None:
-            log.warning(
-                "auto_map: enumerator %r has no discover() — skipping",
-                type(enumerator).__name__,
-            )
-            return
-        try:
-            readings = list(discover())
-        except Exception as e:
-            log.warning("auto_map: discover() raised %s: %s",
-                        type(e).__name__, e)
-            return
 
+        Takes the ``readings`` rather than the enumerator that produced them:
+        both passes need VALUES (the second orders fans by whether they are
+        spinning — that ordering IS the #145 fix), and the caller is the only
+        one that can say which readings are the right ones.  ``discover()``
+        is the answer for auto-mapping — every sensor on the host, unfiltered
+        by user prefs — while a personalised read would hide ``disk:*`` from
+        a user who merely turned the Disk panel off.  Returns how many rows
+        it bound, so a caller can tell "already customised" from "just
+        mapped" without diffing.
+        """
+        log.info("auto_map: panels=%d readings=%d",
+                 len(self.panels), len(readings))
         bound = 0
         missing: list[tuple[int, int, str]] = []
         # First pass: label-aware + exact-id resolution.  Track
@@ -331,6 +328,7 @@ class SysInfoConfig:
                 "auto_map: targets not available on this host: %s",
                 ["{}/{}={}".format(*m) for m in missing],
             )
+        return bound
 
     @staticmethod
     def defaults() -> list[PanelConfig]:
