@@ -137,3 +137,67 @@ def test_dispatch_still_works_alongside_a_live_stream(daemon) -> None:
 
     result = proxy.dispatch(ListLanguages())
     assert result.ok and result.languages
+
+
+# =========================================================================
+# Session lifecycle — the daemon owns it, a client does not
+# =========================================================================
+
+
+def test_lifecycle_methods_exist_so_run_gui_is_mode_agnostic(daemon) -> None:
+    """``run_gui`` must be IDENTICAL in both modes.
+
+    The alternative is a UI asking "am I remote?", which is the environment
+    sniffing the architecture forbids and the thing ``AppProxy`` exists to
+    make unnecessary.
+    """
+    _app, _srv, proxy = daemon
+    for name in ("dispatch", "events", "start_session", "close",
+                 "discover_and_connect"):
+        assert hasattr(proxy, name), f"a GUI calls {name}() at boot"
+
+
+def test_state_reaches_are_still_refused(daemon) -> None:
+    """The lifecycle additions must not become a general escape hatch."""
+    _app, _srv, proxy = daemon
+    for name in ("platform", "settings", "devices", "display", "renderer",
+                 "themes", "cloud_themes"):
+        with pytest.raises(AttributeError):
+            getattr(proxy, name)
+
+
+def test_close_does_not_disconnect_the_daemons_devices(daemon) -> None:
+    """``run_gui``'s ``finally`` calls close() unconditionally.
+
+    In daemon mode that would tear down every OTHER client's panels because
+    one window was shut.
+    """
+    app, _srv, proxy = daemon
+    app.devices["0402:3922"] = object()   # pretend something is attached
+    proxy.close()
+    assert "0402:3922" in app.devices, "a client closed the daemon's devices"
+
+
+def test_start_session_does_not_start_a_second_metrics_loop(daemon) -> None:
+    """Two loops would poll the sensors twice for one machine."""
+    app, _srv, proxy = daemon
+    before = app.metrics_loop.is_running
+    proxy.start_session()
+    assert app.metrics_loop.is_running == before, (
+        "the client started the daemon's metrics loop a second time"
+    )
+
+
+def test_start_session_still_answers_the_splash(daemon) -> None:
+    """A splash worker waits on on_progress; never calling it hangs the splash."""
+    _app, _srv, proxy = daemon
+    said: list[str] = []
+    proxy.start_session(on_progress=said.append)
+    assert said, "the splash callback was never invoked — the splash would hang"
+
+
+def test_discover_and_connect_reports_the_daemons_fleet(daemon) -> None:
+    _app, _srv, proxy = daemon
+    said: list[str] = []
+    proxy.discover_and_connect(on_progress=said.append)
+    assert said and "device(s) attached" in said[-1]

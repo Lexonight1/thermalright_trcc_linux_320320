@@ -22,10 +22,11 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Callable
 from typing import TypeVar
 
 from . import ipc
-from .core.commands import Command
+from .core.commands import Command, DiscoverDevices
 from .core.events import EventBus
 from .core.results import Result
 
@@ -123,6 +124,63 @@ class AppProxy:
             log.warning("AppProxy._read_events: event stream CLOSED after %d "
                         "event(s); this client is no longer observing",
                         seen)
+
+    # ── Session lifecycle — the daemon owns it, this client does not ────
+    #
+    # These three exist so ``run_gui`` / ``run_qtgui`` are IDENTICAL in both
+    # modes.  The alternative is a UI asking "am I remote?", which is the
+    # environment sniffing the architecture forbids and which ``AppProxy``
+    # exists to make unnecessary.  Same interface, transport-appropriate
+    # meaning — the Adapter pattern doing its job.
+    #
+    # They are deliberately NOT silent.  A no-op that logs nothing is
+    # indistinguishable from a call that failed, and "the GUI came up but no
+    # device connected" is exactly the report these would otherwise produce.
+
+    def start_session(
+        self, on_progress: Callable[[str], None] | None = None,
+    ) -> None:
+        """No-op: the daemon brought the session up before this client existed.
+
+        Coldplug and the live loops belong to whoever owns USB.  A client
+        starting a second metrics loop would poll the sensors twice and
+        publish two ``SensorsUpdated`` streams for one machine.
+        """
+        log.info("AppProxy.start_session: the daemon owns the session — "
+                 "not starting coldplug or loops in this client")
+        if on_progress is not None:
+            # A splash worker waits on this callback; leaving it un-called
+            # hangs the splash forever.
+            on_progress("Connected to the TRCC daemon")
+
+    def close(self) -> None:
+        """No-op: a client must not disconnect the daemon's devices.
+
+        ``run_gui``'s ``finally`` calls this unconditionally.  In daemon mode
+        that would tear down the panels of every OTHER client — and of the
+        daemon itself — because one window was closed.
+        """
+        log.info("AppProxy.close: leaving the daemon's devices attached — "
+                 "closing a client must not disconnect other clients")
+
+    def discover_and_connect(
+        self, on_progress: Callable[[str], None] | None = None,
+    ) -> None:
+        """Report what the daemon already has attached.
+
+        The coldplug itself is the daemon's; running it here would race two
+        processes for the same USB handles.  Dispatching ``DiscoverDevices``
+        gives the splash something true to say without touching hardware.
+        """
+        log.info("AppProxy.discover_and_connect: querying the daemon's fleet")
+        if on_progress is not None:
+            on_progress("Asking the daemon which devices are attached…")
+        result = self.dispatch(DiscoverDevices())
+        count = len(getattr(result, "devices", ()) or ())
+        log.info("AppProxy.discover_and_connect: daemon reports %d device(s)",
+                 count)
+        if on_progress is not None:
+            on_progress(f"{count} device(s) attached")
 
     # ── Attributes that a real App exposes but the proxy can't ──────────
 
