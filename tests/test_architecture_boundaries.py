@@ -992,7 +992,13 @@ KNOWN_APP_REACHES: dict[str, int] = {
     "ui/gui/__init__.py": 2,         # start_session / close
     "ui/gui/lcd_handler.py": 1,      # .renderer — a Command-signature question
     "ui/gui/splash.py": 1,           # discover_and_connect — lifecycle
-    "ui/qtgui/app.py": 5,            # events / first_run / platform / start_session / close
+    # 2026-09-05: 5 -> 4.  The tray's ``minimize_on_close`` comes off
+    # ``GetPlatformInfo``, the Query this file already dispatches ten lines
+    # further down in ``_show_platform_info``.
+    # 4 -> 3 the same day: ``app.first_run.is_first_run()`` picking the opening
+    # panel was a STALE bypass, not a gap — ``GetFirstRunStatus`` exists and
+    # this very file already dispatched it in ``_show_platform_info``.
+    "ui/qtgui/app.py": 3,            # events / start_session / close
     # 11 -> 9 on 2026-08-30: UCThemeMask stopped being handed a Paths port and
     # a ContentStore.  It composed "which masks does this device have" out of
     # both; ``ListMasks`` had answered that all along for cli/api/qtgui.  What
@@ -1019,7 +1025,19 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # 8 -> 7 on 2026-08-31: the LED panel's disk dropdown is sourced from
     # ``ListDiskSensors`` — the THERMAL list the metric actually comes
     # from — so the panel is handed no Platform port at all.
-    "ui/gui/trcc_app.py": 7,
+    # 7 -> 6 on 2026-09-05: ``minimize_on_close`` is a field on
+    # ``PlatformInfoResult`` now, beside ``no_devices_hint``, which this file
+    # already dispatched for.  Platform identity belongs on the Query that IS
+    # platform identity, not on a second reach.
+    # 6 -> 5 the same day: the window stopped calling ``app.close()``.
+    # ``run_gui``'s ``finally`` already did it unconditionally, so teardown ran
+    # twice; qtgui had already made this exact split.
+    # 5 -> 3: both ``platform.paths()`` reaches come off the SAME
+    # ``GetPlatformInfo`` dispatch that already sat three lines above them —
+    # ``config_dir`` and ``user_content_dir`` are fields on its Result.
+    # ``UiStateStore`` now takes the config DIRECTORY rather than a Paths port,
+    # which is all it ever used the port for.
+    "ui/gui/trcc_app.py": 3,
     # led/_base.py and led_panel.py reached ZERO on 2026-08-31: the six LED
     # tabs take a ``LedSnapshotResult`` instead of a live ``LedDeviceSettings``.
     # Same rule as UCThemeMask before them — the Result was short four fields

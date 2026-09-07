@@ -1016,10 +1016,10 @@ class GetPlatformInfo(Query[PlatformInfoResult]):
         # One-shot and pure gold in a report: which distro, how it was
         # installed, and every path the app resolved to on THIS machine.
         log.info("GetPlatformInfo.execute: distro=%s install=%s config=%s "
-                 "data=%s user=%s log=%s warnings=%s",
+                 "data=%s user=%s log=%s warnings=%s minimize_on_close=%s",
                  p.distro_name(), p.install_method(), paths.config_dir(),
                  paths.data_dir(), paths.user_content_dir(), paths.log_file(),
-                 p.check_permissions())
+                 p.check_permissions(), p.minimize_on_close())
         return PlatformInfoResult(
             ok=True,
             message=f"Platform: {p.distro_name()}",
@@ -1031,6 +1031,7 @@ class GetPlatformInfo(Query[PlatformInfoResult]):
             log_file=str(paths.log_file()),
             permission_warnings=p.check_permissions(),
             no_devices_hint=p.no_devices_hint(),
+            minimize_on_close=p.minimize_on_close(),
         )
 
 @dataclass(frozen=True, slots=True)

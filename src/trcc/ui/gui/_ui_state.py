@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from ...core._safe import load_json_or_default
 
 if TYPE_CHECKING:
-    from ...core.ports import Paths
+    from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -53,16 +53,19 @@ class UiState:
 class UiStateStore:
     """File-backed UiState loader/saver.
 
-    Created with a :class:`Paths` port so the GUI doesn't need to know
-    where the config dir lives on the current OS.  Read once at GUI
-    boot via :meth:`load`; written immediately on each mutator call so
-    crashes never lose preferences.
+    Takes the config DIRECTORY, not a :class:`Paths` port — one directory is
+    all it ever used the port for, and holding the port made the GUI reach
+    ``app.platform.paths()`` to build one, which raises under
+    ``TRCC_DAEMON=1``.  The caller asks the bus (``GetPlatformInfo`` /
+    ``GetPaths``) and passes the answer.  Read once at GUI boot via
+    :meth:`load`; written immediately on each mutator call so crashes never
+    lose preferences.
     """
 
     _FILE_NAME = "ui_state.json"
 
-    def __init__(self, paths: Paths) -> None:
-        self._path = paths.config_dir() / self._FILE_NAME
+    def __init__(self, config_dir: Path) -> None:
+        self._path = config_dir / self._FILE_NAME
         self._state = UiState()
 
     # ── Lifecycle ─────────────────────────────────────────────────────

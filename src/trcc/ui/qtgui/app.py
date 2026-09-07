@@ -125,7 +125,8 @@ class MainWindow(QMainWindow):
             content.addWidget(widget)
         # First-run users land on System (where the doctor lives) so the
         # welcome screen guides them; everyone else starts on Devices.
-        initial = "system" if app.first_run.is_first_run() else "devices"
+        initial = ("system" if app.dispatch(GetFirstRunStatus()).is_first_run
+                   else "devices")
         content.setCurrentWidget(self._panels[initial])
         sidebar.select(initial)
         sidebar.selected.connect(
@@ -191,7 +192,11 @@ class MainWindow(QMainWindow):
                      / "assets" / "icons" / "trcc.png")
         icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
         self._tray = TrayController(
-            self, minimize_on_close=app.platform.minimize_on_close(), icon=icon,
+            self,
+            # The same Query ``_show_platform_info`` uses — asking the bus
+            # instead of ``app.platform``, which an AppProxy does not have.
+            minimize_on_close=app.dispatch(GetPlatformInfo()).minimize_on_close,
+            icon=icon,
         )
         self._tray.install()
 

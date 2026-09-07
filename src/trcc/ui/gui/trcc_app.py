@@ -380,9 +380,13 @@ class TRCCApp(QMainWindow):
         log.info("TRCC v%s starting", __version__)
 
         self._app = app
-        self._minimize_on_close = app.platform.minimize_on_close()
+        # One dispatch for every platform fact this window needs.  Reaching
+        # ``app.platform`` here raised under TRCC_DAEMON=1, where the window
+        # holds an AppProxy that exposes dispatch alone.
+        platform_info = app.dispatch(GetPlatformInfo())
+        self._minimize_on_close = platform_info.minimize_on_close
         self._sensors = app.platform.sensors()
-        self._ui_state = UiStateStore(app.platform.paths())
+        self._ui_state = UiStateStore(Path(platform_info.config_dir))
         # Observability state for the metrics fan-out — first call
         # after construction logs INFO, subsequent ticks DEBUG unless
         # panel visibility flips (which is itself a transition worth
@@ -409,7 +413,7 @@ class TRCCApp(QMainWindow):
             self, minimize_on_close=self._minimize_on_close,
             icon=QIcon(str(_tray_icon)) if _tray_icon.exists() else QIcon(),
         )
-        self._data_dir = app.platform.paths().user_content_dir()
+        self._data_dir = Path(platform_info.user_content_dir)
 
         self.setWindowTitle("TRCC-Linux - Thermalright LCD Control Center")
         self.setFixedSize(Sizes.WINDOW_W, Sizes.WINDOW_H)
@@ -2524,8 +2528,13 @@ class TRCCApp(QMainWindow):
         self.uc_system_info.stop_updates()
         self.uc_info_module.stop_updates()
         self.uc_activity_sidebar.stop_updates()
-        # ``app.close()`` detaches every device + stops hotplug.
-        self._app.close()
+        # App teardown belongs to ``run_gui``'s ``finally``, which runs
+        # unconditionally once ``qapp.quit()`` below returns from ``exec()`` —
+        # the same split qtgui states in its own closeEvent ("App teardown
+        # stays in run's finally so it happens exactly once").  Closing here
+        # too ran the whole detach + blank sequence twice, and a window is not
+        # the owner of the App's lifetime — least of all a window that may be
+        # holding an AppProxy.
         TRCCApp._instance = None
         event.accept()
         if (app := QApplication.instance()):
