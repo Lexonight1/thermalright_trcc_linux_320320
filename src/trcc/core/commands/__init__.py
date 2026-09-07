@@ -137,6 +137,7 @@ from .system import (
 )
 from .theme import (
     DeleteTheme,
+    DownloadCloudTheme,
     EnsureDataDownload,
     ExportConfig,
     ExportDcTheme,
@@ -177,6 +178,7 @@ __all__ = [
     "DisableAutostart",
     "DisconnectDevice",
     "DiscoverDevices",
+    "DownloadCloudTheme",
     "EnableAutostart",
     "EnableLedTestMode",
     "EnableOverlay",

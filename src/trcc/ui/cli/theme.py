@@ -10,6 +10,7 @@ from ...core.commands import (
     AddOverlayElement,
     DeleteTheme,
     DeviceState,
+    DownloadCloudTheme,
     ExportConfig,
     ExportDcTheme,
     ExportOverlay,
@@ -329,6 +330,44 @@ def cloud_downloaded(
     for e in result.entries:
         typer.echo(f"  {e.id:8}  {e.category:10}"
                    f"{'  (video)' if e.has_video else ''}")
+
+
+@app.command("cloud-download")
+def cloud_download(
+    theme_id: str = typer.Argument(..., help="Cloud theme id, e.g. a001"),
+    resolution: str = typer.Option(
+        ..., "--resolution", "-r", metavar="WxH",
+        help="Oriented catalog size, e.g. 320x320 or 480x854.",
+    ),
+) -> None:
+    """Cache a cloud theme locally WITHOUT applying it to a device.
+
+    ``cloud-load`` downloads AND applies — it persists the background and
+    starts playback.  This is the download half on its own: useful for
+    pre-fetching a catalog over a slow link, or warming the cache before a
+    demo, without disturbing what a panel is currently showing.
+
+    Needs no device and no connection.  Idempotent: an already-cached theme
+    is not fetched again.
+
+    ``--resolution`` is the ORIENTED catalog size the cloud library is keyed
+    by (854x480 and 480x854 are different libraries), not necessarily the
+    panel's native size.
+    """
+    log.info("cli theme cloud-download: theme_id=%s resolution=%s",
+             theme_id, resolution)
+    from ...core.models import parse_resolution
+    try:
+        w, h = parse_resolution(resolution)
+    except ValueError as e:
+        typer.echo(f"Bad --resolution {resolution!r}: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    result = get_app().dispatch(
+        DownloadCloudTheme(theme_id=theme_id, resolution=(w, h)),
+    )
+    typer.echo(result.message)
+    if not result.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command("cloud-load")

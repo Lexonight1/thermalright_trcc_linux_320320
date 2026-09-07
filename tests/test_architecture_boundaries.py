@@ -1042,7 +1042,14 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # which passed it on to the sensor picker — so ONE reach was laundering a
     # port into two widgets.  Both take the App now and dispatch
     # ``GetSensorDashboard`` / ``SetSensorDashboard`` / ``ReadSensors``.
-    "ui/gui/trcc_app.py": 2,
+    # 2 -> 1 the same day: the cloud browser's download callback dispatches
+    # ``DownloadCloudTheme`` instead of reaching ``cloud_themes.materialise``.
+    # A real contract hole, not a stale bypass — ``LoadCloudTheme`` also
+    # APPLIES, so substituting it would have started a theme the user has not
+    # picked yet.  cli and api could not pre-download at all until now.
+    # What is left is ``services.AudioCapture`` (screencast), which belongs
+    # with the RawFrame signature question, not here.
+    "ui/gui/trcc_app.py": 1,
     # led/_base.py and led_panel.py reached ZERO on 2026-08-31: the six LED
     # tabs take a ``LedSnapshotResult`` instead of a live ``LedDeviceSettings``.
     # Same rule as UCThemeMask before them — the Result was short four fields

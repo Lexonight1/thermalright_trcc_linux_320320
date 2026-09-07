@@ -1725,6 +1725,22 @@ trcc system upgrade [OPTIONS]
 
 Save / export / import themes.
 
+### `trcc theme cloud-download`
+
+Cache a cloud theme locally WITHOUT applying it to a device. `cloud-load` downloads AND applies — it persists the background and starts playback. This is the download half on its own: useful for pre-fetching a catalog over a slow link, or warming the cache before a demo, without disturbing what a panel is currently showing. Needs no device and no connection. Idempotent: an already-cached theme is not fetched again. `--resolution` is the ORIENTED catalog size the cloud library is keyed by (854x480 and 480x854 are different libraries), not necessarily the panel's native size.
+
+```bash
+trcc theme cloud-download [OPTIONS] THEME_ID
+```
+
+| Argument | Description |
+|---|---|
+| `THEME_ID` | Cloud theme id, e.g. a001 |
+
+| Option | Description |
+|---|---|
+| `--resolution`, `-r` `RESOLUTION` | Oriented catalog size, e.g. 320x320 or 480x854. |
+
 ### `trcc theme cloud-downloaded`
 
 List the cloud themes actually DOWNLOADED for this device. `cloud-list` shows Thermalright's hosted catalog — what EXISTS. This shows what is on disk for the canvas, which is a different question and had no answer outside the REST API. The directory is REPORTED by the query rather than re-spelled from the resolution: a per-SKU panel reads `1600720l` while one whose variant archive has not landed falls back to the generic name.

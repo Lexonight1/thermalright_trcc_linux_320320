@@ -190,6 +190,77 @@ def test_materialise_writes_flat_layout(
     assert len(http.calls) == 1
 
 
+@pytest.mark.parametrize("resolution", TEST_RESOLUTIONS)
+def test_download_cloud_theme_caches_without_applying(
+    fake_platform, resolution: tuple[int, int],
+) -> None:
+    """``DownloadCloudTheme`` is the download half — it must NOT apply.
+
+    ``LoadCloudTheme`` persists ``background_path`` and dispatches
+    ``PlayVideo``.  That is the whole reason a separate Command exists: the
+    GUI's cloud browser downloads on one event so a thumbnail can be drawn,
+    and applies on a later click.  If this Command applied too, opening the
+    browser would hijack whatever the panel is showing.
+    """
+    from trcc.app import App
+    from trcc.core.commands import DownloadCloudTheme
+
+    w, h = resolution
+    app = App(fake_platform)
+    http = FakeHttp()
+    http.responses[f"http://www.czhorde.cc/tr/bj{w}{h}/a004.mp4"] = b"mp4-bytes"
+    cache = app.platform.paths().data_dir() / "web"
+    cache.mkdir(parents=True, exist_ok=True)
+    app.cloud_themes = CloudThemeService(
+        catalog=CzhordeCatalog(http=http, cache_dir=cache,
+                               resolution=f"{w}x{h}"),
+        paths=app.platform.paths(),
+    )
+
+    result = app.dispatch(
+        DownloadCloudTheme(theme_id="a004", resolution=resolution),
+    )
+
+    assert result.ok, result.message
+    assert Path(result.theme_path).is_file()
+    assert result.theme_id == "a004"
+    # Applied nothing: no background persisted, no playback started.
+    assert not app.settings.for_device("0402:3922").background_path
+    assert app.media.playback("0402:3922") is None
+
+    # Idempotent — the second call re-uses the cache (materialise's contract).
+    again = app.dispatch(
+        DownloadCloudTheme(theme_id="a004", resolution=resolution),
+    )
+    assert again.theme_path == result.theme_path
+    assert len(http.calls) == 1
+
+
+def test_download_cloud_theme_reports_a_failed_fetch(fake_platform) -> None:
+    """A missing theme fails as ``ok=false``, never as an exception.
+
+    Every UI renders ``message``; a traceback out of a Command would take the
+    GUI's download worker thread with it.
+    """
+    from trcc.app import App
+    from trcc.core.commands import DownloadCloudTheme
+
+    app = App(fake_platform)
+    cache = app.platform.paths().data_dir() / "web"
+    cache.mkdir(parents=True, exist_ok=True)
+    app.cloud_themes = CloudThemeService(
+        catalog=CzhordeCatalog(http=FakeHttp(), cache_dir=cache,
+                               resolution="320x320"),
+        paths=app.platform.paths(),
+    )
+
+    result = app.dispatch(
+        DownloadCloudTheme(theme_id="nope", resolution=(320, 320)),
+    )
+    assert not result.ok
+    assert result.message
+
+
 def test_czhorde_catalog_implements_the_core_cloud_catalog_port(tmp_path) -> None:
     """Step 5: the concrete catalog subclasses the core CloudCatalog ABC, and the
     DTOs live in core.models — so services type against core, not the adapter."""

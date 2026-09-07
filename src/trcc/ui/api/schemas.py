@@ -387,6 +387,14 @@ class CloudThemeLoadRequest(BaseModel):
     theme_id: str
 
 
+class CloudThemeDownloadRequest(BaseModel):
+    """A cloud theme to cache locally, without applying it anywhere."""
+    theme_id: str
+    #: Oriented catalog size — 854x480 and 480x854 are different libraries.
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
 class ThemeDcExportRequest(BaseModel):
     """Server-side path to write the legacy DC file to.
 

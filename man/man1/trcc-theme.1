@@ -6,6 +6,28 @@ trcc\-theme \- Save / export / import themes
 .SH DESCRIPTION
 Save / export / import themes.
 .SH SUBCOMMANDS
+.SS cloud\-download
+.PP
+\fBtrcc theme cloud\-download\fR \fITHEME_ID\fR [\fIOPTIONS\fR]
+.PP
+Cache a cloud theme locally WITHOUT applying it to a device. cloud\-load downloads AND applies  \-  it persists the background and starts playback. This is the download half on its own: useful for pre\-fetching a catalog over a slow link, or warming the cache before a demo, without disturbing what a panel is currently showing. Needs no device and no connection. Idempotent: an already\-cached theme is not fetched again. \-\-resolution is the ORIENTED catalog size the cloud library is keyed by (854x480 and 480x854 are different libraries), not necessarily the panel's native size.
+.PP
+Arguments:
+.RS 4
+.TP
+\fBTHEME_ID\fR
+Cloud theme id, e.g. a001
+.RE
+.PP
+Options:
+.RS 4
+.TP
+\fB\-\-resolution, \-r \fIRESOLUTION\fR\fR
+Oriented catalog size, e.g. 320x320 or 480x854.
+.TP
+\fB\-\-help\fR
+Show this command's help and exit.
+.RE
 .SS cloud\-downloaded
 .PP
 \fBtrcc theme cloud\-downloaded\fR \fIKEY\fR [\fIOPTIONS\fR]

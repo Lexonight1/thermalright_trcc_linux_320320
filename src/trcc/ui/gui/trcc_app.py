@@ -36,6 +36,7 @@ from ...core.commands import (
     ControlCenterSnapshot,
     DeleteTheme,
     DeviceState,
+    DownloadCloudTheme,
     EnableOverlay,
     GetPaths,
     GetPlatformInfo,
@@ -1048,15 +1049,21 @@ class TRCCApp(QMainWindow):
             except ValueError:
                 log.warning("_download_theme: bad resolution %r", resolution)
                 return None
-            try:
-                mp4_path = _app_local.cloud_themes.materialise(
-                    theme_id, (w, h),
-                )
-            except Exception as e:
-                log.warning("_download_theme: materialise %s failed: %s: %s",
-                            theme_id, type(e).__name__, e)
+            # ``DownloadCloudTheme``, not ``LoadCloudTheme`` — see the note
+            # above: this is the download half only.  The widget's resolution
+            # is already the ORIENTED catalog size (lcd_handler sets it from
+            # the same bw x bh the theme browser uses), which is what the
+            # cloud catalog is keyed by.
+            result = _app_local.dispatch(
+                DownloadCloudTheme(theme_id=theme_id, resolution=(w, h)),
+            )
+            if not result.ok:
+                log.warning("_download_theme: %s failed — %s",
+                            theme_id, result.message)
                 return None
-            return str(mp4_path)
+            log.info("_download_theme: %s cached at %s",
+                     theme_id, result.theme_path)
+            return result.theme_path
 
         def _extract_theme(archive: str, dest: str) -> None:
             del archive, dest  # CloudThemeService downloads-and-extracts atomically

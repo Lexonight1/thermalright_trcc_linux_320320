@@ -1807,6 +1807,68 @@ class EnsureDataDownload(Command[EnsureDataDownloadResult]):
         )
 
 @dataclass(frozen=True, slots=True)
+class DownloadCloudTheme(Command[CloudThemeLoadResult]):
+    """Fetch a cloud background into the local cache WITHOUT applying it.
+
+    The download half of :class:`LoadCloudTheme`, which is a strictly larger
+    operation: it also persists ``background_path`` and dispatches
+    ``PlayVideo``.  Substituting it here would start playing a theme the user
+    has not chosen yet — which is exactly the split legacy makes, and why the
+    GUI's cloud browser downloads on one event and applies on another (the
+    worker fetches so a thumbnail exists; clicking the now-cached tile is what
+    applies it).
+
+    Until this Command existed that download was on no UI's bus — the GUI
+    reached ``app.cloud_themes.materialise`` directly and cli / api could not
+    pre-fetch at all.  ``materialise`` is documented idempotent: an already
+    cached MP4 is not re-downloaded, and the preview PNG + GIF are only
+    generated when missing, so calling this twice is cheap and safe.
+
+    ``resolution`` is the ORIENTED catalog size (854×480 ↔ 480×854), not the
+    panel's native one — cloud backgrounds are catalogued per direction, and
+    passing the wrong one fetches a landscape image that then gets squished
+    into a portrait canvas.  Callers that have a device key should resolve it
+    the way :class:`LoadCloudTheme` does rather than guessing.
+    """
+    theme_id: str
+    resolution: tuple[int, int]
+
+    def execute(self, app: App) -> CloudThemeLoadResult:
+        log.info("DownloadCloudTheme: theme_id=%s @ %dx%d",
+                 self.theme_id, *self.resolution)
+        try:
+            mp4_path = app.cloud_themes.materialise(
+                self.theme_id, self.resolution,
+            )
+        except ValueError as e:
+            log.warning("DownloadCloudTheme: ValueError materialising %s: %s",
+                        self.theme_id, e)
+            return CloudThemeLoadResult(
+                ok=False, theme_id=self.theme_id, theme_path="", message=str(e),
+            )
+        except HttpFetchError as e:
+            log.warning("DownloadCloudTheme: download failed for %s: %s",
+                        self.theme_id, e)
+            return CloudThemeLoadResult(
+                ok=False, theme_id=self.theme_id, theme_path="",
+                message=f"Cloud download failed: {e}",
+            )
+        except OSError as e:
+            log.warning("DownloadCloudTheme: local IO failed for %s: %s: %s",
+                        self.theme_id, type(e).__name__, e)
+            return CloudThemeLoadResult(
+                ok=False, theme_id=self.theme_id, theme_path="",
+                message=f"Local IO failed: {e}",
+            )
+        log.info("DownloadCloudTheme: %s cached at %s", self.theme_id, mp4_path)
+        return CloudThemeLoadResult(
+            ok=True,
+            theme_id=self.theme_id,
+            theme_path=str(mp4_path),
+            message=f"Downloaded {self.theme_id} to {mp4_path}",
+        )
+
+@dataclass(frozen=True, slots=True)
 class LoadCloudTheme(Command[CloudThemeLoadResult]):
     """Download a cloud video and apply it as the device's background.
 

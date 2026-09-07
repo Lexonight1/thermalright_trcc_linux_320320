@@ -4,7 +4,7 @@
 
 A REST interface to the same command bus every other UI uses. Each endpoint builds a Command, dispatches it, and returns the Result as JSON — so anything here is also reachable from the CLI, the GUI, or your own client. The Commands themselves are documented in [`REFERENCE_COMMANDS.md`](REFERENCE_COMMANDS.md).
 
-**130 endpoints.**
+**131 endpoints.**
 
 ## Running it
 
@@ -88,6 +88,7 @@ Interactive docs are served at `/docs` while the API is running.
 |---|---|---|
 | `DELETE /theme` | `DeleteThemeResult` | Delete a theme directory at an absolute path. |
 | `GET /theme/cloud` | `CloudThemesListResult` | List Thermalright cloud catalog (offline — catalog is static). |
+| `POST /theme/cloud/download` | `CloudThemeLoadResult` | Cache a cloud theme locally WITHOUT applying it to a device. |
 | `POST /theme/cloud/{key}` | `CloudThemeLoadResult` | Download a cloud theme + apply it to *key*. |
 | `POST /theme/config/import-upload` | `ImportConfigResponse` | Restore a device's settings from an uploaded JSON snapshot. |
 | `POST /theme/export` | `ThemeExportResult` | — |

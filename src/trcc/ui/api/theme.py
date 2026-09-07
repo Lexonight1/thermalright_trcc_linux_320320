@@ -25,6 +25,7 @@ from starlette.background import BackgroundTask
 from ...core.commands import (
     DeleteTheme,
     DeviceState,
+    DownloadCloudTheme,
     EnsureDataDownload,
     ExportConfig,
     ExportDcTheme,
@@ -56,6 +57,7 @@ from ._shared import (
     to_theme_response,
 )
 from .schemas import (
+    CloudThemeDownloadRequest,
     CloudThemeLoadRequest,
     DeleteThemeRequest,
     ExportOverlayRequest,
@@ -414,6 +416,30 @@ def init_data(
     return request.app.state.trcc.dispatch(
         EnsureDataDownload(width=w, height=h),
     )
+
+
+@router.post("/cloud/download")
+def cloud_download(body: CloudThemeDownloadRequest,
+                   request: Request) -> CloudThemeLoadResult:
+    """Cache a cloud theme locally WITHOUT applying it to a device.
+
+    ``POST /theme/cloud/{key}`` downloads AND applies — it persists the
+    background and starts playback.  This is the download half alone, for
+    pre-fetching a catalog without disturbing what a panel is showing.  It
+    takes no device key because it touches no device.
+
+    Declared BEFORE ``/cloud/{key}``: FastAPI matches in declaration order, so
+    a static segment must come first or "download" is swallowed as a key.
+
+    Idempotent — an already-cached theme is not fetched again.
+    """
+    log.info("api POST /theme/cloud/download: theme_id=%s %dx%d",
+             body.theme_id, body.width, body.height)
+    result = request.app.state.trcc.dispatch(DownloadCloudTheme(
+        theme_id=body.theme_id, resolution=(body.width, body.height),
+    ))
+    http_error_if_failed(result)
+    return result
 
 
 @router.post("/cloud/{key}")
