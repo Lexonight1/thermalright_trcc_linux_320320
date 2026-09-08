@@ -262,7 +262,7 @@ reminder.
 - **Views** (`ui/gui/`): PySide6 GUI adapter. `TRCCApp` (`ui/gui/trcc_app.py`, thin shell) + `LCDHandler`/`LEDHandler` (one per device). `ui/qtgui/` is the in-progress native-skin rebuild.
 - **CLI** (`ui/cli/`): Typer CLI adapter (package). Thin wrappers that build Commands and `app.dispatch(...)` them.
 - **API** (`ui/api/`): FastAPI REST adapter (package). ~105 routes incl. WebSocket preview stream + cloud themes + export. Dispatches Commands on the App.
-- **Config** (`services/settings.py`): `Settings` — mutable app + per-device state (resolution, language, orientation, format prefs, mask/theme), persisted to `config.json`. Reached via `app.settings`; widgets read it, never store copies.
+- **Config** (`services/settings.py`): `Settings` — mutable app + per-device state (resolution, language, orientation, format prefs, mask/theme), persisted to **`trcc.json`** in `paths.config_dir()` (atomic tmp→fsync→rename, schema-versioned). Reached via `app.settings` in-process; **`AppProxy` refuses it**, so a daemon-mode UI dispatches a Command/Query instead.
 - **Entry**: `trcc._entry:main` (console script / `python -m trcc`) → `ui/cli` → `_boot.trcc()` → `App` (composition root: `current_platform()` + `DEVICES[wire]`).
 - **Wires**: each device adapter speaks its protocol — SCSI (LCD frames), HID (handshake/resolution), Bulk, LY, LED (RGB effects + segment displays). See "Two-Factory Chain" + the ABC tables below.
 - **Platform** (`core/ports.py` + `adapters/system/`): `Platform` ABC in core; per-OS subclass in `adapters/system/{linux,windows,macos,bsd}.py`, dispatched by `current_platform()` (`sys.platform`). DI'd everywhere as `app.platform`.
@@ -271,48 +271,45 @@ reminder.
 - **On-demand download**: Theme/Web/Mask archives fetched from GitHub at runtime by `DataInstallService` (`services/data_install.py`) via the repo adapters (`adapters/repo/`: `github_releases.py`, `http.py`).
 
 ### Design Patterns (Used in This Project)
-- **Singleton**: `conf.settings` — app-wide state. Widgets read from singleton, never store copies.
-- **Factory Method**: `abstract_factory.py` builds protocol-specific device adapters
+- **Singleton**: ONE `Settings` per App (`services/settings.py`), constructed at
+  `app.py:125` and reached as `app.settings` — there is no `conf` module and no
+  module-level singleton. Widgets never store copies. **In daemon mode
+  `app.settings` raises** (`AppProxy` exposes `dispatch` only), so a UI that must
+  read or write settings dispatches a Command/Query instead.
+- **Factory Method**: one shared `Registry` (`core/factory.py`) per axis; subclasses
+  name their own key in the class line and `__init_subclass__` registers them.
+  See "Two-Registry Chain" below. There is no `abstract_factory.py`.
 - **Adapter**: Hexagonal adapters/ — CLI, GUI, API all adapt to the same core services
 - **Command**: User actions (button click, terminal command) — log, undo, queue across interfaces
 - **Observer**: PySide6 signals broadcast updates from core to views without coupling
 - **Strategy**: Swap display/export behaviors without modifying core service logic
 - **Template Method**: Concrete method on ABC calls `@abstractmethod` on subclass (e.g. `handshake()` → `_do_handshake()`)
 - **Dependency Injection**: Inject dependencies at runtime, never hardcode
-- **Repository Pattern**: `data_repository.py` — service layer doesn't know if data comes from file, DB, or API
+- **Repository Pattern**: `adapters/repo/` (`github_releases.py`, `http.py`) — the
+  service layer doesn't know if data comes from file, network, or archive.
+  (`data_repository.py` was removed in the cutover.)
 - **Ports & Adapters**: ABCs as contracts; CLI, GUI, API interact with core the same way
 - **DTOs**: `dataclass` for passing data across hexagonal boundaries
 
-### Abstract Base Classes (ABCs)
-Two layers: **transport** (raw device I/O) and **adapter** (MVC integration).
+### Abstract Base Classes (ABCs) → **`doc/REFERENCE_PORTS.md`** (generated)
 
-#### Transport Layer (`adapters/device/template_method_device.py` + `template_method_hid.py`)
-```
-UsbDevice (ABC) — handshake() + close()
-├── FrameDevice (ABC) — + send_frame()
-│   ├── ScsiDevice (adapter_scsi.py)
-│   ├── BulkDevice (_template_method_bulk.py)
-│   └── HidDevice (ABC, template_method_hid.py) — + build_init_packet, validate_response, parse_device_info
-│       ├── HidDeviceType2
-│       └── HidDeviceType3
-└── LedDevice (ABC) — + send_led_data() + is_sending
-    └── LedHidSender (adapter_led.py)
-```
+**Do not draw an ABC tree by hand here.** Two hand-maintained diagrams used to
+sit in this spot, a "transport layer" tree and an "adapter layer" tree.
+Measured on 2026-09-08, **17 of their 17 class names and 6 of their 6 files did
+not exist**: `UsbDevice`, `FrameDevice`, `ScsiDevice`, `BulkDevice`,
+`HidDevice`, `HidDeviceType2`, `HidDeviceType3`, `LedDevice`, `LedHidSender`,
+`DeviceProtocol`, `ScsiProtocol`, `HidProtocol`, `BulkProtocol`, `LedProtocol`,
+`DeviceProtocolFactory`, `LCDMixin`, `LEDMixin`; `template_method_device.py`,
+`template_method_hid.py`, `adapter_scsi.py`, `adapter_led.py`,
+`_template_method_bulk.py`, `abstract_factory.py`.
 
-#### Adapter Layer (`adapters/device/abstract_factory.py`)
-```
-DeviceProtocol (ABC) — Template Method: handshake() concrete, _do_handshake() abstract
-├── send_data() — unified method, payload is protocol-specific
-│
-├── ScsiProtocol  (DeviceProtocol + LCDMixin, wraps ScsiDevice)
-├── HidProtocol   (UsbProtocol + LCDMixin, wraps HidDevice)
-├── BulkProtocol  (DeviceProtocol + LCDMixin, wraps BulkDevice)
-└── LedProtocol   (UsbProtocol + LEDMixin, wraps LedHidSender)
+They described the **pre-cutover** tree. The cutover unified Protocol + Device
+into ONE `Device` ABC — which the Two-Registry Chain section below already
+states outright ("there is no `ProtocolFactory`"). So this file contradicted
+itself two sections apart, and the dead half was the one a contributor met
+first. That is the same failure the paragraph below was written about; it just
+never got applied to the diagrams sitting above it.
 
-DeviceProtocolFactory — @register() decorator for self-registration (OCP)
-```
-
-#### Other ABCs → **`doc/REFERENCE_PORTS.md`** (generated)
 
 **Do not maintain a port table by hand here.** The one that used to live in this
 spot listed **4** ports when the tree had **28**, and two of those four pointed
@@ -342,16 +339,27 @@ Every piece of data has exactly ONE owner. Violations = bugs.
 
 | Data Kind | Owner | Examples |
 |-----------|-------|---------|
-| Domain constants (static mappings) | `core/models.py` | `FBL_TO_RESOLUTION`, `LOCALE_TO_LANG`, `HARDWARE_METRICS`, `TIME_FORMATS` |
-| Device registries (VID/PID, protocol) | `core/models.py` | VID/PID tables, device type enums |
-| Mutable app state (user prefs) | `conf.py` → `Settings` | resolution, language, temp_unit, format prefs |
-| GUI asset resolution | `gui/assets.py` → `Assets` | file lookup, `.png` auto-append, pixmap loading, localization |
+| Domain constants (static mappings) | a module under `core/` | `HARDWARE_METRICS`, `TIME_FORMATS` (`core/models.py`) |
+| Panel / protocol constants | `core/protocol.py` | `FBL_TO_RESOLUTION`, `FBL_PROFILES` |
+| Locale + asset-suffix maps | `core/i18n.py` | `LOCALE_TO_LANG`, `ISO_TO_LEGACY` |
+| LED style catalog | `core/led_models.py` | `LED_STYLES` |
+| Device registries (VID/PID) | `core/registry.py` | `ALL_DEVICES` |
+| Mutable app state (user prefs) | `services/settings.py` → `Settings` | resolution, language, temp_unit, format prefs |
+| GUI asset resolution | `ui/gui/assets.py` → `Assets` | file lookup, `.png` auto-append, pixmap loading, localization |
 | Business logic | `services/` | image processing, overlay rendering, sensor polling |
 | View state (widget-local) | Each widget | button states, selection indices, animation counters |
 
+The first five rows used to read `core/models.py` for **all** of them. Measured
+2026-09-08: five of the six named constants live elsewhere, so "put it in
+`core/models.py`" sent contributors to the wrong file. Each constant still has
+exactly ONE owner — the rule holds; only the addresses were wrong.
+
 **Rules**:
-- Models own ALL static domain data — lookups, mappings, enums, constants go in `core/models.py`
-- Settings owns ALL mutable app state — widgets read `settings.X`, never store own copies
+- Static domain data has ONE home under `core/` — search before adding, and put it
+  beside the constants it belongs with (panel data in `protocol.py`, locale data in
+  `i18n.py`, …), not in `models.py` by default
+- Settings owns ALL mutable app state — widgets read `settings.X`, never store own
+  copies. **Daemon mode has no `app.settings`** — dispatch a Command/Query instead
 - Assets owns ALL asset resolution — no manual `f"{name}.png"` anywhere
 - Services own ALL business logic — pure Python, no Qt, no framework deps
 - Views own ONLY rendering — read from Settings/Models, call Services, display results
@@ -366,8 +374,13 @@ The cutover unified legacy's separate Protocol + Device layers into one `Device`
 
 | Registry | Defined in | Subclasses | Dispatch key | Lookup | On miss |
 |---|---|---|---|---|---|
-| `PLATFORMS` | `adapters/system/_base.py` | `LinuxPlatform`, `WindowsPlatform`, `MacOSPlatform`, `BSDPlatform` | `sys.platform` (BSD variants → `"bsd"`) | `current_platform()` | fall back to linux + warn |
-| `DEVICES` | `adapters/device/_base.py` | `ScsiLcd`, `HidLcd`, `BulkLcd`, `AliLcd`, `LyLcd`, `Led` | `info.wire` (the `Wire` enum) | `DEVICES[wire]` | raise `DeviceNotFoundError` |
+| `PLATFORMS` | `adapters/system/_base.py` | `LinuxOS`, `WindowsPlatform`, `MacOSPlatform`, `BsdOS` | `sys.platform` (BSD variants → `"bsd"`) | `current_platform()` | fall back to linux + warn |
+| `DEVICES` | `adapters/device/_base.py` | `ScsiLcd`, `HidLcd`, `BulkLcd`, `LyLcd`, `Led` | `info.wire` (the `Wire` enum) | `DEVICES[wire]` | raise `DeviceNotFoundError` |
+
+`AliLcd` (`Wire.BULK_ALI`, 0416:5406) was **merged into `HidLcd`** on 2026-08-19 —
+the two spoke the same F5 protocol (`adapters/device/_f5.py`). The runtime registry
+holds **five** wires: SCSI, HID, BULK, LY, LED. This table listed six until
+2026-09-08; verify against `DEVICES` itself, not this row.
 
 Each registry lives beside the base class that registers into it (`_base.py`), so the base can register its own children without importing its own package — that would be a cycle. Both are in the **adapter layer**, not core: the registry is the only place naming concrete adapter classes, so core (`Platform` / `Device` ABCs) never imports an adapter. Importing each package fires the side-effect imports of its OS / device modules, which *define* those classes, which is what registers them.
 
@@ -375,7 +388,7 @@ Each registry lives beside the base class that registers into it (`_base.py`), s
 
 ```python
 class ScsiLcd(BaseDevice[ScsiTransport], wire=Wire.SCSI): ...
-class LinuxPlatform(BaseOS, key="linux"): ...
+class LinuxOS(BaseOS, key="linux"): ...
 ```
 
 The key sits in the class definition rather than floating above it, so it cannot drift from the class or be forgotten separately. Omitting it means "intermediate base, don't register" — which is what `BaseBulkDevice` is.
@@ -388,7 +401,7 @@ current_platform()                  ← OS dispatch    → Platform
         App.attach(vid, pid)        ← composition root
             DEVICES[info.wire]      ← wire           → Device subclass
                 Platform.open_transport(wire, …)     → Transport (Wire→opener table)
-                    ScsiLcd(info, transport)  (or HidLcd / BulkLcd / AliLcd / LyLcd / Led)
+                    ScsiLcd(info, transport)  (or HidLcd / BulkLcd / LyLcd / Led)
 ```
 
 **Why registries**: OCP at every layer, and the axes **add** rather than multiply. New OS = one subclass, one new file. New wire = one subclass, one new file. New wire needing a *new kernel interface* = one row in `BaseOS._transport_openers` — not a new abstract method on `Platform` implemented four times. Zero touchpoints in callers (`_boot.trcc`, `App.attach`).
@@ -591,7 +604,8 @@ harnesses: `memory/project_cpu_regression_is_logging.md`.
 
 Without logs we can't debug what we can't see.  Legacy had 828 log
 calls; the post-cutover tree had 634 (28% gap), and the gap was
-concentrated in `core/commands.py` (10 logs for 92 Commands) and the
+concentrated in `core/commands.py` (10 logs for 92 Commands; now the
+`core/commands/` package) and the
 top-level services (overlay/display/theme: 12 logs total).  Result:
 "Theme1 doesn't show its clock" — no logs to trace where the clock
 data was lost between DC parse and the render pixel.  That was the
@@ -708,7 +722,7 @@ on the next bug.
 
 ### SOLID
 - **SRP** — services own logic, views own rendering, models own data
-- **OCP** — subclasses self-register by naming their key in the class line (`class LinuxPlatform(BaseOS, key="linux")`, `class ScsiLcd(BaseDevice[ScsiTransport], wire=Wire.SCSI)`); `__init_subclass__` on the base does the rest. New device = new registry row, not modified logic.
+- **OCP** — subclasses self-register by naming their key in the class line (`class LinuxOS(BaseOS, key="linux")`, `class ScsiLcd(BaseDevice[ScsiTransport], wire=Wire.SCSI)`); `__init_subclass__` on the base does the rest. New device = new registry row, not modified logic.
 - **LSP** — no fake implementations. If a subclass can't fulfill the contract, don't inherit.
 - **ISP** — `LCDMixin` + `LEDMixin` instead of one fat `DeviceProtocol`
 - **DIP** — inject dependencies at runtime. Core never imports concrete adapters.
@@ -735,7 +749,9 @@ on the next bug.
   `pyproject.toml`; keep it declared (never rely on an ambient install).
 - Tests mirror `src/trcc/` hexagonal layers (`tests/{core,services,adapters/{device,infra,system},cli,api,gui,ui/presentation}/`)
 - Refactoring changes mock targets → use `conftest.py` fixtures/helpers, not 50+ inline updates
-- Model-parametrized tests: `FBL_PROFILES`, `LED_STYLES`, `ALL_DEVICES` are single source of truth — `@pytest.mark.parametrize` over them. Never hardcode domain values in tests.
+- Model-parametrized tests: `FBL_PROFILES` (`core/protocol.py`), `LED_STYLES`
+  (`core/led_models.py`), `ALL_DEVICES` (`core/registry.py`) are single source of
+  truth — `@pytest.mark.parametrize` over them. Never hardcode domain values in tests.
 - `ruff check .` + `pyright` must pass before any commit (0 errors, 0 warnings)
 - **MockPlatform** (`tests/mock_platform.py`): proper `Platform` subclass — noop USB, temp paths, real DI flow. Same `ControllerBuilder(platform)` wiring as production. Never duck-type a platform mock.
 - **Dev mock GUI** (`dev/mock_gui.py`): patches `core.paths` to `dev/.trcc/`, creates `MockPlatform`, mirrors `gui/__init__.py::launch()` exactly. If production launch changes, update mock_gui to match.
@@ -748,9 +764,16 @@ on the next bug.
 3. `from .core.models import MY_CONSTANT` where needed
 
 **New app state** (user preference):
-1. Add to `Settings` — `_get_saved_X()` / `_save_X()` + public `set_X()`
-2. Persist in `config.json` via `load_config()` / `save_config()`
-3. Widgets read `settings.X` — never pass through constructor chains
+1. Add the field to the right dataclass — `AppSettings` (`services/settings.py`),
+   `DeviceSettings` (`core/models.py`) or `LedDeviceSettings` (`core/led_models.py`).
+   All three are serialized with `asdict`, so there is nothing else to write
+2. Add a public `set_X()` that takes `self._lock`, mutates the dataclass, and calls
+   `self._save()` — the one atomic writer. There is no `_get_saved_X()`, `_save_X()`,
+   `load_config()` or `save_config()`; those names appeared here for a long time and
+   exist nowhere in `src/` or `tests/` (measured 2026-09-08)
+3. Widgets read `settings.X` — never pass through constructor chains. A UI that may
+   run in daemon mode reads it through a Command/Query, since `AppProxy` has no
+   `.settings`
 
 **New assets**:
 1. Put file in `src/trcc/assets/gui/`
@@ -803,8 +826,10 @@ Zero tolerance for security issues. Fix within hexagonal architecture — never 
   per-element theme font names are still NOT plumbed to `draw_text` (a separate
   latent feature, not the reported typeface bug — all themes use YaHei).
   **Still open in this area** (separate, secondary): DEFERRED additive sites in
-  EXPORT/MASK-AUTHORING (`export_dc`/`ThemeDcExport`, `persist_user_mask_dc`,
-  `UploadMask` seed, the DC codec `user_overlay_elements=` param) still append user
+  EXPORT/MASK-AUTHORING (`export_dc` `adapters/theme/filesystem.py:548` /
+  `ExportDcTheme` `core/commands/theme.py:1327`, `persist_user_mask_dc`
+  `core/commands/_helpers.py:124`, the `UploadCustomMask`
+  `core/commands/theme.py:1462` seed, the DC codec `user_overlay_elements=` param) still append user
   onto `config["elements"]` — the render + SaveTheme paths are fixed, these
   export/mask paths aren't (they need a different empty-vs-theme fallback; clean fix
   = remove the codec param, resolve effective elements at the command layer). DC
@@ -814,7 +839,8 @@ Zero tolerance for security issues. Fix within hexagonal architecture — never 
 - CI runs as root — mock `subprocess.run` in non-root tests
 - Never `setStyleSheet()` on ancestor widgets — blocks `QPalette` image backgrounds
 - Optional imports (`hid`, `dbus`, `gi`, `pynvml`) need `# pyright: ignore[reportMissingImports]`
-- C# asset suffixes are legacy — `Assets.get_localized()` maps ISO 639-1 → legacy suffixes via `ISO_TO_LEGACY`
+- C# asset suffixes are legacy — `Assets.get_localized()` (`ui/gui/assets.py`) maps
+  ISO 639-1 → legacy suffixes via `ISO_TO_LEGACY` (`core/i18n.py`)
 - **Issue #87**: Python 3.14 typer crash in `sudo_reexec` — FIXED: dispatches via `python -c` (direct function call), bypasses typer.
 - **`pyudev` is a REQUIRED Linux dependency** (not graceful-optional): hotplug —
   live device attach/detach AND the boot-time coldplug — is built on it.
@@ -1003,15 +1029,27 @@ the summary silently did not.  One list, or they disagree
 
 ## GUI Standards
 - **Overlay enabled**: `_load_theme_overlay_config()` must call `set_overlay_enabled(True)`
-- **Format prefs**: Persist via `conf.save_format_pref()`, applied on theme load via `conf.apply_format_prefs()`
+- **Format prefs**: persisted on `Settings` (`set_global_time_format` /
+  `set_global_date_format` / `set_global_temp_unit`) and re-applied on theme load.
+  `conf.save_format_pref()` / `conf.apply_format_prefs()` were named here for a long
+  time and exist **nowhere** in the tree — there is no `conf` module (2026-09-08)
 - **Theme loads**: DC for layout, user prefs for formats (time_format, date_format, temp_unit)
-- **Signal chain**: format button → `_on_format_changed()` → `_update_selected()` → `to_overlay_config()` → `CMD_OVERLAY_CHANGED` → `_on_overlay_changed()` → `render_overlay_and_preview()`
+- **Signal chain** (traced 2026-09-08): format button → `_on_format_changed()` →
+  `_update_selected()` → `to_overlay_config()` → `invoke_delegate(CMD_OVERLAY_CHANGED)`
+  (`uc_theme_setting.py:208`) → `TRCCApp._on_settings_delegate` `case CMD_OVERLAY_CHANGED`
+  (`trcc_app.py:1790`, the `case` at `:1820`) → `LCDHandler.on_overlay_changed()` (`lcd_handler.py:954`) →
+  `dispatch(SetOverlayConfig(...))` (`:988`). The last two links used to read
+  `_on_overlay_changed()` → `render_overlay_and_preview()`; **neither exists**
 - **QPalette vs Stylesheet**: Never `setStyleSheet()` on ancestors — blocks palette backgrounds
 - **First-run**: No device config → overlay disabled. Theme click re-enables. Defaults: 24h, yyyy/MM/dd, Celsius.
-- **First install auto-load**: `EnsureDataCommand` extracts in background → `notify_data_ready()` → `_update_theme_directories()` → auto-loads first theme if `current_image is None`
+- **First install auto-load**: `EnsureDataDownload` (`core/commands/theme.py`; there
+  is no `EnsureDataCommand`) downloads + extracts in the background so the window
+  opens without waiting on ~30 MB (#275). It publishes `DataInstalled`, which
+  `TRCCApp._on_bus_data_installed` (`trcc_app.py:560`) fans out to every LCD
+  handler's `notify_data_ready()` (`lcd_handler.py:314`) to re-list the grids
 - **Delegate pattern**: Settings tab → `invoke_delegate(CMD_*, data)` → main window
 - **`_update_selected(**fields)`**: Single entry point for element property changes
-- **Multi-LCD shared widgets**: All `LCDHandler` instances share one preview/progress widget set. Only the *active* handler may write to those widgets — gated by `self._ui_active`. `apply_device_config` / `reactivate` set it `True`; `set_inactive` (sidebar A→B switch) sets it `False`.  Initial scan uses `apply_device_config` + `set_inactive` (`trcc_app.py:793`), which is what keeps a non-selected LCD playing.  (A second method, `restore_inactive_state`, was documented here as the initial-scan path but had **zero callers anywhere** — superseded by the pair above and deleted 2026-09-03; it was also gui's only `RestoreDeviceState` site, so gui's measured Command reach was one higher than the truth.) `_on_video_tick` and `_render_and_send` honor the gate. Cleanup uses full `deactivate()` (stops all timers); sidebar switch uses `set_inactive()` (keeps animation timer running so the LCD's physical screen doesn't go dark when another device owns the GUI).
+- **Multi-LCD shared widgets**: All `LCDHandler` instances share one preview/progress widget set. Only the *active* handler may write to those widgets — gated by **`self._pm.ui_active`** — the flag lives on the presentation model (`ui/presentation/lcd_presentation_model.py:77`), NOT on the handler; this file said `self._ui_active` until 2026-09-08 and no such attribute exists. `apply_device_config` (`lcd_handler.py:239`) / `reactivate` (`:249`) set it `True`; `set_inactive` (`:1603`, sidebar A→B switch) sets it `False`.  Initial scan uses `apply_device_config` + `set_inactive` inside `_configure_inactive_lcd` (`trcc_app.py:781`, the pair at `:801-802`), which is what keeps a non-selected LCD playing.  (A second method, `restore_inactive_state`, was documented here as the initial-scan path but had **zero callers anywhere** — superseded by the pair above and deleted 2026-09-03; it was also gui's only `RestoreDeviceState` site, so gui's measured Command reach was one higher than the truth.) `_on_video_tick` and `_render_and_send` honor the gate. Cleanup uses full `deactivate()` (stops all timers); sidebar switch uses `set_inactive()` (keeps animation timer running so the LCD's physical screen doesn't go dark when another device owns the GUI).
 
 ## Reference Docs
 - **Methods of Operation (the working playbook)**: `METHOD.md` — the C#-oracle port loop (observe → oracle → diff → locate → KISS → verify → guard → confirm), its four executable stations, the "where does the fix go?" layer map, and the anti-patterns. Read it before porting any device/feature.
