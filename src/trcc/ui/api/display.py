@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import (
     APIRouter,
+    Depends,
     File,
     Form,
     HTTPException,
@@ -108,6 +109,7 @@ from ...core.results import (
     VideoResult,
 )
 from ._shared import (
+    ensure_connected,
     http_error_if_failed,
     staging_dir,
     to_theme_response,
@@ -184,7 +186,7 @@ def set_brightness(key: str, body: BrightnessRequest,
     return result
 
 
-@router.post("/theme", response_model=ThemeResponse)
+@router.post("/theme", response_model=ThemeResponse, dependencies=[Depends(ensure_connected)])
 def load_theme(key: str, body: ThemeRequest,
                request: Request) -> ThemeResponse:
     log.info(
@@ -331,7 +333,7 @@ def set_split_mode(key: str, body: SplitModeRequest,
     return result
 
 
-@router.post("/play-video")
+@router.post("/play-video", dependencies=[Depends(ensure_connected)])
 def play_video(key: str, body: PlayVideoRequest,
                 request: Request) -> VideoResult:
     """Start a video playback override on the device."""
@@ -550,7 +552,7 @@ def preview(key: str, request: Request) -> Response:
     return Response(content=result.image, media_type=result.media_type)
 
 
-@router.post("/screencast/start")
+@router.post("/screencast/start", dependencies=[Depends(ensure_connected)])
 def screencast_start(key: str, body: ScreencastStartRequest,
                      request: Request) -> ScreencastResult:
     """Begin a screen-capture session for *key*.
@@ -614,7 +616,7 @@ def media_player(key: str, body: MediaPlayerRequest,
     return result
 
 
-@router.post("/boot-animation")
+@router.post("/boot-animation", dependencies=[Depends(ensure_connected)])
 def upload_boot_animation(key: str, body: BootAnimationRequest,
                           request: Request) -> BootAnimationResult:
     """Upload a multi-frame compressed boot animation to a SCSI LCD's flash.
@@ -823,7 +825,7 @@ async def create_theme(
     )
 
 
-@router.post("/color")
+@router.post("/color", dependencies=[Depends(ensure_connected)])
 def send_color(key: str, body: ColorRequest, request: Request) -> SendResult:
     """Push a solid-color frame to a connected LCD device."""
     log.info(
@@ -850,7 +852,7 @@ def sleep(key: str, request: Request) -> SendResult:
     return result
 
 
-@router.post("/reset")
+@router.post("/reset", dependencies=[Depends(ensure_connected)])
 def reset(key: str, request: Request) -> SendResult:
     """Reset the display — stop any active video, then send a solid red frame.
 
@@ -949,7 +951,7 @@ def background(key: str, body: BackgroundFileRequest,
     return result
 
 
-@router.post("/push-image")
+@router.post("/push-image", dependencies=[Depends(ensure_connected)])
 def push_image(key: str, body: SendImageRequest,
                request: Request) -> SendResult:
     """Push a server-side image to the panel ONCE — nothing staged or persisted.

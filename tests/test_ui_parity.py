@@ -87,29 +87,6 @@ KNOWN_UI_ASYMMETRY: dict[str, tuple[frozenset[str], str]] = {
     )),
 
     # ── Ergonomic composites -- both halves reachable separately ──────────
-    "EnsureConnected": (frozenset({"cli"}), (
-        "gap: the CLI's ensure_connected() helper wraps it before every wire "
-        "command, and gui/qtgui attach the whole fleet at launch via "
-        "discover_and_connect -- so only the API can be handed a wire request "
-        "for a device it has not attached. MEASURED 2026-09-03: "
-        "api.main.run() serves immediately with ZERO devices, and "
-        "POST /devices/<key>/display/color answers "
-        "'400 Not attached: <key>' until the client POSTs /connect itself; "
-        "after that same call it returns 200 'Sent 204800 bytes'. "
-        "RETAGGED scoped->gap: the old reason claimed 'the API attaches "
-        "per-request on the daemon-held App'. That describes DAEMON mode as "
-        "if it were the only mode. Under TRCC_DAEMON=1 the daemon runs "
-        "start_hotplug(), whose Linux coldplug pass replays already-present "
-        "devices as DeviceAttached and connects them, so an API client does "
-        "find them attached -- and coldplug is Linux-only "
-        "(macOS/Windows/BSD are an explicit TODO in _hotplug.py). But "
-        "TRCC_DAEMON is UNSET by default, and in that mode api.main.run() "
-        "calls neither discover_and_connect nor start_hotplug: the API is "
-        "the only long-lived UI that never attaches a device by itself, not "
-        "at startup and not on hotplug. EnsureConnected is idempotent and "
-        "already exists; wiring it into the API wire routes is an open "
-        "product decision."
-    )),
     "InitializeLed": (frozenset({"cli"}), (
         "scoped: the API initialises the LED via SendColor on connect/reset; "
         "explicit init is a CLI setup step"

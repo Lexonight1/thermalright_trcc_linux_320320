@@ -19,9 +19,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from trcc.app import App
@@ -1569,3 +1570,80 @@ def test_quickstart_route_returns_the_sequence(api_client: TestClient) -> None:
     body = resp.json()
     assert body.get("steps"), "quickstart returned no steps"
     assert all("name" in s and "status" in s for s in body["steps"])
+
+
+# =========================================================================
+# The connect divergence — the API had no equivalent of the CLI's
+# ``_ctx.ensure_connected``, so the SAME intent behaved differently:
+#
+#     trcc display color 0416:5302 ff0000     -> works
+#     POST /devices/.../display/color         -> {"detail": "Not attached"}
+#
+# ...until the client remembered a ``POST /connect`` that nothing documented.
+# =========================================================================
+
+
+def _bus_of(client: TestClient) -> Any:
+    """The App behind a ``TestClient``.
+
+    ``TestClient.app`` is typed ``ASGIApp``, which has no ``.state``.  A cast
+    states what we know instead of suppressing what the checker sees.
+    """
+    return cast("FastAPI", client.app).state.trcc
+
+
+def test_a_wire_route_attaches_itself_like_the_cli_does(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wire route must not require the caller to connect first.
+
+    Gated by watching for the ``EnsureConnected`` dispatch rather than a
+    successful frame, because the fake platform has no device to attach: the
+    contract under test is "the route asks", not "the attach succeeds".
+    """
+    from trcc.core.commands import EnsureConnected
+
+    seen: list[str] = []
+    original = _bus_of(api_client).dispatch
+
+    def spy(cmd: object):
+        seen.append(type(cmd).__name__)
+        return original(cmd)
+
+    monkeypatch.setattr(_bus_of(api_client), "dispatch", spy)
+    api_client.post("/devices/0402:3922/display/color",
+                    json={"r": 255, "g": 0, "b": 0})
+
+    assert EnsureConnected.__name__ in seen, (
+        "a wire route dispatched no EnsureConnected — an API client would have "
+        f"to POST /connect first, which the CLI never requires.  saw: {seen}"
+    )
+
+
+def test_settings_routes_do_NOT_force_an_attach(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard is per-ROUTE, and this is why.
+
+    Only 9 of the 63 device-scoped routes need a device.  ``SetBrightness`` /
+    ``SetOrientation`` / ``StopVideo`` / ``RestoreDeviceState`` were each
+    verified to answer ``ok=True`` with nothing attached, so a router-wide
+    dependency would have made every one of them start failing on a machine
+    with no hardware.
+    """
+    from trcc.core.commands import EnsureConnected
+
+    seen: list[str] = []
+    original = _bus_of(api_client).dispatch
+
+    def spy(cmd: object):
+        seen.append(type(cmd).__name__)
+        return original(cmd)
+
+    monkeypatch.setattr(_bus_of(api_client), "dispatch", spy)
+    api_client.post("/devices/0402:3922/display/brightness", json={"percent": 50})
+
+    assert EnsureConnected.__name__ not in seen, (
+        "a settings route forced an attach — it works fine unattached, and "
+        f"requiring hardware for it is a regression.  saw: {seen}"
+    )
