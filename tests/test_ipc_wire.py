@@ -112,11 +112,47 @@ def test_command_registry_collects_every_command_subclass() -> None:
 
 
 def test_result_registry_collects_every_result_subclass() -> None:
-    expected = {"DiscoverResult", "ConnectResult", "SendResult",
-                "RenderResult", "ThemeResult", "OrientationResult",
-                "BrightnessResult", "BootAnimationResult"}
-    missing = expected - set(RESULT_TYPES)
-    assert not missing, f"Missing from registry: {missing}"
+    """EVERY Result defined anywhere under ``core/`` is reachable by name.
+
+    Enumerated, not sampled.  This used to name EIGHT results against a
+    registry of 95 — and it asserted only that those eight were PRESENT, so
+    it could not fail unless one of those specific names vanished.  Deleting
+    the other 87 from the registry left it green.
+
+    That is the identical defect ``0ae92748`` fixed for Commands one function
+    above ("a sample wearing a gate's name"); it was simply never applied to
+    the Result half.  The failure it guards is silent: ``decode_result``
+    DEGRADES to the base ``Result`` for an unknown type, so an unregistered
+    Result crosses the wire as ``ok``/``message`` with every other field
+    dropped — no exception, just data quietly gone.
+    """
+    import importlib
+    import pkgutil
+
+    import trcc.core as core_pkg
+
+    defined: dict[str, str] = {}
+    for mod_info in pkgutil.walk_packages(core_pkg.__path__, "trcc.core."):
+        try:
+            module = importlib.import_module(mod_info.name)
+        except Exception:                      # optional/platform-gated module
+            continue
+        for name, obj in vars(module).items():
+            if (inspect.isclass(obj) and issubclass(obj, Result)
+                    and obj is not Result
+                    and obj.__module__ == module.__name__):
+                defined[name] = mod_info.name
+
+    unregistered = {n: m for n, m in defined.items() if n not in RESULT_TYPES}
+    assert not unregistered, (
+        "these Results are defined but absent from RESULT_TYPES, so a client "
+        "decodes them to the BASE Result and silently loses every field:\n"
+        + "\n".join(f"  {n}  ({m})" for n, m in sorted(unregistered.items()))
+    )
+    assert len(defined) >= 90, (
+        f"only {len(defined)} Results discovered — the collector is probably "
+        "broken, not the tree"
+    )
 
 
 # ── Command round-trip — primitives ────────────────────────────────
@@ -319,14 +355,20 @@ def test_missing_command_key_decode_raises() -> None:
 def _sample(hint: object, field_name: str) -> object:
     """A non-default value for *hint*, so a dropped field can't pass.
 
-    Raises on a type it doesn't know: a new event field whose type the wire
-    has never carried should fail here loudly rather than go untested.
+    Raises on a type it doesn't know: a new field whose type the wire has
+    never carried should fail here loudly rather than go untested.
     """
+    import enum as _enum
     import types as _types
 
     origin = typing.get_origin(hint)
     args = typing.get_args(hint)
 
+    if origin is typing.Literal:
+        # Pick the LAST member, never the first: a Literal's first option is
+        # almost always the dataclass default, and a default-valued sample
+        # cannot catch a field the codec drops.
+        return args[-1]
     if origin in (typing.Union, _types.UnionType):
         return _sample([a for a in args if a is not type(None)][0], field_name)
     if origin is tuple:
@@ -345,8 +387,18 @@ def _sample(hint: object, field_name: str) -> object:
         return 7
     if hint is float:
         return 1.5
+    if hint is bytes:
+        return b"\x00\x01\x02\xfe\xff"      # exercises the base64 marker
+    if hint is Path:
+        return Path("/tmp/trcc-wire-sample")
+    if hint is dict:
+        return {"sample_key": "sample_value"}   # bare dict: no element type
+    if hint is list:
+        return ["sample-item"]                  # bare list: no element type
     if hint is typing.Any:
         return None          # in-process-only field; None is the wire value
+    if isinstance(hint, type) and issubclass(hint, _enum.Enum):
+        return list(hint)[-1]
     if dataclasses.is_dataclass(hint) and isinstance(hint, type):
         hints = typing.get_type_hints(hint)
         return hint(**{f.name: _sample(hints[f.name], f.name)
@@ -464,3 +516,46 @@ def test_missing_event_key_raises() -> None:
 
     with _pytest.raises(ValueError, match="missing 'event'"):
         decode_event({"fields": {}})
+
+
+# ── Command / Result round-trip — the whole registry, not a sample ───
+#
+# The event half above has been exhaustive since events crossed the wire.
+# The Command/Result half was not: SIX of 144 Commands and FOUR of 95 Results
+# were round-tripped by hand, so 233 of 279 registered types had never been
+# encoded even once by the suite.
+#
+# What this guards is not a crash — it is silent data loss.  ``_to_wire``
+# drops anything it cannot serialise to ``None`` (deliberately, so one bad
+# field cannot kill a stream), and ``decode_result`` degrades an unknown type
+# to the base ``Result``.  Both are the right behaviour and both are SILENT,
+# so a field that stops crossing the wire looks exactly like a field that was
+# never set.  Only a round-trip identity check can see it.
+
+
+@pytest.mark.parametrize("name", sorted(COMMAND_TYPES))
+def test_every_command_type_survives_the_wire(name: str) -> None:
+    """Every registered Command: JSON-clean, and decode(encode(x)) == x."""
+    cmd = _populated(COMMAND_TYPES[name])
+    envelope = encode_command(cmd)
+
+    json.dumps(envelope)          # must survive the actual transport
+    assert envelope["command"] == name
+
+    assert decode_command(envelope) == cmd
+
+
+@pytest.mark.parametrize("name", sorted(RESULT_TYPES))
+def test_every_result_type_survives_the_wire(name: str) -> None:
+    """Every registered Result: JSON-clean, and decode(encode(x)) == x.
+
+    ``Result`` itself is in the registry on purpose — ``decode_result``
+    degrades to it — so it is covered here like any other row.
+    """
+    result = _populated(RESULT_TYPES[name])
+    envelope = encode_result(result)
+
+    json.dumps(envelope)
+    assert envelope["type"] == name
+
+    assert decode_result(envelope) == result
