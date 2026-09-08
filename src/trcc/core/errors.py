@@ -44,6 +44,17 @@ class UnsupportedOperationError(TrccError):
     """Device or protocol doesn't support the requested operation."""
 
 
+class UnknownUserInterfaceError(TrccError):
+    """No :class:`~trcc.ui.UserInterface` is registered under that name.
+
+    Raised by the ``UIS`` registry's miss policy.  Like an unregistered wire
+    and unlike an unknown OS, this is a DEFECT rather than something to
+    degrade through: a caller asking for a UI that does not exist has a typo
+    or a stale entry point, and silently substituting another face of the app
+    would be worse than stopping.
+    """
+
+
 class ConfigError(TrccError):
     """Persistent settings / config file is invalid or unreadable."""
 

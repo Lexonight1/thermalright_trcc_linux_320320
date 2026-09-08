@@ -6,7 +6,7 @@ Every abstract contract in the tree: what a new implementation must write, what 
 
 Ordered **cheapest to extend first** — the ports at the top are where this codebase welcomes a contributor, the ones at the bottom are where it does not yet.
 
-36 ports.
+37 ports.
 
 | port | implement | inherit | implementations |
 |---|---|---|---|
@@ -16,6 +16,7 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`MissPolicy`](#misspolicy) | 1 | 0 | 2 |
 | [`Query`](#query) | 1 | 0 | 38 |
 | [`ScreenCapture`](#screencapture) | 1 | 0 | 1 |
+| [`UserInterface`](#userinterface) | 1 | 5 | 2 |
 | [`_HidBinding`](#_hidbinding) | 1 | 0 | 2 |
 | [`DataInstallRunner`](#datainstallrunner) | 2 | 0 | 2 |
 | [`IdentifiedSource`](#identifiedsource) | 2 | 0 | 16 |
@@ -132,6 +133,22 @@ grab_region(x: 'int', y: 'int', width: 'int', height: 'int') -> RawFrame
 ```
 
 **Implementations (1):** `QtScreenCapture`
+
+## UserInterface
+
+`ui/_base.py`
+
+One face of the one app — CLI, API, GUI, qtgui, daemon.
+
+**You implement (1):**
+
+```python
+run(app: 'App') -> int
+```
+
+**You inherit (5):** `bring_up` · `compose` · `preflight` · `start` · `teardown`
+
+**Implementations (2):** `ApiUI` · `DaemonUI`
 
 ## _HidBinding
 

@@ -237,23 +237,27 @@ def build_app(trcc: App | None = None) -> FastAPI:
 
 def run(platform: Platform | None = None, *,
         host: str = "127.0.0.1", port: int = 8080) -> int:
-    """Serve the REST API from an injected ``Platform`` (blocking).  Returns the
-    exit code.
+    """Serve the REST API from an injected ``Platform`` (blocking).  Exit code.
 
-    The unified UI-launch contract (see ``METHOD_UI.md``): the composition root
-    injects the ``Platform`` port; this UI composes its App from it (a headless
-    ``QtRenderer`` — the API renders preview frames but has no widgets) and
-    ``build_app`` wraps it in the ASGI surface.  ``platform=None`` uses the host
-    platform; the dev mock injects a ``MockPlatform``.
+    A thin alias over the UI bus: the API is one face of the one app, so its
+    launch sequence is ``UserInterface.start`` like every other face.  Kept as
+    a function because ``dev/mock_api.py``, the CLI and the tests call it.
+
+    Two things worth knowing about what the bus changed here:
+
+    * ``needs_session`` is **False**, which preserves the API's behaviour
+      exactly -- it brings up no coldplug and no live loops, as it never has.
+      (``App.start_session`` names that as the #148 divergence; fixing it is a
+      behavioural change that deserves its own verified increment.)
+    * ``App.close()`` now runs when serving ends, which it never did before.
+      That is the intended direction: a panel left mid-stream holds its last
+      frame and reads "USB communication lost" (#143).  Under
+      ``TRCC_DAEMON=1`` the App is an ``AppProxy``, whose ``close`` releases
+      only this client's event stream and leaves the daemon's devices alone.
     """
-    import uvicorn
-
-    from ..._boot import trcc
-    from ...adapters.render.qt import QtRenderer
-
-    app = trcc(platform=platform, renderer=QtRenderer())
-    uvicorn.run(build_app(trcc=app), host=host, port=port, log_level="info")
-    return 0
+    log.info("api run: delegating to the UI bus (host=%s port=%d)", host, port)
+    from .._uis import ApiUI
+    return ApiUI(host=host, port=port).start(platform)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:

@@ -48,61 +48,46 @@ def run_daemon(
     platform: Platform | None = None,
     renderer: Renderer | None = None,
 ) -> int:
-    """Bind the socket, build the App, serve until shutdown.
+    """Bind the socket, build the App, serve until shutdown.  Exit code.
 
-    Returns a Unix exit code — 0 on clean shutdown, 1 if another daemon
-    was already running and we declined to start.
+    A thin alias over the UI bus: the daemon is a face of the one app like the
+    GUI or the API, so its launch sequence lives on the shared
+    ``UserInterface.start`` template rather than being hand-written here for
+    the fourth time.  This function is kept because ``dev/_mock_daemon.py``,
+    the CLI and the tests all call it with an injected platform.
 
-    ``platform`` / ``renderer`` are optional injection seams (default
-    ``None`` → auto-detect, the production path): the same DI shape
-    ``_boot.trcc`` / ``_build_local_app`` expose, so a harness can run the
-    *real* daemon entry against a scripted ``Platform`` (``dev/_mock_daemon``)
-    instead of hand-rolling bring-up.
+    What the bus owns: the "another daemon already holds the socket" refusal
+    (``DaemonUI.preflight``, exit 1), building a LOCAL App with ``TRCC_DAEMON``
+    stripped so the daemon can never proxy to itself (#162), the session
+    bring-up, and the single ``App.close()``.  What stays daemon-specific is
+    ``DaemonUI.run`` -- the IPC server and its signal handlers.
+
+    ``App.close()`` used to be called here AND by the caller; the template now
+    owns it exactly once, which is the double-teardown the GUI window had
+    already had removed for the same reason.
     """
-    if ipc.daemon_running():
-        log.warning("trcc daemon: another daemon already owns %s",
-                    ipc.socket_path())
-        return 1
-
-    global _started_at
-    _started_at = time.monotonic()
-    log.info("trcc daemon starting (pid=%d)", os.getpid())
-
-    # The daemon owns USB directly — it must never proxy to itself.  If the
-    # daemon-mode flag leaked into this process's env (set globally in a
-    # shell profile, or inherited from the spawning client), every
-    # ``trcc()`` here would try to reach a daemon socket instead of
-    # opening USB, and a startup path through it would re-spawn — a fork
-    # bomb (#162).  Strip it so this process is unambiguously the daemon.
-    from ._boot import _ENV_FLAG, _build_local_app
-    os.environ.pop(_ENV_FLAG, None)
-    app = _build_local_app(platform=platform, renderer=renderer)
-    # Coldplug + hotplug + metrics + LED animation.  The daemon used to start
-    # the loops but never coldplug, so on Windows / macOS / BSD — whose hotplug
-    # monitors report only NEW devices — it came up owning USB with nothing
-    # connected.  ``App.close()`` in the finally below is this call's partner.
-    app.start_session()
-    server = ipc.IPCServer(app)
-    server.start()
-    _install_signal_handlers(server)
-
-    try:
-        server.serve_forever()
-    finally:
-        server.shutdown()
-        # ``App.close`` releases every attached device's transport — important
-        # because the daemon may have been holding /dev/sgN open for hours.
-        try:
-            app.close()
-        except Exception:
-            log.exception("App.close raised during daemon shutdown")
-    log.info("trcc daemon exited")
-    return 0
+    log.info("run_daemon: delegating to the UI bus")
+    from .ui._uis import DaemonUI
+    return DaemonUI(renderer=renderer).start(platform)
 
 
 # =========================================================================
 # Client helpers — auto-spawn + remote kill
 # =========================================================================
+
+
+def mark_started() -> None:
+    """Record that THIS process is now the daemon.
+
+    The writer partner of :func:`is_this_process_the_daemon` and
+    :func:`uptime_s`, which both read the same private clock.  Public because
+    the daemon's launch sequence lives on the UI bus (``ui/_uis.py``) rather
+    than in this module, and reaching in to set a module private from there
+    would be exactly the kind of hidden coupling the bus exists to remove.
+    """
+    global _started_at
+    _started_at = time.monotonic()
+    log.info("mark_started: this process is the daemon (pid=%d)", os.getpid())
 
 
 def is_this_process_the_daemon() -> bool:

@@ -58,7 +58,7 @@ import logging_coverage  # noqa: E402  # pyright: ignore[reportMissingImports]
 #: failure) and qtgui's ``_ExportThread`` both went, replaced by one runner
 #: whose every branch logs.  A duplicate implementation is silent twice.
 #: The other two are the runner's own helpers, logged as they were written.
-MAX_SILENT = 1327
+MAX_SILENT = 1326
 
 
 def test_logging_coverage_only_improves() -> None:

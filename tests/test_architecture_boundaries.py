@@ -972,7 +972,8 @@ _APP_ATTRS = frozenset({"_app", "app", "_trcc"})
 #: Functions whose return annotation is ``App`` — the only way a local name gets
 #: bound to one.  Gated by ``test_app_factories_still_return_app`` below, so this
 #: cannot rot into folklore.
-_APP_FACTORIES = frozenset({"trcc", "_build_local_app", "get_app", "build_qt_app"})
+_APP_FACTORIES = frozenset({"trcc", "_build_local_app", "get_app", "build_qt_app",
+                            "compose"})
 
 KNOWN_APP_REACHES: dict[str, int] = {
     # ── 2026-08-31: the collector gained rules 2-4 and the number went
@@ -1000,6 +1001,16 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # ``close()`` the partner it never had, so the four-call bring-up block
     # that was copy-pasted into run_daemon / run_gui / run_qtgui is ONE call
     # in one place.  Ground gained, not given back.
+    # 2026-09-08: the UI bus.  These two are the WHOLE point of it — the
+    # lifecycle that was hand-written in run_daemon / run_gui / run_qtgui / the
+    # API now lives once, on ``UserInterface.start``.  They are the same pair
+    # already excused in ``ui/gui/__init__.py`` below, centralised: a face that
+    # adopts the bus gives up its own copy, so this row exists to let the
+    # others go DOWN.  ``compose`` joined ``_APP_FACTORIES`` in the same
+    # change — without it the collector could not see ``app.close`` here at
+    # all, and would have stopped counting exactly where App lifecycle
+    # concentrates.
+    "ui/_base.py": 2,                # start_session / close, for every face
     "ui/gui/__init__.py": 2,         # start_session / close
     "ui/gui/lcd_handler.py": 1,      # .renderer — a Command-signature question
     "ui/gui/splash.py": 1,           # discover_and_connect — lifecycle
@@ -1408,6 +1419,11 @@ def test_theme_layout_literal_baseline_has_no_slack() -> None:
 #: Wiring a concrete implementation while building the App.  PERMANENT.
 _UI_ADAPTER_COMPOSITION_ROOTS: frozenset[tuple[str, str]] = frozenset({
     ("trcc/ui/api/main.py", "trcc.adapters.render.qt"),
+    # 2026-09-08: ``ApiUI.compose`` on the UI bus — the same headless renderer
+    # wiring, at the same moment, now expressed once as a face's composition
+    # step.  ``api/main.py`` keeps its own because ``build_app(trcc=None)``
+    # still composes a default App for callers that pass no App.
+    ("trcc/ui/_uis.py", "trcc.adapters.render.qt"),
     ("trcc/ui/qapp.py", "trcc.adapters.render.qt"),
     ("trcc/ui/gui/__init__.py", "trcc.adapters.system"),
     ("trcc/ui/cli/main.py", "trcc.adapters.infra.logging"),
