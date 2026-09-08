@@ -11,8 +11,6 @@ same key the sidebar emits, and add an entry to ``sidebar._ENTRIES``.
 from __future__ import annotations
 
 import logging
-import signal
-import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -72,7 +70,6 @@ from .panels import (
     StatusPanel,
     SystemPanel,
 )
-from .splash import auto_close, show_splash
 
 log = logging.getLogger(__name__)
 
@@ -375,82 +372,19 @@ def run(
 ) -> int:
     """Start the qtgui skin from an injected ``Platform``.  Returns the exit code.
 
-    The unified UI-launch contract (see ``METHOD_UI.md``): the composition root
-    injects the ``Platform`` port; this UI composes its own App from it via the
-    shared ``build_qt_app`` (Qt-first, so ``QtRenderer`` finds a real
-    QApplication), then runs.  ``platform=None`` uses the host platform; the dev
-    mock injects a ``MockPlatform``.
+    A thin alias over the UI bus (``ui/_base.py``); the launch sequence is
+    ``UserInterface.start``, shared with every other face.  ``QtGuiUI`` keeps
+    what is qtgui's own: the inline coldplug (gui runs it on a splash worker;
+    qtgui runs it before the window builds so pickers and browsers populate at
+    construction) and its window.
 
-    Device bootstrap is at PARITY with the gui skin (``run_gui``): the coldplug
-    ``discover_and_connect`` populates ``app.devices`` and the live loops
-    (hotplug / metrics / LED animation) start BEFORE the window builds, so every
-    panel and device picker sees the attached device at construction — without
-    this the whole UI booted blank (no device, empty selection grids).
-
-    ``on_ready`` is a behaviour-neutral post-build hook (default None); the dev
-    mock uses it to auto-connect its simulated fleet, mirroring ``mock_gui``.
+    ``force_exit`` stays here rather than on the face: ``os._exit`` must run
+    after the bus's ``finally`` has closed the App, so it cannot live inside
+    ``QtGuiUI.run``.
     """
-    from ..qapp import build_qt_app
-    app = build_qt_app(platform)
-    qapp = QApplication.instance()
-    if not isinstance(qapp, QApplication):   # build_qt_app just created it
-        qapp = QApplication(sys.argv)
-    # quitOnLastWindowClosed stays False (the shared build_qt_app default): the
-    # MainWindow's TrayController hides to the tray on close and keeps the LCD
-    # running, exactly like gui.  Exit (tray menu) force-quits.
-    splash = show_splash()
-    qapp.processEvents()
-
-    # ── Device bootstrap (parity with run_gui) ─────────────────────────
-    # gui runs discover in a background splash worker; qtgui runs it inline —
-    # one handshake per attached device is fast, and doing it before the window
-    # builds means the pickers/browsers populate at construction.  Live attach/
-    # detach afterwards flows through start_hotplug → DeviceConnected events.
-    app.start_session()
-
-    window = MainWindow(app)
-    # ``--resume``: come up in the tray instead of popping a window on every
-    # login.  The gui skin has done this since #201; qtgui installs the SAME
-    # ``TrayController`` (above) and so could always have been restored from
-    # the tray — it simply had no way to START that way, which made it
-    # unusable as an autostart target.
-    if start_hidden:
-        log.info("run: --resume — starting hidden in the tray")
-    else:
-        window.show()
-    auto_close(splash, after_ms=250)
-
-    if on_ready is not None:
-        on_ready(window)
-
-    def _on_quit_signal(*_args: object) -> None:
-        """SIGINT / SIGTERM — quit the Qt event loop cleanly.
-
-        SIGTERM is what the session manager / systemd sends at PC shutdown;
-        without it the process is killed before ``qapp.exec()`` returns, so the
-        ``finally`` cleanup never runs and the LCD is left mid-stream showing
-        its last frame (#143).  Parity with ``run_gui`` — qtgui had no signal
-        handling at all, so Ctrl-C and PC shutdown both skipped teardown.
-        """
-        log.info("qtgui: quit signal — stopping the event loop")
-        qapp.quit()
-    signal.signal(signal.SIGINT, _on_quit_signal)
-    signal.signal(signal.SIGTERM, _on_quit_signal)
-
-    try:
-        exit_code = qapp.exec()
-    finally:
-        # Stop the metrics / hotplug / LED threads, blank + disconnect every
-        # device (parity with run_gui's finally: app.close()).
-        app.close()
-        log.info("qtgui run: cleanup complete — process exit")
-
-    # Belt-and-suspenders, same as run_gui: Qt's metrics/sensor/render threads
-    # occasionally outlive ``qapp.exec()``'s return when native libraries
-    # (pynvml, psutil's ffi handles, pyusb) hold the GIL on shutdown.
-    # ``os._exit`` skips atexit handlers and finalizers — cleanup already ran
-    # in the finally above, so this is the safe place to force the kernel to
-    # reap the process.  The dev mock returns normally (``force_exit=False``).
+    log.info("run: delegating to the UI bus (start_hidden=%s)", start_hidden)
+    from .._uis import QtGuiUI
+    exit_code = QtGuiUI(start_hidden=start_hidden, on_ready=on_ready).start(platform)
     if force_exit:
         import os as _os
         _os._exit(exit_code)

@@ -1010,8 +1010,13 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # change — without it the collector could not see ``app.close`` here at
     # all, and would have stopped counting exactly where App lifecycle
     # concentrates.
+    # 2026-09-08: gui 2 -> 0 and qtgui 3 -> 1 as both Qt faces adopted the bus.
+    # ``ui/gui/__init__.py`` is GONE from this ledger entirely — its
+    # start_session/close pair is now the shared template's, and qtgui keeps
+    # only ``events`` (an event subscription, not a state read).  This is the
+    # trade the row below buys: 2 reaches in ONE reviewable file instead of 5
+    # scattered across two.
     "ui/_base.py": 2,                # start_session / close, for every face
-    "ui/gui/__init__.py": 2,         # start_session / close
     "ui/gui/lcd_handler.py": 1,      # .renderer — a Command-signature question
     "ui/gui/splash.py": 1,           # discover_and_connect — lifecycle
     # 2026-09-05: 5 -> 4.  The tray's ``minimize_on_close`` comes off
@@ -1020,7 +1025,7 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # 4 -> 3 the same day: ``app.first_run.is_first_run()`` picking the opening
     # panel was a STALE bypass, not a gap — ``GetFirstRunStatus`` exists and
     # this very file already dispatched it in ``_show_platform_info``.
-    "ui/qtgui/app.py": 3,            # events / start_session / close
+    "ui/qtgui/app.py": 1,            # events (subscription, not a state read)
     # 11 -> 9 on 2026-08-30: UCThemeMask stopped being handed a Paths port and
     # a ContentStore.  It composed "which masks does this device have" out of
     # both; ``ListMasks`` had answered that all along for cli/api/qtgui.  What

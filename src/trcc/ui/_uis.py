@@ -25,13 +25,23 @@ composes lazily per subcommand (``_ctx.get_app()``), so putting it through
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._base import UserInterface
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from PySide6.QtWidgets import QWidget
+
     from ..app import App
     from ..core.ports import Platform, Renderer
+    from ..ipc import SingleInstance
+
+    # ``TYPE_CHECKING`` only: these names cost NOTHING at runtime, so the
+    # module stays light while the faces keep real types.  A ``type: ignore``
+    # would have been the other way to silence the checker, and this codebase
+    # does not take that trade.
 
 log = logging.getLogger(__name__)
 
@@ -143,3 +153,177 @@ class DaemonUI(UserInterface, name="daemon"):
             server.shutdown()
         log.info("DaemonUI.run: served to completion")
         return 0
+
+
+class _QtUI(UserInterface):
+    """Shared base for the two widget skins.  Intermediate — not registered.
+
+    Both compose Qt-first through ``qapp.build_qt_app``: ``QtRenderer`` needs a
+    live ``QApplication`` before it exists, which is the constraint that made
+    the launch seam inject a ``Platform`` rather than a pre-built ``App``.
+    """
+
+    def compose(self, platform: Platform | None) -> App:
+        log.info("%s.compose: Qt-first via build_qt_app", type(self).__name__)
+        from .qapp import build_qt_app
+        return build_qt_app(platform)
+
+    @staticmethod
+    def _install_quit_handlers() -> None:
+        """SIGINT / SIGTERM must reach the Qt loop, or teardown never runs.
+
+        SIGTERM is what the session manager sends at PC shutdown.  Without a
+        handler the process dies before ``qapp.exec()`` returns, the cleanup
+        never happens, and the panel is left mid-stream showing its last frame
+        (#143).
+        """
+        import signal
+
+        from PySide6.QtWidgets import QApplication
+
+        def _quit(*_args: object) -> None:
+            log.info("_install_quit_handlers: quit signal — stopping the loop")
+            qapp = QApplication.instance()
+            if qapp is not None:
+                qapp.quit()
+
+        signal.signal(signal.SIGINT, _quit)
+        signal.signal(signal.SIGTERM, _quit)
+
+    @staticmethod
+    def _exec() -> int:
+        """Run the Qt event loop to completion."""
+        from PySide6.QtWidgets import QApplication
+        qapp = QApplication.instance()
+        assert qapp is not None, "compose() must have built a QApplication"
+        log.info("_exec: entering the Qt event loop")
+        return qapp.exec()
+
+
+class GuiUI(_QtUI, name="gui"):
+    """The shipping GUI — legacy chrome, one window, single-instance."""
+
+    def __init__(self, *, decorated: bool = False, start_hidden: bool = False,
+                 single_instance: bool = True,
+                 on_ready: Callable[[Any], None] | None = None) -> None:
+        log.info("GuiUI.__init__: decorated=%s start_hidden=%s "
+                 "single_instance=%s", decorated, start_hidden, single_instance)
+        self.decorated = decorated
+        self.start_hidden = start_hidden
+        self.want_single_instance = single_instance
+        self.on_ready = on_ready
+        self._instance: SingleInstance | None = None
+
+    def preflight(self) -> int | None:
+        """Take the GUI's cross-process lock; 0 if a peer already holds it.
+
+        Exit **0**, not 1: a peer means the running window was raised, so this
+        launch did exactly what the user asked for.  It must precede
+        :meth:`compose` — the early return has to happen before a
+        ``QApplication`` is built or USB is opened.
+        """
+        if not self.want_single_instance:
+            log.info("GuiUI.preflight: single-instance disabled (dev mock)")
+            return None
+        from ..ipc import SingleInstance
+        self._instance = SingleInstance("gui")
+        if self._instance is None:
+            log.info("GuiUI.preflight: peer GUI raised — exiting cleanly")
+            return 0
+        return None
+
+    def compose(self, platform: Platform | None) -> App:
+        """Point the asset resolver at the packaged directory, then build."""
+        from .gui.assets import _PKG_ASSETS_DIR, set_assets_dir
+        set_assets_dir(_PKG_ASSETS_DIR)
+        return super().compose(platform)
+
+    def bring_up(self, app: App) -> bool:
+        """Coldplug on the splash worker, then the live loops.
+
+        The coldplug runs on a background QThread so the splash can paint
+        per-device progress; ``start_session`` afterwards is idempotent and
+        skips the coldplug it already did, starting only the loops.
+        """
+        log.info("GuiUI.bring_up: splash bootstrap")
+        from .gui.splash import run_bootstrap_with_splash
+        if not run_bootstrap_with_splash(app):
+            return False
+        return super().bring_up(app)
+
+    def run(self, app: App) -> int:
+        log.info("GuiUI.run: building the window")
+        from ..core.commands import DeviceConnectionIssues
+        from .gui.trcc_app import TRCCApp
+
+        window = TRCCApp(app=app, decorated=self.decorated)
+        if self._instance is not None:
+            # Fired from SingleInstance's accept thread; the Qt signal marshals
+            # it onto the GUI thread (a direct cross-thread QWidget call
+            # deadlocked the event loop, #196).
+            self._instance.on_raise = window.raise_requested.emit
+        window.replay_initial_devices()
+        if self.on_ready is not None:
+            self.on_ready(window)
+        self._install_quit_handlers()
+        if not self.start_hidden:
+            window.show()
+            # Surface devices found but not connected, read from the bus: the
+            # failures fired before the window subscribed.
+            window.notify_device_failures(
+                app.dispatch(DeviceConnectionIssues()).issues,
+            )
+        return self._exec()
+
+    def teardown(self) -> None:
+        """Release the single-instance lock this face took in preflight."""
+        if self._instance is not None:
+            log.info("GuiUI.teardown: releasing the single-instance lock")
+            self._instance.close()
+            self._instance = None
+
+
+class QtGuiUI(_QtUI, name="qtgui"):
+    """The native-skin rebuild.  No single-instance lock — it never had one."""
+
+    def __init__(self, *, start_hidden: bool = False,
+                 on_ready: Callable[[Any], None] | None = None) -> None:
+        log.info("QtGuiUI.__init__: start_hidden=%s", start_hidden)
+        self.start_hidden = start_hidden
+        self.on_ready = on_ready
+        self._splash: QWidget | None = None
+
+    def bring_up(self, app: App) -> bool:
+        """Splash up, coldplug inline, loops started — before the window builds.
+
+        Inline rather than on a worker (the gui's shape): one handshake per
+        attached device is fast, and doing it first means the pickers and
+        browsers populate at construction instead of booting blank.
+        """
+        log.info("QtGuiUI.bring_up: splash + session")
+        from PySide6.QtWidgets import QApplication
+
+        from .qtgui.splash import show_splash
+        self._splash = show_splash()
+        qapp = QApplication.instance()
+        if qapp is not None:
+            qapp.processEvents()
+        return super().bring_up(app)
+
+    def run(self, app: App) -> int:
+        log.info("QtGuiUI.run: building the window")
+        from .qtgui.app import MainWindow
+        from .qtgui.splash import auto_close
+
+        window = MainWindow(app)
+        if self.start_hidden:
+            log.info("QtGuiUI.run: --resume — starting hidden in the tray")
+        else:
+            window.show()
+        if self._splash is not None:
+            auto_close(self._splash, after_ms=250)
+            self._splash = None
+        if self.on_ready is not None:
+            self.on_ready(window)
+        self._install_quit_handlers()
+        return self._exec()

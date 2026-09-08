@@ -6,7 +6,7 @@ Every abstract contract in the tree: what a new implementation must write, what 
 
 Ordered **cheapest to extend first** — the ports at the top are where this codebase welcomes a contributor, the ones at the bottom are where it does not yet.
 
-37 ports.
+38 ports.
 
 | port | implement | inherit | implementations |
 |---|---|---|---|
@@ -16,8 +16,9 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`MissPolicy`](#misspolicy) | 1 | 0 | 2 |
 | [`Query`](#query) | 1 | 0 | 38 |
 | [`ScreenCapture`](#screencapture) | 1 | 0 | 1 |
-| [`UserInterface`](#userinterface) | 1 | 5 | 2 |
+| [`UserInterface`](#userinterface) | 1 | 5 | 4 |
 | [`_HidBinding`](#_hidbinding) | 1 | 0 | 2 |
+| [`_QtUI`](#_qtui) | 1 | 1 | 2 |
 | [`DataInstallRunner`](#datainstallrunner) | 2 | 0 | 2 |
 | [`IdentifiedSource`](#identifiedsource) | 2 | 0 | 16 |
 | [`SingleFileTheme`](#singlefiletheme) | 2 | 0 | 1 |
@@ -148,7 +149,7 @@ run(app: 'App') -> int
 
 **You inherit (5):** `bring_up` · `compose` · `preflight` · `start` · `teardown`
 
-**Implementations (2):** `ApiUI` · `DaemonUI`
+**Implementations (4):** `ApiUI` · `DaemonUI` · `GuiUI` · `QtGuiUI`
 
 ## _HidBinding
 
@@ -163,6 +164,22 @@ open(vid: 'int', pid: 'int', serial: 'str | None') -> Any
 ```
 
 **Implementations (2):** `_ApmortonHidBinding` · `_CythonHidBinding`
+
+## _QtUI
+
+`ui/_uis.py`
+
+Shared base for the two widget skins.  Intermediate — not registered.
+
+**You implement (1):**
+
+```python
+run(app: 'App') -> int
+```
+
+**You inherit (1):** `compose`
+
+**Implementations (2):** `GuiUI` · `QtGuiUI`
 
 ## DataInstallRunner
 

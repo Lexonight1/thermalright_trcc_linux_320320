@@ -21,7 +21,6 @@ reaches it as a client, and only when ``TRCC_DAEMON=1``.
 from __future__ import annotations
 
 import logging
-import signal
 from collections.abc import Callable
 from typing import Any
 
@@ -75,131 +74,34 @@ def run(platform: Any, *, decorated: bool = False,
         on_ready: Callable[[Any], None] | None = None) -> int:
     """Run the GUI composition from an injected ``platform``.  Returns exit code.
 
-    The GUI's ``run(platform, …)`` in the unified UI-launch contract (see
-    ``METHOD_UI.md``): the composition root injects the ``Platform`` port and
-    this UI composes its App from it (Qt-first, via ``build_qt_app``).  It takes
-    a platform rather than a pre-built App because the windowed ``QApplication``
-    must precede ``QtRenderer`` and the single-instance early-return must precede
-    any build — constraints App-injection can't satisfy.
+    A thin alias over the UI bus (``ui/_base.py``): the launch sequence —
+    single-instance guard, compose, bring up, run, close — is
+    ``UserInterface.start`` and is shared with every other face.  What stays
+    the GUI's own is ``GuiUI``: its lock, its Qt-first composition, its splash
+    bootstrap and its window.
 
-    The ONE shared composition root for every GUI entry point — shipping
-    ``launch`` and ``dev/mock_gui`` both call this, so the dev mock exercises
-    the SAME code the real app runs (the whole reason to mock: real code
-    paths surface real bugs).  Callers differ only in what ``platform`` they
-    build and these seams:
+    Two things stay HERE rather than on the face, because they are process
+    concerns rather than UI behaviour:
 
-      * ``single_instance`` — acquire the cross-process GUI lock (off for the
-        dev mock so it never collides with a real install).
-      * ``force_exit`` — ``os._exit`` to reap native threads (psutil / pyusb /
-        pynvml can outlive ``qapp.exec()``); the dev mock returns normally.
-
-    Logging is NOT configured here — that stays the caller's job (CLI root
-    callback for shipping, ``dev/_mock_bootstrap`` for the mock), so the
-    "configure_logging exactly once" invariant holds.
+    * ``platform.configure_stdout()`` — must precede the single-instance check
+      and everything that writes output (a Windows console defaults to cp1252
+      and crashes on non-ASCII).  It takes the INJECTED platform, which is what
+      the dev mock wants.
+    * ``force_exit`` — ``os._exit`` must run AFTER the bus's ``finally`` has
+      closed the App, so it cannot live inside ``GuiUI.run``.  Qt's
+      metrics/sensor/render threads occasionally outlive ``qapp.exec()`` when
+      native libraries (pynvml, psutil, pyusb) hold the GIL on shutdown;
+      cleanup has already happened by here, so forcing the reap is safe.  The
+      dev mock passes ``force_exit=False`` and returns normally.
     """
-    from typing import cast
-
-    from PySide6.QtWidgets import QApplication
-
-    # ── stdout/stderr UTF-8 (Windows cp1252 fix; no-op elsewhere) ────
+    log.info("run: delegating to the UI bus (decorated=%s start_hidden=%s "
+             "single_instance=%s)", decorated, start_hidden, single_instance)
     platform.configure_stdout()
-
-    # ── Single-instance lock + raise-existing-window ─────────────────
-    instance = None
-    if single_instance:
-        from ...ipc import SingleInstance
-        instance = SingleInstance("gui")
-        if instance is None:
-            # A peer GUI was already running; raise was sent.  Exit cleanly.
-            return 0
-
-    # ── Assets dir (packaged location) ───────────────────────────────
-    from .assets import _PKG_ASSETS_DIR, set_assets_dir
-    set_assets_dir(_PKG_ASSETS_DIR)
-
-    # ── Qt bootstrap + App (QApplication precedes QtRenderer) ──────
-    # The shared Qt-first composition, identical to the qtgui skin: set the Qt
-    # env, build the windowed QApplication, apply the shared QApp settings, then
-    # build the App via the canonical factory with a QtRenderer.  (build_qt_app)
-    from ..qapp import build_qt_app
-    app = build_qt_app(platform)
-    qapp = cast(QApplication, QApplication.instance())
-
-    # ── Splash + background discover ────────────────────────────────
-    from .splash import run_bootstrap_with_splash
-    if not run_bootstrap_with_splash(app):
-        return 1
-
-    # ── Session bring-up: hotplug + metrics + LED animation ─────────
-    # The coldplug already ran on the splash worker above, so ``start_session``
-    # skips it and starts only the live loops (one metrics cadence drives the
-    # system-info / activity sidebar / overlay refresh; the LED loop animates
-    # breathing / colour-cycle / rainbow, which the slow cadence can't).
-    app.start_session()
-
-    # ── Main window — TRCCApp keeps the legacy chrome ──────────────
-    window = TRCCApp(app=app, decorated=decorated)
-
-    # ── Wire raise-existing-window callback ─────────────────────────
-    # SingleInstance invokes this from its accept thread; emitting the Qt
-    # signal is thread-safe and the QueuedConnection marshals the window
-    # show/raise onto the GUI main thread (#196 — a direct cross-thread
-    # QWidget call deadlocked the event loop).
-    if instance is not None:
-        instance.on_raise = window.raise_requested.emit
-
-    # ── Initial device replay — discover ran in the splash worker, so
-    # iterate ``app.devices`` once for the first sidebar render.  Live
-    # mutations after this come through DeviceConnected/Disconnected.
-    window.replay_initial_devices()
-
-    # Optional post-build hook — a behaviour-neutral extension point (default
-    # None).  The dev mock GUI uses it to mount its developer console; shipping
-    # callers pass nothing.
-    if on_ready is not None:
-        on_ready(window)
-
-    def _on_quit_signal(*_args: object) -> None:
-        """SIGINT / SIGTERM — quit the Qt event loop cleanly.
-
-        SIGTERM is what the session manager / systemd sends at PC shutdown;
-        without it the process is killed before ``qapp.exec()`` returns, so
-        the ``finally`` cleanup (``app.close()`` → device disconnect) never
-        runs and the LCD is left mid-stream showing "USB communication lost"
-        (#143).  The handler fires promptly because the metrics/render
-        QTimers keep yielding to the interpreter between Qt events.
-        """
-        qapp.quit()
-    signal.signal(signal.SIGINT, _on_quit_signal)
-    signal.signal(signal.SIGTERM, _on_quit_signal)
-
-    if not start_hidden:
-        window.show()
-        # Surface any device that was found but didn't connect — with the
-        # OS-correct hint the Platform supplied (e.g. "run as administrator").
-        # Read from the bus (DeviceConnectionIssues query), NOT a handed list:
-        # the failures fired before the window subscribed, so we pull them
-        # from the App model the bus-pure way.  Live failures arrive via the
-        # ErrorOccurred subscription wired in the window.
-        from ...core.commands import DeviceConnectionIssues
-        window.notify_device_failures(
-            app.dispatch(DeviceConnectionIssues()).issues,
-        )
-
-    try:
-        exit_code = qapp.exec()
-    finally:
-        if instance is not None:
-            instance.close()
-        app.close()
-        log.info("run_gui: cleanup complete — process exit")
-
-    # Belt-and-suspenders: Qt's metrics/sensor/render threads occasionally
-    # outlive ``qapp.exec()``'s return when native libraries (pynvml,
-    # psutil's ffi handles, pyusb) hold the GIL on shutdown.  ``os._exit``
-    # skips atexit handlers and finalizers — we already did our cleanup in
-    # the finally above, so this is the safe place to force the kernel to
-    # reap the process.  The dev mock returns normally (``force_exit=False``).
+    from .._uis import GuiUI
+    exit_code = GuiUI(
+        decorated=decorated, start_hidden=start_hidden,
+        single_instance=single_instance, on_ready=on_ready,
+    ).start(platform)
     if force_exit:
         import os as _os
         _os._exit(exit_code)
