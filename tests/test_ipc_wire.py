@@ -559,3 +559,24 @@ def test_every_result_type_survives_the_wire(name: str) -> None:
     assert envelope["type"] == name
 
     assert decode_result(envelope) == result
+
+
+def test_the_hint_cache_does_not_change_what_crosses_the_wire() -> None:
+    """``ipc._hints`` memoises ``get_type_hints``; prove it is transparent.
+
+    The cache exists for speed (19 ``compile()`` calls per round trip -> 0),
+    and a speed change that alters a decoded value would be the worst kind of
+    regression: invisible until a user's device does the wrong thing.  So
+    decode each type twice — once cold, once warm — and require identity.
+    """
+    from trcc import ipc
+
+    ipc._hints.cache_clear()
+    cold = {n: decode_result(encode_result(_populated(c)))
+            for n, c in sorted(RESULT_TYPES.items())}
+    assert ipc._hints.cache_info().misses > 0, "cache never populated"
+
+    warm = {n: decode_result(encode_result(_populated(c)))
+            for n, c in sorted(RESULT_TYPES.items())}
+
+    assert cold == warm
