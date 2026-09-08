@@ -987,6 +987,12 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # ``_ctx.resolution_for`` helper: the two CLI blocks were byte-identical
     # for 11 of 12 lines).  ONE remains, and it is not debt:
     "ui/api/display.py": 1,          # platform.paths() — CodeQL barrier, #239
+    # 2026-09-08: cli 0 -> 2, and this pair is NOT the failure mode the row
+    # above is.  ``AppProxy.events`` EXISTS as of 0729d7db — a client that
+    # holds one dispatches AND observes — so ``display export-video`` follows
+    # a daemon-side encode from a terminal that is not doing the encoding.
+    # Subscribing is half the bus, not a reach around it.
+    "ui/cli/display.py": 2,          # .events x2 — follow an export's progress
     # gui/qtgui lifecycle — deliberately OUT of burn-down.  A GUI running as a
     # daemon *client* must not own app lifecycle, and an event stream over a
     # socket is a different problem from a data read.
@@ -1074,6 +1080,13 @@ KNOWN_APP_REACHES: dict[str, int] = {
 #: COUNTS live in ``KNOWN_APP_REACHES`` above, so the ratchet and its no-slack
 #: twin force any future one down; this dict holds the reasons.
 CLI_API_REACH_EXCEPTIONS: dict[str, str] = {
+    "ui/cli/display.py": (
+        "scoped: ``app.events`` is IMPLEMENTED on AppProxy (0729d7db), so "
+        "unlike every other row here this one does not raise in daemon mode "
+        "— it is how a terminal watches an encode happening inside the "
+        "daemon.  Observing is the other half of the bus; the invariant is "
+        "'do not read App STATE', and an event subscription is not state"
+    ),
     "ui/api/display.py": (
         "scoped: CodeQL py/path-injection sanitizer barrier (#239) — the "
         "trusted roots must come from the Paths port, not from Result strings. "

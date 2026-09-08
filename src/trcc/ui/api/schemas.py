@@ -635,6 +635,28 @@ class PlayVideoRequest(BaseModel):
     fps: int = Field(15, ge=1, le=60)
 
 
+class LoadVideoRequest(BaseModel):
+    """Stage a video as a one-file theme and apply it. Server-side path."""
+    path: str = Field(..., min_length=1)
+    start_ms: int = Field(0, ge=0)
+    end_ms: int | None = Field(None, ge=1)
+    rotation: int = Field(0)
+
+
+class ExportVideoRequest(BaseModel):
+    """Encode a clip into a loose ``Theme.zt`` for the device's panel.
+
+    No target resolution: ``ExportVideoClip`` resolves the canvas from
+    the device (or the product registry), so a client cannot supply a
+    size that disagrees with the panel.
+    """
+    path: str = Field(..., min_length=1)
+    start_ms: int = Field(0, ge=0)
+    #: ``None`` means "to the end of the source", probed server-side.
+    end_ms: int | None = Field(None, ge=1)
+    rotation: int = Field(0)
+
+
 # ── Control-center settings ──────────────────────────────────────────
 
 

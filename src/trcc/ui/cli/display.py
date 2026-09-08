@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import typer
@@ -17,6 +18,7 @@ from ...core.commands import (
     DeleteOverlayElement,
     DiscoverDevices,
     EnableOverlay,
+    ExportVideoClip,
     FlashOverlayElement,
     KeepAliveLoop,
     LcdSnapshot,
@@ -27,6 +29,7 @@ from ...core.commands import (
     LoopVideo,
     PauseVideo,
     PlayVideo,
+    ProbeVideoDuration,
     RenderDcStandalone,
     RestoreDeviceState,
     RestoreLastTheme,
@@ -70,6 +73,11 @@ from ._ctx import (
 )
 
 log = logging.getLogger(__name__)
+
+#: Ceiling on ``--wait``.  The encoder allows ffmpeg 600 s and a
+#: five-minute clip is the documented maximum, so a terminal that
+#: gave up sooner would report a failure that had not happened.
+_EXPORT_WAIT_S = 660.0
 
 app = typer.Typer(help="Configure device display (theme / orientation / brightness).",
                   no_args_is_help=True)
@@ -280,6 +288,113 @@ def load_video(
         rotation=rotation,
     ))
     typer.echo(result.message)
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+@app.command("export-video")
+def export_video(
+    key: str = typer.Argument(..., help="Device key, e.g. 0402:3922"),
+    path: Path = typer.Argument(
+        ..., help="Video file (MP4 / MOV / WEBM / MKV / AVI)",
+        exists=True, file_okay=True, dir_okay=False,
+    ),
+    start_ms: int = typer.Option(
+        0, "--start", "-s", min=0,
+        help="Clip start in milliseconds (default: 0).",
+    ),
+    end_ms: int = typer.Option(
+        None, "--end", "-e", min=1,
+        help="Clip end in milliseconds (default: the whole clip).",
+    ),
+    rotation: int = typer.Option(
+        0, "--rotation", "-r",
+        help="Rotation in degrees: 0 / 90 / 180 / 270.",
+    ),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait",
+        help="Follow progress until the encode finishes (default), or "
+             "print the token and return.",
+    ),
+) -> None:
+    """Encode a clip into a loose ``Theme.zt`` sized for the device's panel.
+
+    Distinct from ``load-video``, which stages a whole theme directory and
+    applies it.  This gives you the ``.zt`` file itself — to set as a
+    background, to keep, or to hand to ``set-background``.
+
+    The encode runs in the background and reports on the event bus, so
+    ``--wait`` follows it and ``--no-wait`` returns immediately with the
+    token.  Under ``TRCC_DAEMON=1`` the work happens in the daemon and
+    this terminal is simply watching it, which is why the progress can be
+    followed from a process that is not doing the encoding.
+    """
+    log.info("cli display export-video: key=%s path=%s start_ms=%s end_ms=%s "
+             "rotation=%s wait=%s", key, path, start_ms, end_ms, rotation,
+             wait)
+    app_obj = get_app()
+    # Subscribe BEFORE dispatching: a fast encode can finish between the
+    # dispatch returning and a later subscribe, and the finished event is
+    # published once and not replayed.
+    from ...core.events import Event, VideoExportFinished, VideoExportProgress
+    outcome: list[VideoExportFinished] = []
+    token = ""
+
+    def on_progress(event: Event) -> None:
+        if isinstance(event, VideoExportProgress) and event.token == token:
+            log.debug("export-video progress: %d%% %s",
+                      event.percent, event.message)
+            typer.echo(f"  {event.percent:3d}%  {event.message}")
+
+    def on_finished(event: Event) -> None:
+        if isinstance(event, VideoExportFinished) and event.token == token:
+            log.info("export-video finished: ok=%s path=%s",
+                     event.ok, event.path)
+            outcome.append(event)
+
+    if wait:
+        app_obj.events.subscribe(VideoExportProgress, on_progress)
+        app_obj.events.subscribe(VideoExportFinished, on_finished)
+
+    result = app_obj.dispatch(ExportVideoClip(
+        key=key, path=path, start_ms=start_ms, end_ms=end_ms,
+        rotation=rotation,
+    ))
+    if not result.ok:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(code=1)
+    token = result.token
+    if not wait:
+        typer.echo(f"{result.token}\t{result.source}")
+        return
+
+    typer.echo(f"Encoding {path.name} at "
+               f"{result.target_w}x{result.target_h}…")
+    deadline = time.monotonic() + _EXPORT_WAIT_S
+    while not outcome and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if not outcome:
+        typer.echo(f"Timed out after {_EXPORT_WAIT_S:.0f}s waiting for the "
+                   f"encode (token {result.token}).", err=True)
+        raise typer.Exit(code=1)
+    finished = outcome[0]
+    typer.echo(finished.message)
+    if not finished.ok:
+        raise typer.Exit(code=1)
+    typer.echo(finished.path)
+
+
+@app.command("video-duration")
+def video_duration(
+    path: Path = typer.Argument(
+        ..., help="Video file to probe", exists=True,
+        file_okay=True, dir_okay=False,
+    ),
+) -> None:
+    """Print a video's duration in milliseconds (via ffprobe)."""
+    log.info("cli display video-duration: path=%s", path)
+    result = get_app().dispatch(ProbeVideoDuration(path=path))
+    typer.echo(result.duration_ms if result.ok else result.message)
     if not result.ok:
         raise typer.Exit(code=1)
 

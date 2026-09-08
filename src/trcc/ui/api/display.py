@@ -28,6 +28,7 @@ from ...core.commands import (
     DeleteOverlayElement,
     DeviceState,
     EnableOverlay,
+    ExportVideoClip,
     FlashOverlayElement,
     GetPaths,
     KeepAliveLoop,
@@ -35,9 +36,11 @@ from ...core.commands import (
     ListMasks,
     LoadImage,
     LoadTheme,
+    LoadVideo,
     LoopVideo,
     PauseVideo,
     PlayVideo,
+    ProbeVideoDuration,
     RenderDcStandalone,
     RestoreDeviceState,
     SeekVideo,
@@ -99,6 +102,9 @@ from ...core.results import (
     SendResult,
     SlideshowResult,
     SplitModeResult,
+    ThemeResult,
+    VideoDurationResult,
+    VideoExportResult,
     VideoResult,
 )
 from ._shared import (
@@ -113,8 +119,10 @@ from .schemas import (
     BrightnessRequest,
     ColorRequest,
     CreateThemeResponse,
+    ExportVideoRequest,
     FitModeRequest,
     KeepaliveRequest,
+    LoadVideoRequest,
     LoopVideoRequest,
     MaskApplyRequest,
     MaskPositionRequest,
@@ -335,6 +343,62 @@ def play_video(key: str, body: PlayVideoRequest,
     result = request.app.state.trcc.dispatch(
         PlayVideo(key=key, path=Path(body.path), fps=body.fps),
     )
+    http_error_if_failed(result)
+    return result
+
+
+@router.post("/load-video")
+def load_video(key: str, body: LoadVideoRequest,
+               request: Request) -> ThemeResult:
+    """Stage a video as a one-file theme and apply it to the device.
+
+    The API could not do this at all before — ``LoadVideo`` was reachable
+    from the CLI and from qtgui, and nowhere else, so a REST client could
+    play a ``.zt`` it already had but could not turn an ``.mp4`` into one.
+
+    ``.zt`` inputs are copied straight in; real video files are
+    transcoded to the device's native resolution first, which is why the
+    device must be attached (or its key known to the product registry).
+    Use ``export-video`` instead when you want the ``.zt`` file back
+    rather than the theme applied.
+    """
+    log.info(
+        "api POST /devices/{key}/display/load-video: key=%s path=%s "
+        "start_ms=%s end_ms=%s rotation=%s",
+        key, body.path, body.start_ms, body.end_ms, body.rotation,
+    )
+    result = request.app.state.trcc.dispatch(LoadVideo(
+        key=key, path=Path(body.path), start_ms=body.start_ms,
+        end_ms=body.end_ms, rotation=body.rotation,
+    ))
+    http_error_if_failed(result)
+    return result
+
+
+@router.post("/export-video")
+def export_video(key: str, body: ExportVideoRequest,
+                 request: Request) -> VideoExportResult:
+    """Encode a clip into a loose ``Theme.zt`` sized for the device's panel.
+
+    **Returns as soon as the clip is QUEUED**, with a ``token``.  ffmpeg
+    runs for minutes and a REST call that waited would hold the
+    connection open for the whole encode, so the outcome is published on
+    the event bus instead — subscribe to ``VideoExportProgress`` /
+    ``VideoExportFinished`` and match the token.
+
+    Distinct from ``load-video``, which stages a theme directory and
+    applies it; this hands back the ``.zt`` path so a client can set it
+    as a background or keep it.
+    """
+    log.info(
+        "api POST /devices/{key}/display/export-video: key=%s path=%s "
+        "start_ms=%s end_ms=%s rotation=%s",
+        key, body.path, body.start_ms, body.end_ms, body.rotation,
+    )
+    result = request.app.state.trcc.dispatch(ExportVideoClip(
+        key=key, path=Path(body.path), start_ms=body.start_ms,
+        end_ms=body.end_ms, rotation=body.rotation,
+    ))
     http_error_if_failed(result)
     return result
 
@@ -1168,6 +1232,18 @@ def upload_mask(key: str, body: MaskUploadRequest,
 
 
 meta_router = APIRouter(prefix="/display", tags=["display"])
+
+
+@meta_router.get("/video-duration")
+def video_duration(path: str, request: Request) -> VideoDurationResult:
+    """How long a video file is, in milliseconds (server-side path).
+
+    Best-effort: ``ok=false`` with ``duration_ms=0`` when ffprobe is
+    absent or the file will not decode, so a client building a trimmer
+    defaults its range rather than refusing to open.
+    """
+    log.info("api GET /display/video-duration: path=%s", path)
+    return request.app.state.trcc.dispatch(ProbeVideoDuration(path=Path(path)))
 
 
 @meta_router.get("/masks")

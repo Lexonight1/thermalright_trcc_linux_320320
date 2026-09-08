@@ -4,7 +4,7 @@
 
 A REST interface to the same command bus every other UI uses. Each endpoint builds a Command, dispatches it, and returns the Result as JSON — so anything here is also reachable from the CLI, the GUI, or your own client. The Commands themselves are documented in [`REFERENCE_COMMANDS.md`](REFERENCE_COMMANDS.md).
 
-**132 endpoints.**
+**135 endpoints.**
 
 ## Running it
 
@@ -42,8 +42,10 @@ Interactive docs are served at `/docs` while the API is running.
 | `POST /devices/{key}/display/brightness` | `BrightnessResult` | — |
 | `POST /devices/{key}/display/color` | `SendResult` | Push a solid-color frame to a connected LCD device. |
 | `POST /devices/{key}/display/create-theme` | `CreateThemeResponse` | Create + apply a custom theme from uploaded multipart files. |
+| `POST /devices/{key}/display/export-video` | `VideoExportResult` | Encode a clip into a loose ``Theme.zt`` sized for the device's panel. |
 | `POST /devices/{key}/display/fit-mode` | `FitModeResult` | — |
 | `POST /devices/{key}/display/keepalive` | `KeepaliveResult` | Run a keepalive burst (resend the last frame N times). |
+| `POST /devices/{key}/display/load-video` | `ThemeResult` | Stage a video as a one-file theme and apply it to the device. |
 | `POST /devices/{key}/display/loop-video` | `LoopVideoResult` | Toggle whether playback wraps or sticks at the last frame. |
 | `POST /devices/{key}/display/mask` | `MaskApplyResult` | Apply a user-supplied mask. |
 | `POST /devices/{key}/display/mask-position` | `MaskPositionResult` | — |
@@ -81,6 +83,7 @@ Interactive docs are served at `/docs` while the API is running.
 | `POST /devices/{key}/display/upload-mask` | `MaskUploadResult` | Upload a mask file (server-side path) + apply it. |
 | `GET /devices/{key}/display/video-status` | `VideoStatusResponse` | Current playback state for the device's video background override. |
 | `GET /display/masks` | `MasksListResult` | List masks for a device resolution. |
+| `GET /display/video-duration` | `VideoDurationResult` | How long a video file is, in milliseconds (server-side path). |
 
 ## Theme library
 

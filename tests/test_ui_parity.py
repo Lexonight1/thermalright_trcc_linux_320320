@@ -114,9 +114,14 @@ KNOWN_UI_ASYMMETRY: dict[str, tuple[frozenset[str], str]] = {
         "scoped: the API initialises the LED via SendColor on connect/reset; "
         "explicit init is a CLI setup step"
     )),
-    "LoadVideo": (frozenset({"cli", "qtgui"}), (
-        "scoped: the capability is covered by PlayVideo (shared); LoadVideo is "
-        "a CLI stage-without-play convenience"
+    "LoadVideo": (frozenset({"api", "cli", "qtgui"}), (
+        "scoped: the API route landed 2026-09-08 — the old reason, that this "
+        "was 'a CLI stage-without-play convenience', was wrong twice over: "
+        "qtgui uses it as its main video-import path, and a REST client could "
+        "play a .zt it already had but had no way to turn an .mp4 into one. "
+        "gui is the remaining hold-out and does not need it: its trimmer "
+        "wants the loose .zt back (ExportVideoClip + SetBackground), which is "
+        "a different capability, not a missing one"
     )),
     "ToggleVideo": (frozenset({"cli", "gui", "qtgui"}), (
         "scoped: verb sugar over PauseVideo (shared), which the API exposes "

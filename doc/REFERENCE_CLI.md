@@ -474,6 +474,26 @@ trcc display configure-slideshow [OPTIONS] KEY THEMES
 |---|---|
 | `--interval`, `-i` `INTERVAL` | Seconds between theme swaps (default 60). |
 
+### `trcc display export-video`
+
+Encode a clip into a loose `Theme.zt` sized for the device's panel. Distinct from `load-video`, which stages a whole theme directory and applies it. This gives you the `.zt` file itself — to set as a background, to keep, or to hand to `set-background`. The encode runs in the background and reports on the event bus, so `--wait` follows it and `--no-wait` returns immediately with the token. Under `TRCC_DAEMON=1` the work happens in the daemon and this terminal is simply watching it, which is why the progress can be followed from a process that is not doing the encoding.
+
+```bash
+trcc display export-video [OPTIONS] KEY PATH
+```
+
+| Argument | Description |
+|---|---|
+| `KEY` | Device key, e.g. 0402:3922 |
+| `PATH` | Video file (MP4 / MOV / WEBM / MKV / AVI) |
+
+| Option | Description |
+|---|---|
+| `--start`, `-s` `START_MS` | Clip start in milliseconds (default: 0). |
+| `--end`, `-e` `END_MS` | Clip end in milliseconds (default: the whole clip). |
+| `--rotation`, `-r` `ROTATION` | Rotation in degrees: 0 / 90 / 180 / 270. |
+| `--wait` | Follow progress until the encode finishes (default), or print the token and return. |
+
 ### `trcc display keepalive`
 
 Periodically resend the device's last frame. Workaround for Bulk/LY firmware that drops the displayed image when the internal buffer ages out. Render at least once before starting the loop so there's a cached frame to resend. `count=0` (default) runs open-ended and exits cleanly on Ctrl-C — the Command itself owns the loop + signal handling so the CLI doesn't need a user-space `while` wrapper.
@@ -1057,6 +1077,18 @@ trcc display upload-mask KEY SOURCE
 |---|---|
 | `KEY` | Device key |
 | `SOURCE` | Mask image file to copy + apply |
+
+### `trcc display video-duration`
+
+Print a video's duration in milliseconds (via ffprobe).
+
+```bash
+trcc display video-duration PATH
+```
+
+| Argument | Description |
+|---|---|
+| `PATH` | Video file to probe |
 
 ### `trcc display video-status`
 

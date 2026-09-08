@@ -144,6 +144,40 @@ Seconds between theme swaps (default 60).
 \fB\-\-help\fR
 Show this command's help and exit.
 .RE
+.SS export\-video
+.PP
+\fBtrcc display export\-video\fR \fIKEY\fR \fIPATH\fR [\fIOPTIONS\fR]
+.PP
+Encode a clip into a loose Theme.zt sized for the device's panel. Distinct from load\-video, which stages a whole theme directory and applies it. This gives you the .zt file itself  \-  to set as a background, to keep, or to hand to set\-background. The encode runs in the background and reports on the event bus, so \-\-wait follows it and \-\-no\-wait returns immediately with the token. Under TRCC_DAEMON=1 the work happens in the daemon and this terminal is simply watching it, which is why the progress can be followed from a process that is not doing the encoding.
+.PP
+Arguments:
+.RS 4
+.TP
+\fBKEY\fR
+Device key, e.g. 0402:3922
+.TP
+\fBPATH\fR
+Video file (MP4 / MOV / WEBM / MKV / AVI)
+.RE
+.PP
+Options:
+.RS 4
+.TP
+\fB\-\-start, \-s \fISTART_MS\fR\fR
+Clip start in milliseconds (default: 0).
+.TP
+\fB\-\-end, \-e \fIEND_MS\fR\fR
+Clip end in milliseconds (default: the whole clip).
+.TP
+\fB\-\-rotation, \-r \fIROTATION\fR\fR
+Rotation in degrees: 0 / 90 / 180 / 270.
+.TP
+\fB\-\-wait\fR
+Follow progress until the encode finishes (default), or print the token and return.
+.TP
+\fB\-\-help\fR
+Show this command's help and exit.
+.RE
 .SS keepalive
 .PP
 \fBtrcc display keepalive\fR \fIKEY\fR [\fIOPTIONS\fR]
@@ -1086,6 +1120,25 @@ Device key
 .TP
 \fBSOURCE\fR
 Mask image file to copy + apply
+.RE
+.PP
+Options:
+.RS 4
+.TP
+\fB\-\-help\fR
+Show this command's help and exit.
+.RE
+.SS video\-duration
+.PP
+\fBtrcc display video\-duration\fR \fIPATH\fR
+.PP
+Print a video's duration in milliseconds (via ffprobe).
+.PP
+Arguments:
+.RS 4
+.TP
+\fBPATH\fR
+Video file to probe
 .RE
 .PP
 Options:
