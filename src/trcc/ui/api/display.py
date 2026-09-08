@@ -201,13 +201,20 @@ def load_theme(key: str, body: ThemeRequest,
     # request's resolution-dir + theme-dir basenames against the trusted roots
     # by iterating, so the Path handed to LoadTheme comes entirely from
     # ``iterdir()`` — no user-controlled component flows into a filesystem call.
-    paths = request.app.state.trcc.platform.paths()
+    # The roots come off the BUS, not ``app.platform``: an ``AppProxy`` has no
+    # ``.platform``, so this route answered 500 under TRCC_DAEMON=1 while the
+    # same request worked in-process — the last reach in ``ui/`` that raised.
+    # ``PathsResult`` was built for exactly this (its own docstring cites #249)
+    # and its ``data_dir`` / ``user_data_dir`` are byte-identical to the port's.
+    # The CodeQL barrier is untouched: the Path handed to LoadTheme still comes
+    # entirely from ``iterdir()`` below, never from the request.
+    paths_result = request.app.state.trcc.dispatch(GetPaths())
     requested = Path(body.path)
     res_name, theme_name = requested.parent.name, requested.name
     if not theme_name:
         raise HTTPException(400, "Theme path required")
     candidate: Path | None = None
-    for root in (paths.user_data_dir(), paths.data_dir()):
+    for root in (Path(paths_result.user_data_dir), Path(paths_result.data_dir)):
         if not root.is_dir():
             continue
         res_dir = next((d for d in root.iterdir()

@@ -1243,9 +1243,17 @@ class LCDHandler(BaseHandler):
         # stayed blank.  The conversion is local toolkit work and stays here;
         # everything after it (look up the device, encode for its panel, send)
         # is one dispatch, which is also what makes it work in daemon mode.
+        # The conversion is local toolkit work — ``ui/gui`` IS the Qt adapter,
+        # and a module-level function keeps it out of ``app.renderer``, which
+        # an ``AppProxy`` does not have.  Reaching it there was the last thing
+        # in ``ui/`` that raised under TRCC_DAEMON=1: measured at 39
+        # AttributeErrors in ~7 seconds of a driven screencast, one per 150 ms
+        # tick.  Everything after it — look up the device, encode for its
+        # panel, send — is one dispatch, which is what makes it work remotely.
+        from ...adapters.render.qt import qimage_to_raw_rgb24
         result = self._app.dispatch(SendScreencastFrame(
             key=self._device_key,
-            frame=self._app.renderer.to_raw_rgb24(image),
+            frame=qimage_to_raw_rgb24(image),
         ))
         if not result.ok:
             self.log.debug("on_screencast_frame: %s", result.message)

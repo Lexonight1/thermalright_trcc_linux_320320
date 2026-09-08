@@ -411,23 +411,10 @@ class QtRenderer(Renderer):
         return qimg.convertToFormat(QImage.Format.Format_ARGB32)
 
     def to_raw_rgb24(self, surface: Any) -> RawFrame:
-        img = surface.convertToFormat(QImage.Format.Format_RGB888)
-        width, height = img.width(), img.height()
-        # ``constBits()`` spans the whole buffer INCLUDING per-line padding —
-        # Qt aligns each scanline to 4 bytes, so any width whose ``*3`` is not
-        # a multiple of 4 carries junk at the end of every row.  Copy the
-        # packed part of each line when the stride disagrees.
-        stride = img.bytesPerLine()
-        raw = bytes(img.constBits())
-        if stride == width * 3:
-            data = raw
-        else:
-            data = b"".join(
-                raw[y * stride:y * stride + width * 3] for y in range(height)
-            )
-        log.debug("to_raw_rgb24: %dx%d (stride=%d packed=%d)",
-                  width, height, stride, width * 3)
-        return RawFrame(data=data, width=width, height=height)
+        """Port method — the work lives in the module-level function, which the
+        Qt UI also calls without needing a ``Renderer`` (or an ``App``)."""
+        frame_log.debug("to_raw_rgb24: delegating to qimage_to_raw_rgb24")
+        return qimage_to_raw_rgb24(surface)
 
     # ── Fonts ─────────────────────────────────────────────────────────
 
@@ -454,3 +441,39 @@ class QtRenderer(Renderer):
         """Convert a QImage surface to a QPixmap (for GUI display)."""
         log.debug("to_pixmap: called")
         return QPixmap.fromImage(surface)
+
+
+def qimage_to_raw_rgb24(image: Any) -> RawFrame:
+    """A ``QImage`` as packed RGB24 — the shape the wire speaks.
+
+    A module-level function, not just a ``Renderer`` method, because the Qt UI
+    layer needs it WITHOUT an ``App``: the gui's screencast tick produces a
+    ``QImage`` and ``SendScreencastFrame`` wants a ``RawFrame``, and reaching
+    ``app.renderer`` to convert was the last thing in ``ui/`` that raised under
+    ``TRCC_DAEMON=1`` (``AttributeError: AppProxy has no attribute 'renderer'``,
+    measured at 39 occurrences in ~7 seconds of a driven screencast — the timer
+    fires every 150 ms).
+
+    Duplicating the conversion in the GUI would have scored BETTER on the
+    contract audit, which counts imports rather than duplication.  It would
+    also have meant two copies of the stride handling below, which is the one
+    genuinely subtle part.
+
+    ``constBits()`` spans the whole buffer INCLUDING per-line padding — Qt
+    aligns each scanline to 4 bytes, so any width whose ``*3`` is not a
+    multiple of 4 carries junk at the end of every row.  Copy the packed part
+    of each line when the stride disagrees.
+    """
+    img = image.convertToFormat(QImage.Format.Format_RGB888)
+    width, height = img.width(), img.height()
+    stride = img.bytesPerLine()
+    raw = bytes(img.constBits())
+    if stride == width * 3:
+        data = raw
+    else:
+        data = b"".join(
+            raw[y * stride:y * stride + width * 3] for y in range(height)
+        )
+    log.debug("qimage_to_raw_rgb24: %dx%d (stride=%d packed=%d)",
+              width, height, stride, width * 3)
+    return RawFrame(data=data, width=width, height=height)

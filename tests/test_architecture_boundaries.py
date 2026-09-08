@@ -987,7 +987,6 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # devices x2 -> ListDevices, devices x2 -> DeviceState (one shared
     # ``_ctx.resolution_for`` helper: the two CLI blocks were byte-identical
     # for 11 of 12 lines).  ONE remains, and it is not debt:
-    "ui/api/display.py": 1,          # platform.paths() — CodeQL barrier, #239
     # 2026-09-08: cli 0 -> 2, and this pair is NOT the failure mode the row
     # above is.  ``AppProxy.events`` EXISTS as of 0729d7db — a client that
     # holds one dispatches AND observes — so ``display export-video`` follows
@@ -1001,6 +1000,19 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # ``close()`` the partner it never had, so the four-call bring-up block
     # that was copy-pasted into run_daemon / run_gui / run_qtgui is ONE call
     # in one place.  Ground gained, not given back.
+    # 2026-09-08: ZERO reaches now RAISE under AppProxy — every UI can run as
+    # a daemon client without an AttributeError, which is what "the bus is
+    # universal in reach" finally means.  The last two are gone:
+    #   ui/api/display.py  platform.paths() -> GetPaths.  Proven: POST
+    #     /devices/<k>/display/theme answered HTTP 500 in daemon mode and 200
+    #     after.  The CodeQL barrier is untouched — the Path still comes from
+    #     iterdir(), only the ROOTS moved to the bus.
+    #   ui/gui/lcd_handler.py  app.renderer -> qimage_to_raw_rgb24, a
+    #     module-level function in the Qt adapter.  Proven by driving the real
+    #     screencast toggle: 39 AttributeErrors in ~7 s became 39 frames
+    #     dispatched ok, one per 150 ms tick.
+    # What REMAINS is events / start_session / discover_and_connect — all
+    # implemented on AppProxy, none of them a state read.
     # 2026-09-08: the UI bus.  These two are the WHOLE point of it — the
     # lifecycle that was hand-written in run_daemon / run_gui / run_qtgui / the
     # API now lives once, on ``UserInterface.start``.  They are the same pair
@@ -1017,7 +1029,6 @@ KNOWN_APP_REACHES: dict[str, int] = {
     # trade the row below buys: 2 reaches in ONE reviewable file instead of 5
     # scattered across two.
     "ui/_base.py": 2,                # start_session / close, for every face
-    "ui/gui/lcd_handler.py": 1,      # .renderer — a Command-signature question
     "ui/gui/splash.py": 1,           # discover_and_connect — lifecycle
     # 2026-09-05: 5 -> 4.  The tray's ``minimize_on_close`` comes off
     # ``GetPlatformInfo``, the Query this file already dispatches ten lines
@@ -1102,11 +1113,6 @@ CLI_API_REACH_EXCEPTIONS: dict[str, str] = {
         "— it is how a terminal watches an encode happening inside the "
         "daemon.  Observing is the other half of the bus; the invariant is "
         "'do not read App STATE', and an event subscription is not state"
-    ),
-    "ui/api/display.py": (
-        "scoped: CodeQL py/path-injection sanitizer barrier (#239) — the "
-        "trusted roots must come from the Paths port, not from Result strings. "
-        "Converting it needs its own review; GetPaths exists but returns str"
     ),
 }
 
@@ -1446,6 +1452,15 @@ KNOWN_UI_ADAPTER_IMPORTS: frozenset[tuple[str, str]] = frozenset({
     # a launch site, but it is still system information the ``Platform`` port
     # could answer, so it stays visible rather than being called a root.
     ("trcc/ui/cli/main.py", "trcc.adapters.infra.network"),
+    # 2026-09-08: ``qimage_to_raw_rgb24`` — the gui's screencast tick holds a
+    # QImage and ``SendScreencastFrame`` wants a RawFrame.  ``ui/gui`` IS the
+    # Qt adapter family, so reusing the Qt adapter's conversion is not a layer
+    # jump; reaching ``app.renderer`` for it WAS, and raised under
+    # TRCC_DAEMON=1 (39 AttributeErrors in ~7 s of driven screencast).
+    # Deliberately an import rather than a copy: duplicating the scanline
+    # stride handling would have scored BETTER here — this audit counts
+    # imports, not duplication — and been worse code.
+    ("trcc/ui/gui/lcd_handler.py", "trcc.adapters.render.qt"),
 })
 
 
