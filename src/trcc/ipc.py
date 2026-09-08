@@ -163,6 +163,12 @@ EVENT_TYPES: dict[str, type[Event]] = {
 # =========================================================================
 
 
+#: Response key set ONLY when the daemon-side dispatch raised, so the client can
+#: tell a Command that failed (a real Result with ``ok=False``) from a Command
+#: that blew up (a base Result that will AttributeError on first field access).
+_ERROR_KEY = "__error__"
+
+
 def _to_wire(value: Any) -> Any:
     """JSON-safe representation of arbitrary Python values."""
     if value is None or isinstance(value, (bool, int, float, str)):
@@ -783,16 +789,39 @@ class IPCServer:
         log.info("_evict: %d subscriber(s) remain", remaining)
 
     def _dispatch_envelope(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        """Decode, dispatch, encode.  Never lets a client kill the daemon.
+
+        The ``_ERROR_KEY`` marker distinguishes "the Command ran and reported
+        failure" from "the Command RAISED".  Without it both arrived as
+        ``{"type": "Result", "ok": False}``, which decodes to a BASE ``Result``
+        — and a caller reading the field it asked for got
+        ``AttributeError: 'Result' object has no attribute 'devices'``, with
+        the real exception nowhere in sight.  Verified end to end before this
+        marker existed.
+
+        Catching here is not optional: one client's bad Command must not take
+        down the process that owns USB for everyone else.  So the daemon
+        survives and the CLIENT re-raises, which is what in-process already
+        does when a Command raises.
+
+        Unknown keys are ignored by ``_build_dataclass`` (it reads only
+        declared fields), so adding this is backward compatible: an older
+        client decodes the same Result it always did.
+        """
         try:
             cmd = decode_command(envelope)
         except (ValueError, TypeError) as e:
-            return {"type": "Result", "ok": False, "message": f"Decode error: {e}"}
+            log.warning("_dispatch_envelope: undecodable command: %s", e)
+            return {"type": "Result", "ok": False,
+                    "message": f"Decode error: {e}",
+                    _ERROR_KEY: f"Decode error: {e}"}
         try:
             result = self._app.dispatch(cmd)
         except Exception as e:
             log.exception("Command %s raised", type(cmd).__name__)
             return {"type": "Result", "ok": False,
-                    "message": f"{type(e).__name__}: {e}"}
+                    "message": f"{type(e).__name__}: {e}",
+                    _ERROR_KEY: f"{type(e).__name__}: {e}"}
         return encode_result(result)
 
     @staticmethod

@@ -28,6 +28,7 @@ from typing import TypeVar
 
 from . import ipc
 from .core.commands import Command, DiscoverDevices
+from .core.errors import DaemonUnavailableError, RemoteCommandError
 from .core.events import EventBus
 from .core.results import Result
 
@@ -57,9 +58,40 @@ class AppProxy:
         self._closing = False
 
     def dispatch(self, cmd: Command[R]) -> R:
-        """Serialize *cmd*, round-trip through the daemon, return the Result."""
+        """Serialize *cmd*, round-trip through the daemon, return the Result.
+
+        Three outcomes, three shapes — chosen from measurement, not taste:
+
+        * the Command ran → its typed Result, exactly as in-process;
+        * the Command RAISED daemon-side → :class:`RemoteCommandError`.
+          In-process a raising Command propagates, and this restores that.
+          Before the marker existed the client got a base ``Result`` and then
+          ``AttributeError: 'Result' object has no attribute 'devices'`` on
+          first field access — the failure was never survivable, only
+          illegible;
+        * the daemon is gone → :class:`DaemonUnavailableError`.
+
+        Why the last two RAISE rather than return ``Result(ok=False)``:
+        ``DiscoverResult(ok=False)`` carries ``products=[]``, and **198 of 492
+        dispatch sites never check ``.ok``** — so a Result would quietly render
+        "no devices" on a screen whose daemon just died.  Neither is a new
+        failure: a dead daemon already raised ``ConnectionRefusedError``.  Both
+        now raise something with a NAME.
+        """
         envelope = ipc.encode_command(cmd)
-        response = ipc.one_shot_request(envelope, timeout=self._timeout)
+        try:
+            response = ipc.one_shot_request(envelope, timeout=self._timeout)
+        except OSError as e:
+            log.warning("AppProxy.dispatch: %s unreachable (%s: %s)",
+                        type(cmd).__name__, type(e).__name__, e)
+            raise DaemonUnavailableError(
+                f"the TRCC daemon is not reachable ({type(e).__name__}: {e}); "
+                f"{type(cmd).__name__} was not run",
+            ) from e
+        if (remote := response.get(ipc._ERROR_KEY)) is not None:
+            log.warning("AppProxy.dispatch: %s raised daemon-side: %s",
+                        type(cmd).__name__, remote)
+            raise RemoteCommandError(f"{type(cmd).__name__}: {remote}")
         result = ipc.decode_result(response)
         log.debug("AppProxy.dispatch: %s -> %s",
                   type(cmd).__name__, type(result).__name__)

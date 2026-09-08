@@ -44,6 +44,38 @@ class UnsupportedOperationError(TrccError):
     """Device or protocol doesn't support the requested operation."""
 
 
+class DaemonUnavailableError(TransportError):
+    """The daemon could not be reached, or died mid-session.
+
+    A ``TransportError`` because that is what it is: the socket to the process
+    that owns USB is gone.  It is raised rather than returned as a
+    ``Result(ok=False)`` for a measured reason — ``DiscoverResult(ok=False)``
+    carries ``products=[]``, and **198 of 492 dispatch sites never check
+    ``.ok``**, so a Result would render "no devices found" on a screen whose
+    daemon just died.  Raising cannot be silently ignored.
+
+    This is not a new failure mode: a dead daemon already raised, as a bare
+    ``ConnectionRefusedError`` / ``TimeoutError`` with no indication of what
+    the app was even talking to.  This gives that raise a name.
+    """
+
+
+class RemoteCommandError(TrccError):
+    """A Command raised inside the daemon, and the client is told so.
+
+    In-process, a Command that raises propagates to the caller.  Over the
+    socket it could not: ``_dispatch_envelope`` catches everything (it must —
+    one client's bad Command cannot be allowed to kill the daemon) and used to
+    answer with a BASE ``Result``, which decodes to ``Result(ok=False)`` and
+    then throws ``AttributeError: 'Result' object has no attribute 'devices'``
+    the moment the caller reads the field it asked for.  Verified end to end.
+
+    So the failure was never survivable — it was just illegible.  Re-raising
+    here restores the in-process shape: a Command that raises, raises, and the
+    message names the original exception instead of a missing attribute.
+    """
+
+
 class UnknownUserInterfaceError(TrccError):
     """No :class:`~trcc.ui.UserInterface` is registered under that name.
 
