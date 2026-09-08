@@ -183,6 +183,30 @@ class SensorDashboardResult(Result):
 
 
 @dataclass(frozen=True, slots=True)
+class DaemonResult(Result):
+    """State of the background daemon — the process that owns the hardware.
+
+    The daemon is application software, not an OS facility, so its lifecycle
+    belongs on the Command bus like every other capability.  Before this, cli
+    and api imported ``daemon.kill_daemon`` / ``ipc.daemon_running`` directly
+    and the two GUIs could not ask at all — so "is a daemon running?" was a
+    question only half the UIs could pose, about the process all four depend
+    on.
+    """
+    running: bool = False
+    #: True when THIS call started it.  Lets a UI say "started the background
+    #: service" rather than "connected", which are different events to a user.
+    spawned: bool = False
+    socket_path: str = ""
+    #: The daemon's OWN pid and uptime — 0 when the answering process is not
+    #: the daemon, which is honest rather than reporting the caller's.  They
+    #: come out right for free over the socket, because the Command executes
+    #: INSIDE the daemon: ``os.getpid()`` there IS the daemon.
+    pid: int = 0
+    uptime_seconds: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class EnsureDataDownloadResult(Result):
     """Forced theme/web/mask archive install for a resolution."""
     width: int = 0

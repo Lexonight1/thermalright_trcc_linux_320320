@@ -4,7 +4,7 @@
 
 Every capability in TRCC, as the one surface all four UIs dispatch against. A new UI — a browser client, a VR panel, a TUI — needs only this page and an event subscription; it never imports a service or an adapter.
 
-**139 total: 103 Commands and 36 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
+**142 total: 105 Commands and 37 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
 
 ## Dispatching one
 
@@ -1180,6 +1180,14 @@ App-wide settings snapshot.
 
 Takes no arguments.
 
+### `DaemonStatus`
+
+Is the background daemon running, and where is its socket?
+
+*Query* → `DaemonResult`
+
+Takes no arguments.
+
 ### `DisableAutostart`
 
 Remove the OS-specific autostart entry.
@@ -1197,6 +1205,16 @@ Install the OS-specific autostart entry (per-user, no sudo).
 | Field | Type | Required |
 |---|---|---|
 | `target` | `str | None` | no |
+
+### `EnsureDaemon`
+
+Guarantee a daemon is reachable, starting one if it is not.
+
+*Command* → `DaemonResult`
+
+| Field | Type | Required |
+|---|---|---|
+| `timeout` | `float` | no |
 
 ### `GenerateDebugReport`
 
@@ -1500,6 +1518,16 @@ Rotate a configured slideshow on a cadence until stopped.
 |---|---|---|
 | `key` | `str` | yes |
 | `interval_s` | `float` | no |
+
+### `StopDaemon`
+
+Ask a running daemon to shut down.
+
+*Command* → `DaemonResult`
+
+| Field | Type | Required |
+|---|---|---|
+| `timeout` | `float` | no |
 
 ### `StopSlideshowDriver`
 

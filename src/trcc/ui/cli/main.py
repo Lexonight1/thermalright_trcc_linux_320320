@@ -11,6 +11,7 @@ from pathlib import Path
 
 import typer
 
+from ...core.commands import DaemonStatus, EnsureDaemon, StopDaemon
 from . import config, device, display, led, system, theme
 from ._ctx import dumps_json, get_app
 
@@ -341,15 +342,35 @@ def daemon() -> None:
     raise typer.Exit(code=run_daemon())
 
 
+@app.command("ensure-daemon")
+def ensure_daemon_cmd(
+    timeout: float = typer.Option(
+        10.0, "--timeout", help="Seconds to wait for a spawned daemon."),
+) -> None:
+    """Start the background daemon if it is not already running.
+
+    *Is the daemon up?  No — create it.  Yes — nothing to do.*  Idempotent, so
+    a script can run it unconditionally before dispatching rather than probing
+    first and racing between the probe and the spawn.
+
+    Worth doing before a batch of commands: the daemon owns USB, the sensor
+    poll and the render loop, so every client that talks to it does that work
+    zero times instead of once each.
+    """
+    log.info("cli ensure-daemon: timeout=%s", timeout)
+    result = get_app().dispatch(EnsureDaemon(timeout=timeout))
+    typer.echo(result.message)
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
 @app.command("kill")
 def kill() -> None:
     """Ask the running daemon to shut down, return when its socket is gone."""
     log.info("cli kill")
-    from ...daemon import kill_daemon
-    if kill_daemon():
-        typer.echo("Daemon stopped.")
-    else:
-        typer.echo("Daemon failed to stop within timeout.", err=True)
+    result = get_app().dispatch(StopDaemon())
+    typer.echo(result.message)
+    if not result.ok:
         raise typer.Exit(code=1)
 
 
@@ -437,11 +458,9 @@ def daemon_status() -> None:
     the unified app + device snapshot.
     """
     log.info("cli daemon-status")
-    from ...ipc import daemon_running, socket_path
-    if daemon_running():
-        typer.echo(f"Daemon is running (socket: {socket_path()}).")
-    else:
-        typer.echo(f"No daemon reachable at {socket_path()}.")
+    result = get_app().dispatch(DaemonStatus())
+    typer.echo(f"{result.message} (socket: {result.socket_path}).")
+    if not result.running:
         raise typer.Exit(code=1)
 
 

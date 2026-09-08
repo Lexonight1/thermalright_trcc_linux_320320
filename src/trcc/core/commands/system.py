@@ -31,6 +31,7 @@ from ..models import (
 from ..results import (
     AutostartResult,
     ControlCenterSnapshotResult,
+    DaemonResult,
     DateFormatResult,
     DebugReportPayload,
     DiskDeviceResult,
@@ -600,6 +601,115 @@ class SetSensorDashboard(Command[SensorDashboardResult]):
             ok=True,
             panels=_copy_panels(app.sysinfo.panels),
             message=f"Saved {len(app.sysinfo.panels)} panel(s), {bound} bound row(s)",
+        )
+
+@dataclass(frozen=True, slots=True)
+class DaemonStatus(Query[DaemonResult]):
+    """Is the background daemon running, and where is its socket?
+
+    The daemon is the process that owns USB, polls the sensors and drives the
+    render loop.  Every UI depends on that being exactly ONE process — two
+    would poll the hardware twice and fight over the same handles — yet only
+    cli and api could ask, by importing ``ipc.daemon_running`` directly.
+
+    Cheap: a connect-test against the socket, no dispatch.
+    """
+
+    def execute(self, app: App) -> DaemonResult:
+        del app
+        import os
+
+        from ...daemon import is_this_process_the_daemon, uptime_s
+        from ...ipc import daemon_running, socket_path
+
+        running = daemon_running()
+        path = socket_path()
+        # "A daemon is running" and "I am it" are different facts.  Reporting
+        # the caller's pid for the daemon's sends an ops script to signal the
+        # wrong process; 0 says "ask the daemon" and dispatching this over the
+        # socket does exactly that, because it then executes there.
+        am_daemon = is_this_process_the_daemon()
+        pid = os.getpid() if am_daemon else 0
+        uptime = uptime_s()
+        log.info("DaemonStatus.execute: running=%s am_daemon=%s pid=%d "
+                 "uptime=%ds socket=%s", running, am_daemon, pid, uptime, path)
+        return DaemonResult(
+            ok=True, running=running, socket_path=str(path),
+            pid=pid, uptime_seconds=uptime,
+            message=("Daemon is running" if running
+                     else "No daemon is running"),
+        )
+
+@dataclass(frozen=True, slots=True)
+class EnsureDaemon(Command[DaemonResult]):
+    """Guarantee a daemon is reachable, starting one if it is not.
+
+    The whole shape a UI wants at boot: *is the daemon up?  no -- create it;
+    yes -- talk to it.*  Idempotent, so every UI can dispatch it
+    unconditionally without checking first.
+
+    **This is the lever for CPU.**  Today each UI that starts builds its own
+    ``App``: its own sensor poll, its own render pipeline, its own USB
+    handles.  Two UIs open means two of everything for one machine.  One
+    daemon and N thin clients means the work happens once no matter how many
+    windows, terminals or REST callers are attached.
+
+    Not a ``Platform`` capability -- the daemon is this application's own
+    software, not an OS facility, so it lives on the bus with everything else.
+    """
+    timeout: float = 10.0
+
+    def execute(self, app: App) -> DaemonResult:
+        del app
+        from ...daemon import ensure_daemon
+        from ...ipc import daemon_running, socket_path
+
+        was_running = daemon_running()
+        if was_running:
+            log.info("EnsureDaemon.execute: already running — nothing to do")
+            return DaemonResult(
+                ok=True, running=True, spawned=False,
+                socket_path=str(socket_path()),
+                message="Daemon already running",
+            )
+        log.info("EnsureDaemon.execute: no daemon — spawning one "
+                 "(timeout=%.1fs)", self.timeout)
+        started = ensure_daemon(timeout=self.timeout)
+        if not started:
+            # A UI that silently carries on in-process here would double the
+            # hardware work and never say so.
+            log.warning("EnsureDaemon.execute: spawn did not come up within "
+                        "%.1fs", self.timeout)
+        return DaemonResult(
+            ok=started, running=started, spawned=started,
+            socket_path=str(socket_path()),
+            message=("Started the background daemon" if started
+                     else f"Daemon did not come up within {self.timeout:.0f}s"),
+        )
+
+@dataclass(frozen=True, slots=True)
+class StopDaemon(Command[DaemonResult]):
+    """Ask a running daemon to shut down.
+
+    Idempotent: no daemon is a successful outcome, not an error, because the
+    caller's intent ("there should be no daemon") is already satisfied.
+    """
+    timeout: float = 5.0
+
+    def execute(self, app: App) -> DaemonResult:
+        del app
+        from ...daemon import kill_daemon
+        from ...ipc import socket_path
+
+        log.info("StopDaemon.execute: timeout=%.1fs", self.timeout)
+        stopped = kill_daemon(timeout=self.timeout)
+        if not stopped:
+            log.warning("StopDaemon.execute: daemon still reachable after "
+                        "%.1fs", self.timeout)
+        return DaemonResult(
+            ok=stopped, running=not stopped, socket_path=str(socket_path()),
+            message=("No daemon is running" if stopped
+                     else f"Daemon still running after {self.timeout:.0f}s"),
         )
 
 @dataclass(frozen=True, slots=True)

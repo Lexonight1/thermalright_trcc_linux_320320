@@ -1,0 +1,185 @@
+"""Daemon lifecycle on the Command bus.
+
+The daemon is this application's own software, not an OS facility, so its
+lifecycle belongs on the bus like every other capability.  Before these
+existed, ``cli`` and ``api`` imported ``daemon.kill_daemon`` /
+``ipc.daemon_running`` directly and the two GUIs could not ask at all — so
+"is a daemon running?" was a question only half the UIs could pose, about the
+one process all four depend on.
+
+The shape a UI wants at boot is *is the daemon up?  no — create it; yes —
+talk to it*, and it has to be idempotent so every UI can dispatch it
+unconditionally instead of probing first and racing its own spawn.
+"""
+from __future__ import annotations
+
+import time
+
+from trcc.app import App
+from trcc.core.commands import DaemonStatus, EnsureDaemon, StopDaemon
+
+
+def test_status_reports_no_daemon_on_a_clean_runtime_dir(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    result = App(fake_platform).dispatch(DaemonStatus())
+
+    assert result.ok            # answering "no" is a success, not a failure
+    assert not result.running
+    assert result.socket_path.startswith(str(tmp_path))
+
+
+def test_status_is_a_read_and_never_spawns(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    """``DaemonStatus`` is a Query — asking must not start anything."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    app = App(fake_platform)
+    app.dispatch(DaemonStatus())
+
+    assert not (tmp_path / "trcc.sock").exists()
+
+
+def test_stopping_a_daemon_that_is_not_running_succeeds(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    """The caller's intent — "there should be no daemon" — is already met.
+
+    Returning ok=False here would make every UI's shutdown path log an error
+    on the common case of a daemon that was never started.
+    """
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    result = App(fake_platform).dispatch(StopDaemon(timeout=2.0))
+
+    assert result.ok
+    assert not result.running
+
+
+def test_ensure_is_a_no_op_when_one_is_already_running(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    """Idempotence is what lets a UI dispatch it unconditionally at boot."""
+    import threading
+
+    from trcc.ipc import IPCServer
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    app = App(fake_platform)
+    srv = IPCServer(app)
+    srv.start()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        result = app.dispatch(EnsureDaemon(timeout=5.0))
+        assert result.ok
+        assert result.running
+        assert not result.spawned, "it spawned a SECOND daemon for one machine"
+    finally:
+        srv.shutdown()
+
+
+def test_every_ui_can_reach_the_daemon_lifecycle(fake_platform) -> None:
+    """The point of moving it onto the bus.
+
+    ``cli`` imported ``kill_daemon`` and ``daemon_running``; ``api`` imported
+    ``kill_daemon``; neither GUI could ask at all.
+    """
+    import ast
+    import pathlib
+
+    for name in ("DaemonStatus", "EnsureDaemon", "StopDaemon"):
+        assert hasattr(
+            __import__("trcc.core.commands", fromlist=[name]), name,
+        ), f"{name} is not exported from the Command package"
+
+    # And the two UIs that used to import the functions now dispatch instead.
+    for rel in ("ui/cli/main.py", "ui/api/trcc.py"):
+        src = pathlib.Path("src/trcc", rel).read_text(encoding="utf-8")
+        imported = {
+            alias.name
+            for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        assert "kill_daemon" not in imported, (
+            f"{rel} still imports kill_daemon instead of dispatching StopDaemon"
+        )
+        assert "daemon_running" not in imported, (
+            f"{rel} still imports daemon_running instead of DaemonStatus"
+        )
+
+
+def test_status_never_reports_the_callers_pid_as_the_daemons(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    """"A daemon is running" and "I am it" are different facts.
+
+    ``GET /trcc/status`` used to answer ``os.getpid()`` and the private
+    ``daemon._started_at``: this process's facts, presented as the daemon's.
+    Correct only while the API ran INSIDE the daemon — as a client it named
+    the wrong process for an ops script to signal, and a permanent uptime of
+    zero.  Zero here means "ask the daemon", and dispatching over the socket
+    does exactly that because the Command then executes there.
+    """
+    import os
+    import threading
+
+    import trcc.daemon as daemon_mod
+    from trcc.ipc import IPCServer
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    # ``_started_at`` is process-global: once any test runs the daemon
+    # in-process this worker is "the daemon" for good.  Pin it so this test
+    # measures the CLIENT case it is about.
+    monkeypatch.setattr(daemon_mod, "_started_at", None)
+    app = App(fake_platform)
+    srv = IPCServer(app)
+    srv.start()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        result = app.dispatch(DaemonStatus())
+        # A socket is reachable, but THIS process never called run_daemon.
+        assert result.running
+        assert result.pid == 0, "reported the caller's pid as the daemon's"
+        assert result.pid != os.getpid()
+        assert result.uptime_seconds == 0
+    finally:
+        srv.shutdown()
+
+
+def test_the_api_no_longer_reads_daemon_privates(fake_platform) -> None:
+    """``ui/api/trcc.py`` imported ``daemon._started_at`` — a private global.
+
+    It was the only cross-layer private import in the whole ``ui/`` tree.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path("src/trcc/ui/api/trcc.py").read_text(encoding="utf-8")
+    private = {
+        alias.name
+        for node in ast.walk(ast.parse(src))
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name.startswith("_") and not alias.name.startswith("__")
+    }
+    assert not private, f"ui/api/trcc.py imports privates: {sorted(private)}"
+
+
+def test_uptime_is_zero_rather_than_invented_off_the_daemon(
+    fake_platform, tmp_path, monkeypatch,
+) -> None:
+    """A process that is not the daemon does not know how long it has been up."""
+    import trcc.daemon as daemon_mod
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    # ``_started_at`` is process-global and another test in this worker may
+    # have run the daemon in-process; pin it rather than inherit whatever ran
+    # first.
+    monkeypatch.setattr(daemon_mod, "_started_at", None)
+    assert not daemon_mod.is_this_process_the_daemon()
+    assert daemon_mod.uptime_s() == 0
+
+    monkeypatch.setattr(daemon_mod, "_started_at", time.monotonic() - 42)
+    assert daemon_mod.is_this_process_the_daemon()
+    assert daemon_mod.uptime_s() >= 42

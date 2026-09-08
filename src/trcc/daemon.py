@@ -105,6 +105,35 @@ def run_daemon(
 # =========================================================================
 
 
+def is_this_process_the_daemon() -> bool:
+    """True iff THIS process called :func:`run_daemon`.
+
+    The distinction matters because "a daemon is running" and "I am it" are
+    different facts, and a client that conflates them reports its own pid and
+    a zero uptime as though they were the daemon's.  Public because the answer
+    belongs to callers, not to this module's internals — ``ui/api/trcc.py``
+    used to read the private ``_started_at`` directly.
+    """
+    log.debug("is_this_process_the_daemon: %s", _started_at is not None)
+    return _started_at is not None
+
+
+def uptime_s() -> int:
+    """Seconds since this process became the daemon; 0 if it never did.
+
+    Zero is honest here: a process that is not the daemon does not know how
+    long the daemon has been up, and inventing a number would be worse than
+    reporting none.  Ask the daemon (dispatch ``DaemonStatus`` over the
+    socket) and the Command runs THERE, where the answer is real.
+    """
+    if _started_at is None:
+        log.debug("uptime_s: this process is not the daemon — 0")
+        return 0
+    seconds = int(time.monotonic() - _started_at)
+    log.debug("uptime_s: %ds", seconds)
+    return seconds
+
+
 def ensure_daemon(*, timeout: float = 10.0) -> bool:
     """Make sure a daemon is reachable, spawning one if not.
 
