@@ -23,6 +23,42 @@ Recover state from the files on disk, not the compressed index or a blank slate.
 Memories are point-in-time — verify any file:line claim against current code
 before asserting it as fact.
 
+### RE-INVESTIGATE the resume item before you execute it
+
+`SESSION.md` names a "resume here" item, usually with a plan behind it. **That
+plan is prose written by a past session, and prose is the thing this project
+keeps finding wrong.** Before writing any code for it, re-verify the claims it
+rests on against the code as it is now — the file:line anchors, the "already
+built" assertions, the sizing, the "this is safe because X".
+
+Not a re-read of the memo. A re-measurement: run the tool, grep the caller,
+open the body, dispatch the Command. If a claim survives, you have lost ten
+minutes. If it does not, you have avoided building on it.
+
+Earned on 2026-09-03, when a single session found **five** written claims that
+were false and nothing checked any of them:
+
+* CLAUDE.md called `restore_inactive_state` load-bearing for multi-LCD; it had
+  **zero callers anywhere** and was superseded.
+* CLAUDE.md named `EnsureDataCommand`; the tree has **0** references (it is
+  `EnsureDataDownload`), and the methods live in `lcd_handler.py`, not where the
+  note implied.
+* The parity record excused `RestoreLastTheme` with "the API and GUI use the
+  unified RestoreDeviceState" — gui's ONLY site was dead code. The recorded
+  *reach* was accurate, so the gate passed while the prose beside it was fiction.
+* METHOD_UI.md: "Every CLI wire command and API wire route attaches first."
+  Measured, the API attaches **nothing**, ever, in the default mode.
+* `doc/REFERENCE_API.md` documents an API that does not exist — **10 of 10**
+  sampled routes absent, a select-then-act lifecycle replaced long ago, and a
+  port number that is wrong.
+
+The pattern: `REFERENCE_CLI.md` and `REFERENCE_PORTS.md` are **generated and
+gated** and stayed correct. Everything hand-written and ungated drifted. A
+session plan is hand-written and ungated, so treat it as a hypothesis, never as
+a finding — including a plan you wrote yourself last session.
+
+Say what the re-investigation changed, out loud, before starting the work.
+
 **Session wrap-up (the other half of the loop):** before overwriting
 `SESSION.md` with the new state, copy its outgoing content to
 `memory/sessions/YYYY-MM-DD-<slug>.md` and add a line to that folder's README
