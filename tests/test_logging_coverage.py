@@ -52,7 +52,13 @@ import logging_coverage  # noqa: E402  # pyright: ignore[reportMissingImports]
 #: 1340 -> 1339 the same day: ``TRCCApp._create_i18n_overlays`` builds the whole
 #: About pane and the language picker and said nothing, so a report could not
 #: show which language the labels were rendered in.
-MAX_SILENT = 1334
+#: 1334 -> 1327 on 2026-09-08 with the video-export port.  Five came from
+#: DELETING silent code rather than logging it: gui's hand-rolled
+#: ``ExportWorker`` (its ``run``/``_do_export`` said nothing about an ffmpeg
+#: failure) and qtgui's ``_ExportThread`` both went, replaced by one runner
+#: whose every branch logs.  A duplicate implementation is silent twice.
+#: The other two are the runner's own helpers, logged as they were written.
+MAX_SILENT = 1327
 
 
 def test_logging_coverage_only_improves() -> None:

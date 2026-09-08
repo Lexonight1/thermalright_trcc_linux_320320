@@ -259,11 +259,3 @@ def probe_duration_ms(source: Path) -> int:
     except ValueError:
         return 0
     return max(0, int(seconds * 1000))
-
-
-# Transitional aliases for ``ui/qtgui/video_crop.py``, which still imports the
-# limits from here.  Removed in the commit that rewires it onto the bus — the
-# constants' owner is ``core.models`` now, and a UI has no business importing
-# from a service at all.
-MAX_DURATION_MS = ZT_MAX_DURATION_MS
-EXPORT_FPS = ZT_FPS

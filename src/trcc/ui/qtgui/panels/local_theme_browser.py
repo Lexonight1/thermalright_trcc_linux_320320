@@ -336,24 +336,22 @@ class LocalThemeBrowser(AssetBrowserPanel):
         key = self._device_key()
         if key is None:
             return
-        size = self._target_resolution(key)
-        if size is None:
-            return
-        target_w, target_h = size
-
+        # No ``_target_resolution`` here any more: ``ExportVideoClip``
+        # resolves the canvas from the device (or the registry) itself, and
+        # a second lookup at the call site is a second thing to get wrong.
         source, _ = QFileDialog.getOpenFileName(
             self, "Pick a source video", "",
-            "Videos (*.mp4 *.mov *.webm *.mkv *.avi *.zt)",
+            f"Videos ({MEDIA.patterns(MediaKind.ANIMATED)})",
         )
         if not source:
             return
 
         from ..video_crop import VideoCropDialog
-        dialog = VideoCropDialog(self)
-        if not dialog.load_video(Path(source), target_w, target_h):
-            self._status.setText(
-                "Couldn't load video — check ffprobe is installed.",
-            )
+        dialog = VideoCropDialog(self.app, self.bus, key, self)
+        if not dialog.load_video(Path(source)):
+            # The dialog already showed the Result's own wording; repeating
+            # a guess about ffprobe here would contradict it.
+            self._status.setText(f"Couldn't load {Path(source).name}.")
             return
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self._status.setText("Video crop cancelled.")

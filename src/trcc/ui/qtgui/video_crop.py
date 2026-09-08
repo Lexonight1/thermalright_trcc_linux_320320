@@ -1,15 +1,19 @@
 """VideoCropDialog — choose start/end, preview, export to Theme.zt.
 
-Wraps :class:`VideoExporter` in a modal :class:`QDialog`:
+A modal :class:`QDialog` over the ``ExportVideoClip`` Command:
 
 * Frame preview (single ffmpeg seek per scrub).
 * Timeline with in/out handles + click-to-seek.
 * Time labels (current / duration / clip start / clip end).
 * Fit-width / fit-height / rotate / preview-play / export buttons.
-* Progress bar while the export runs in a background QThread.
+* Progress bar fed by ``VideoExportProgress`` events.
 
-The dialog never blocks the GUI: ffmpeg work happens in
-:class:`_ExportThread`, progress is wired to the bar via a Qt signal.
+The dialog never blocks the GUI, and no longer owns a thread to
+achieve that.  It used to run :class:`VideoExporter` in a private
+``_ExportThread`` — a window owning the encode, invisible to the CLI,
+the API and to any other client of the same daemon, and a crash under
+``TRCC_DAEMON=1`` where the file may not even be on this machine.  Now
+it dispatches, matches the token it gets back, and watches the bus.
 
 Successful exports leave the produced ``Theme.zt`` on disk; the caller
 reads :meth:`output_path` to find it.  Cancel returns ``None``.
@@ -19,8 +23,9 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QBrush,
@@ -42,14 +47,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...services.video_export import (
-    EXPORT_FPS,
-    MAX_DURATION_MS,
-    VideoExporter,
-    VideoExportError,
-    VideoExportRequest,
-    probe_duration_ms,
+from ...core.commands import ExportVideoClip, ProbeVideoDuration
+from ...core.models import (
+    ZT_FPS as EXPORT_FPS,
 )
+from ...core.models import (
+    ZT_MAX_DURATION_MS as MAX_DURATION_MS,
+)
+
+if TYPE_CHECKING:
+    from ...app import App
+    from ..bus_bridge import BusBridge
 
 log = logging.getLogger(__name__)
 
@@ -183,87 +191,79 @@ class _TimelineBar(QWidget):
         self._dragging = None
 
 
-class _ExportThread(QThread):
-    """Run :class:`VideoExporter` off the main thread."""
-
-    progress = Signal(int, str)
-    succeeded = Signal(str)
-    failed = Signal(str)
-
-    def __init__(self, request: VideoExportRequest) -> None:
-        super().__init__()
-        self._request = request
-
-    def run(self) -> None:
-        try:
-            output = VideoExporter().export_zt(
-                self._request, progress=self._on_progress,
-            )
-        except VideoExportError as e:
-            self.failed.emit(str(e))
-            return
-        except Exception as e:  # last-ditch — never let a worker crash the UI
-            log.exception("VideoExporter raised unexpected exception")
-            self.failed.emit(f"Unexpected export failure: {e}")
-            return
-        self.succeeded.emit(str(output))
-
-    def _on_progress(self, percent: int, message: str) -> None:
-        log.info("_on_progress: percent=%s message=%s", percent, message)
-        self.progress.emit(percent, message)
-
-
 class VideoCropDialog(QDialog):
     """Modal: load a video, trim it, export a ``Theme.zt``.
 
     Usage::
 
-        dialog = VideoCropDialog(parent)
-        dialog.load_video(Path("clip.mp4"), target_w=480, target_h=480)
+        dialog = VideoCropDialog(app, bus, key, parent)
+        dialog.load_video(Path("clip.mp4"))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             zt_path = dialog.output_path()
+
+    Takes the *key* rather than a resolution: the canvas is the panel's
+    own, and ``ExportVideoClip`` already resolves it from the device or
+    the product registry.  A caller passing dimensions would be a second
+    place that lookup could be got wrong.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        app: App,
+        bus: BusBridge,
+        key: str,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Crop video → Theme.zt")
         self.setModal(True)
 
+        self._app = app
+        self._bus = bus
+        self._key = key
         self._video_path: Path | None = None
         self._duration_ms = 0
-        self._target_w = 0
-        self._target_h = 0
         self._rotation = 0
         self._preview_pix: QPixmap | None = None
         self._output: Path | None = None
         self._exporting = False
-        self._export_thread: _ExportThread | None = None
+        #: The export this dialog started.  Every client of one daemon sees
+        #: every export event, so a dialog that reacted to all of them would
+        #: track a stranger's progress bar.
+        self._token = ""
         self._playing = False
         self._play_pos_ms = 0
         self._play_timer = QTimer(self)
         self._play_timer.timeout.connect(self._on_play_tick)
         self._build()
+        # Queued: the runner publishes from its worker thread, and a Qt
+        # widget may only be touched on the main one.
+        self._bus.video_export_progress.connect(
+            self._on_export_progress, Qt.ConnectionType.QueuedConnection)
+        self._bus.video_export_finished.connect(
+            self._on_export_finished, Qt.ConnectionType.QueuedConnection)
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def load_video(
-        self, path: Path, target_w: int, target_h: int,
-    ) -> bool:
-        """Load *path* for trimming.  Returns ``False`` on failure."""
+    def load_video(self, path: Path) -> bool:
+        """Load *path* for trimming.  Returns ``False`` on failure.
+
+        The duration comes from ``ProbeVideoDuration`` rather than from
+        ``probe_duration_ms``: under ``TRCC_DAEMON=1`` this process may
+        not be the one that can read the file, and the Command runs
+        where it can.  The Result already carries a worded message, so
+        this method no longer invents one.
+        """
+        log.info("load_video: path=%s key=%s", path, self._key)
         self._video_path = path
-        self._target_w = target_w
-        self._target_h = target_h
         self._rotation = 0
-        self._duration_ms = probe_duration_ms(path)
-        if self._duration_ms <= 0:
-            self._info.setText(
-                f"Couldn't read duration of {path.name}.  "
-                "Is ffprobe installed and the file a real video?",
-            )
+        probe = self._app.dispatch(ProbeVideoDuration(path=path))
+        self._duration_ms = probe.duration_ms
+        if not probe.ok:
+            log.warning("load_video: %s — %s", path, probe.message)
+            self._info.setText(f"{path.name}: {probe.message}")
             return False
-        self._target_label.setText(
-            f"Target: {target_w}×{target_h}px • Source: {path.name}",
-        )
+        self._target_label.setText(f"Source: {path.name}")
         self._duration_label.setText(_format_ms(self._duration_ms))
         self._timeline.set_range(self._duration_ms)
         self._start_label.setText(_format_ms(0))
@@ -444,69 +444,81 @@ class VideoCropDialog(QDialog):
     # ── Export ───────────────────────────────────────────────────────
 
     def _on_export_clicked(self) -> None:
-        log.info("_on_export_clicked")
+        log.info("_on_export_clicked: key=%s rotation=%d",
+                 self._key, self._rotation)
         if self._video_path is None:
             self._info.setText("Load a video first.")
             return
         if self._exporting:
+            log.debug("_on_export_clicked: already exporting — ignored")
             return
         self._stop_play()
         start, end = self._timeline.clip_ms()
-        request = VideoExportRequest(
-            source=self._video_path,
+        result = self._app.dispatch(ExportVideoClip(
+            key=self._key,
+            path=self._video_path,
             start_ms=start,
             end_ms=end,
-            target_w=self._target_w,
-            target_h=self._target_h,
             rotation=self._rotation,
-        )
+        ))
+        if not result.ok:
+            # Every guard answers here, at the click, rather than arriving
+            # as a failed event once the worker gets to it.
+            log.warning("_on_export_clicked: refused — %s", result.message)
+            self._info.setText(result.message)
+            return
+        self._token = result.token
         self._exporting = True
         self._buttons.button(
             QDialogButtonBox.StandardButton.Ok,
         ).setEnabled(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
+        self._target_label.setText(
+            f"Target: {result.target_w}×{result.target_h}px • "
+            f"Source: {self._video_path.name}",
+        )
         self._info.setText("Exporting…")
-        self._export_thread = _ExportThread(request)
-        self._export_thread.progress.connect(self._on_export_progress)
-        self._export_thread.succeeded.connect(self._on_export_succeeded)
-        self._export_thread.failed.connect(self._on_export_failed)
-        self._export_thread.finished.connect(self._cleanup_thread)
-        self._export_thread.start()
 
     def _on_cancel_clicked(self) -> None:
-        log.info("_on_cancel_clicked")
-        if self._exporting and self._export_thread is not None:
-            # Terminate is heavy-handed but ffmpeg can run for minutes;
-            # the temp dir is cleaned up by VideoExporter's own except.
-            self._export_thread.requestInterruption()
-            self._export_thread.terminate()
+        log.info("_on_cancel_clicked: exporting=%s", self._exporting)
+        # A running export is NOT killed.  It belongs to the app, not to
+        # this window: another client may be watching it, and under
+        # TRCC_DAEMON=1 it is not even this process's to terminate.  The
+        # old code called ``QThread.terminate`` on its private worker.
+        self._token = ""
         self._stop_play()
         self.reject()
 
-    def _on_export_progress(self, percent: int, message: str) -> None:
-        log.info("_on_export_progress: percent=%s message=%s", percent, message)
+    def _on_export_progress(self, event: object) -> None:
+        token = getattr(event, "token", "")
+        if token != self._token:
+            return
+        percent = getattr(event, "percent", 0)
+        message = getattr(event, "message", "")
+        log.debug("_on_export_progress: %d%% %s", percent, message)
         self._progress.setValue(percent)
         self._info.setText(message)
 
-    def _on_export_succeeded(self, output_path_str: str) -> None:
-        log.info("_on_export_succeeded: output_path_str=%s", output_path_str)
-        self._output = Path(output_path_str)
-        self._info.setText(f"Exported to {output_path_str}")
+    def _on_export_finished(self, event: object) -> None:
+        if getattr(event, "token", "") != self._token:
+            return
+        ok = bool(getattr(event, "ok", False))
+        message = getattr(event, "message", "")
+        path = getattr(event, "path", "")
+        log.info("_on_export_finished: ok=%s path=%s message=%s",
+                 ok, path, message)
+        self._exporting = False
+        self._token = ""
         self._buttons.button(
             QDialogButtonBox.StandardButton.Ok,
         ).setEnabled(True)
-        self._exporting = False
+        if not ok:
+            self._info.setText(f"Export failed: {message}")
+            self._progress.setVisible(False)
+            return
+        self._output = Path(path)
+        self._info.setText(message)
         self.accept()
 
-    def _on_export_failed(self, message: str) -> None:
-        log.info("_on_export_failed: message=%s", message)
-        self._info.setText(f"Export failed: {message}")
-        self._progress.setVisible(False)
-        self._buttons.button(
-            QDialogButtonBox.StandardButton.Ok,
-        ).setEnabled(True)
-        self._exporting = False
 
-    def _cleanup_thread(self) -> None:
-        self._export_thread = None

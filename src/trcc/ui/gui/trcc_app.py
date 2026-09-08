@@ -38,6 +38,7 @@ from ...core.commands import (
     DeviceState,
     DownloadCloudTheme,
     EnableOverlay,
+    ExportVideoClip,
     GetPaths,
     GetPlatformInfo,
     ListDevices,
@@ -442,6 +443,9 @@ class TRCCApp(QMainWindow):
         # ── EventBus → BusBridge → Qt signals (QueuedConnection ensures
         # delivery on the Qt main thread regardless of publish thread).
         self._bus = BusBridge(app.events)
+        #: Token of the export THIS window started, so a second
+        #: client's export cannot drive this progress bar.
+        self._video_export_token = ""
         # Screencast lifecycle subscribes through the bus — TRCCApp keeps
         # owning the handler, but Start/Stop now arrive as events so
         # CLI / API / daemon callers drive screencast through the same
@@ -454,6 +458,10 @@ class TRCCApp(QMainWindow):
         self._bus.sensors_updated.connect(self._on_bus_sensors_updated, type=qconn)
         self._bus.video_started.connect(self._on_bus_video_started, type=qconn)
         self._bus.video_stopped.connect(self._on_bus_video_stopped, type=qconn)
+        self._bus.video_export_progress.connect(
+            self._on_bus_video_export_progress, type=qconn)
+        self._bus.video_export_finished.connect(
+            self._on_bus_video_export_finished, type=qconn)
         self._bus.system_suspending.connect(self._on_bus_system_suspending, type=qconn)
         self._bus.data_installed.connect(self._on_bus_data_installed, type=qconn)
         # Live errors → transient tray balloon (spam-safe; render/transport
@@ -1587,6 +1595,8 @@ class TRCCApp(QMainWindow):
 
         self.uc_image_cut.image_cut_done.connect(self._on_image_cut_done)
         self.uc_video_cut.video_cut_done.connect(self._on_video_cut_done)
+        self.uc_video_cut.export_requested.connect(
+            self._on_video_export_requested)
 
         self.uc_activity_sidebar.sensor_clicked.connect(self._on_sensor_element_add)
 
@@ -2203,6 +2213,58 @@ class TRCCApp(QMainWindow):
         if hasattr(self, 'uc_theme_mask'):
             self.uc_theme_mask.refresh_masks()
         self.uc_preview.set_status(f"Custom mask '{mask_name}' uploaded")
+
+    def _on_video_export_requested(
+        self, start_ms: int, end_ms: int, rotation: int,
+    ) -> None:
+        """The trimmer asked for an encode — dispatch it for the active LCD.
+
+        The panel owns the trim, the window owns the device.  ``ExportVideoClip``
+        resolves the canvas itself, so nothing here has to know the panel size.
+        """
+        log.info("_on_video_export_requested: start=%d end=%d rotation=%d",
+                 start_ms, end_ms, rotation)
+        h = self._active_lcd()
+        path = getattr(self.uc_video_cut, "_video_path", None)
+        if h is None or not path:
+            log.warning("_on_video_export_requested: no active LCD (%s) or no "
+                        "video loaded (%s)", h, path)
+            self.uc_video_cut.export_refused("No device selected.")
+            return
+        result = self._app.dispatch(ExportVideoClip(
+            key=h.device_key, path=Path(path),
+            start_ms=start_ms, end_ms=end_ms, rotation=rotation,
+        ))
+        if not result.ok:
+            log.warning("_on_video_export_requested: refused — %s",
+                        result.message)
+            self.uc_video_cut.export_refused(result.message)
+            return
+        # Every client of one daemon sees every export event, so the panel
+        # is told which one is its own.
+        self._video_export_token = result.token
+        log.info("_on_video_export_requested: queued token=%s at %dx%d",
+                 result.token, result.target_w, result.target_h)
+
+    def _on_bus_video_export_progress(self, event: Any) -> None:
+        # DEBUG, not INFO: an encode publishes a handful of these per run but
+        # a long clip publishes many, and the one-shot lines a report is read
+        # for must not be buried under them.
+        log.debug("_on_bus_video_export_progress: token=%s %s%% %s",
+                  getattr(event, "token", ""), getattr(event, "percent", ""),
+                  getattr(event, "message", ""))
+        if getattr(event, "token", "") != self._video_export_token:
+            return
+        self.uc_video_cut.set_export_progress(event.percent, event.message)
+
+    def _on_bus_video_export_finished(self, event: Any) -> None:
+        if getattr(event, "token", "") != self._video_export_token:
+            return
+        log.info("_on_bus_video_export_finished: ok=%s path=%s",
+                 event.ok, event.path)
+        self._video_export_token = ""
+        self.uc_video_cut.export_finished(
+            event.ok, event.path, event.message)
 
     def _on_video_cut_done(self, zt_path: Any) -> None:
         log.info("_on_video_cut_done: zt_path=%s", zt_path)

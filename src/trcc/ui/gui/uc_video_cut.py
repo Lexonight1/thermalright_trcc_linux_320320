@@ -4,17 +4,24 @@ PyQt6 UCVideoCut - Video trimmer panel.
 Matches Windows TRCC UCVideoCut functionality (500x702).
 Provides timeline scrubber with in/out handles, fit modes, rotation,
 and Theme.zt export.
+
+The encode is NOT done here.  This panel used to carry an
+``ExportWorker`` QThread that hand-rolled the ffmpeg invocation and the
+``.zt`` container writer — a second implementation of
+``services/video_export.py``, which had already drifted from it (the
+service passed no ``creationflags``, this one did) and which the
+contract audit could not even see, because a reimplementation imports
+nothing.  The panel now emits :attr:`export_requested` and the window
+dispatches ``ExportVideoClip``; progress arrives back through
+:meth:`set_export_progress`.
 """
 
 from __future__ import annotations
 
 import logging
-import struct
 import subprocess
-import tempfile
-from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -28,7 +35,13 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QLabel, QProgressBar, QWidget
 
 from ...core.models import SUBPROCESS_NO_WINDOW as _NO_WINDOW
-from ...core.models import ThemeDir, panel_asset_dims
+from ...core.models import (
+    ZT_FRAME_INTERVAL_MS as FRAME_INTERVAL_MS,
+)
+from ...core.models import (
+    ZT_MAX_DURATION_MS as MAX_DURATION_MS,
+)
+from ...core.models import panel_asset_dims
 from .assets import Assets
 from .base import make_icon_button
 
@@ -46,10 +59,6 @@ TIMELINE_X, TIMELINE_Y = 9, 564
 TIMELINE_W, TIMELINE_H = 480, 20
 
 HANDLE_W, HANDLE_H = 15, 20
-
-MAX_DURATION_MS = 300000  # 5 minutes
-EXPORT_FPS = 24
-FRAME_INTERVAL_MS = 1000.0 / EXPORT_FPS  # ~41.67ms
 
 # Button positions (y=656 row)
 BTN_HEIGHT_FIT = (169, 656, 34, 26)
@@ -81,116 +90,6 @@ def _format_time(ms):
 
 
 # ============================================================================
-# Export worker thread
-# ============================================================================
-
-class ExportWorker(QThread):
-    """Background thread for FFmpeg frame extraction + Theme.zt assembly."""
-
-    progress = Signal(int, str)  # percent, message
-    finished = Signal(str)       # output path (empty on error)
-    error = Signal(str)
-
-    def __init__(self, video_path, start_ms, end_ms, target_w, target_h,
-                 rotation, width_fit):
-        super().__init__()
-        self.video_path = str(video_path)
-        self.start_ms = start_ms
-        self.end_ms = end_ms
-        self.target_w = target_w
-        self.target_h = target_h
-        self.rotation = rotation
-        self.width_fit = width_fit
-
-    def run(self):
-        try:
-            self._do_export()
-        except Exception as e:
-            self.error.emit(str(e))
-
-    def _do_export(self):
-        temp_dir = Path(tempfile.mkdtemp(prefix='trcc_videocut_'))
-        frames_dir = temp_dir / 'frames'
-        frames_dir.mkdir(parents=True, exist_ok=True)
-
-        duration_ms = self.end_ms - self.start_ms
-        start_s = self.start_ms / 1000.0
-        duration_s = duration_ms / 1000.0
-
-        # Build FFmpeg command
-        vf_filters = []
-        if self.rotation == 90:
-            vf_filters.append('transpose=1')
-        elif self.rotation == 180:
-            vf_filters.append('transpose=1,transpose=1')
-        elif self.rotation == 270:
-            vf_filters.append('transpose=2')
-
-        cmd = [
-            'ffmpeg', '-ss', str(start_s), '-t', str(duration_s),
-            '-i', self.video_path, '-y',
-            '-r', str(EXPORT_FPS),
-            '-s', f'{self.target_w}x{self.target_h}',
-        ]
-        if vf_filters:
-            cmd.extend(['-vf', ','.join(vf_filters)])
-        cmd.extend(['-f', 'image2', '-q:v', '5',
-                    str(frames_dir / '%04d.jpg')])
-
-        self.progress.emit(5, "Extracting frames...")
-        result = subprocess.run(cmd, capture_output=True, timeout=600,
-                                creationflags=_NO_WINDOW)
-        if result.returncode != 0:
-            self.error.emit(f"FFmpeg error: {result.stderr.decode()[:200]}")
-            return
-
-        # Collect JPEG files (ffmpeg wrote them directly)
-        jpg_paths = sorted(frames_dir.glob('*.jpg'))
-        if not jpg_paths:
-            self.error.emit("No frames extracted")
-            return
-
-        total = len(jpg_paths)
-        self.progress.emit(20, f"Packaging {total} frames...")
-        jpeg_data_list = []
-
-        for i, jpg_path in enumerate(jpg_paths):
-            jpeg_data_list.append(jpg_path.read_bytes())
-            jpg_path.unlink()
-            pct = 20 + int(60 * (i + 1) / total)
-            if i % 10 == 0:
-                self.progress.emit(pct, f"Packaging {i+1}/{total}...")
-
-        # Write Theme.zt
-        self.progress.emit(85, "Writing Theme.zt...")
-        output_path = ThemeDir(temp_dir).zt
-        frame_count = len(jpeg_data_list)
-
-        with output_path.open('wb') as f:
-            # Magic byte
-            f.write(struct.pack('B', 0xDC))
-            # Frame count
-            f.write(struct.pack('<i', frame_count))
-            # Timestamps (41.67ms intervals)
-            for i in range(frame_count):
-                ts = int(i * FRAME_INTERVAL_MS)
-                f.write(struct.pack('<i', ts))
-            # Frame data
-            for jpeg_bytes in jpeg_data_list:
-                f.write(struct.pack('<i', len(jpeg_bytes)))
-                f.write(jpeg_bytes)
-
-        self.progress.emit(100, "Done!")
-        self.finished.emit(str(output_path))
-
-        # Clean up frames dir (Theme.zt stays)
-        try:
-            frames_dir.rmdir()
-        except OSError:
-            pass
-
-
-# ============================================================================
 # Main video cut widget
 # ============================================================================
 
@@ -201,9 +100,14 @@ class UCVideoCut(QWidget):
     fit mode buttons, rotation, and Theme.zt export.
 
     Signals:
+        export_requested(int, int, int): (start_ms, end_ms, rotation) — the
+            window turns this into ``ExportVideoClip`` for the active
+            device.  The panel does not know the device key or the canvas
+            size, and does not need to: the Command resolves both.
         video_cut_done(str): Emitted with Theme.zt path on export, or '' on cancel.
     """
 
+    export_requested = Signal(int, int, int)
     video_cut_done = Signal(str)
 
     def __init__(self, parent=None):
@@ -218,6 +122,9 @@ class UCVideoCut(QWidget):
         self._target_w = 0
         self._target_h = 0
         self._rotation = 0
+        # Which edge the preview fits to.  Display-only: the export is
+        # resized to the panel's exact pixels, so this never reached the
+        # encoder — it was carried into ``ExportWorker`` and never read.
         self._width_fit = True
 
         # Timeline handles (pixel x positions)
@@ -234,8 +141,8 @@ class UCVideoCut(QWidget):
         self._previewing = False
         self._preview_pos_ms = 0
 
-        # Export state
-        self._export_worker = None
+        # Export state.  No worker: the encode belongs to the app, and
+        # this panel only reflects its progress.
         self._is_processing = False
 
         # Dark background via palette
@@ -598,8 +505,13 @@ class UCVideoCut(QWidget):
     # =========================================================================
 
     def _on_export(self):
-        log.debug("_on_export: video_path=%s start=%s end=%s", self._video_path, self._start_ms, self._end_ms)
+        """Ask the window to encode the current clip.  Does not encode."""
+        log.info("_on_export: video_path=%s start=%s end=%s rotation=%s",
+                 self._video_path, self._start_ms, self._end_ms,
+                 self._rotation)
         if self._is_processing or not self._video_path:
+            log.debug("_on_export: busy=%s path=%s — ignored",
+                      self._is_processing, self._video_path)
             return
 
         self._stop_preview()
@@ -609,37 +521,43 @@ class UCVideoCut(QWidget):
         self._progress.setVisible(True)
         self._lbl_info.setText("Starting export...")
         self._lbl_info.setVisible(True)
+        self.export_requested.emit(
+            self._start_ms, self._end_ms, self._rotation)
 
-        self._export_worker = ExportWorker(
-            self._video_path, self._start_ms, self._end_ms,
-            self._target_w, self._target_h,
-            self._rotation, self._width_fit
-        )
-        self._export_worker.progress.connect(self._on_export_progress)
-        self._export_worker.finished.connect(self._on_export_finished)
-        self._export_worker.error.connect(self._on_export_error)
-        self._export_worker.start()
+    def export_refused(self, message):
+        """The window's dispatch was refused before anything was queued."""
+        log.warning("export_refused: %s", message)
+        self._is_processing = False
+        self._btn_export.setEnabled(True)
+        self._progress.setVisible(False)
+        self._lbl_info.setText(message[:80])
+        self._lbl_info.setVisible(True)
 
-    def _on_export_progress(self, percent, message):
-        log.debug("_on_export_progress: %s%% %s", percent, message)
+    def set_export_progress(self, percent, message):
+        """One ``VideoExportProgress``, routed here by the window."""
+        log.debug("set_export_progress: %s%% %s", percent, message)
         self._progress.setValue(percent)
         self._lbl_info.setText(message)
 
-    def _on_export_finished(self, output_path):
-        log.debug("_on_export_finished: output_path=%s", output_path)
-        self._is_processing = False
-        self._btn_export.setEnabled(True)
-        self._progress.setVisible(False)
-        self._lbl_info.setVisible(False)
-        self.video_cut_done.emit(output_path)
+    def export_finished(self, ok, path, message):
+        """Terminal ``VideoExportFinished``, routed here by the window.
 
-    def _on_export_error(self, message):
-        log.debug("_on_export_error: %s", message)
+        Emits ``video_cut_done`` on success only — the window's slot
+        applies the produced ``.zt`` as the device background, and doing
+        that with an empty path is how a failed export used to look
+        exactly like a cancel.
+        """
+        log.info("export_finished: ok=%s path=%s message=%s",
+                 ok, path, message)
         self._is_processing = False
         self._btn_export.setEnabled(True)
         self._progress.setVisible(False)
-        self._lbl_info.setText(f"Error: {message[:80]}")
-        self._lbl_info.setVisible(True)
+        if not ok:
+            self._lbl_info.setText(f"Error: {message[:80]}")
+            self._lbl_info.setVisible(True)
+            return
+        self._lbl_info.setVisible(False)
+        self.video_cut_done.emit(path)
 
     def _on_close(self):
         log.debug("_on_close: emitting video_cut_done('')")
@@ -657,6 +575,7 @@ class UCVideoCut(QWidget):
     def closeEvent(self, event):
         self._stop_preview()
         self._cleanup_video()
-        if self._export_worker and self._export_worker.isRunning():
-            self._export_worker.terminate()
+        # A running export is NOT killed: it belongs to the app, not to
+        # this panel, and under TRCC_DAEMON=1 it is not even this
+        # process's to terminate.
         event.accept()
