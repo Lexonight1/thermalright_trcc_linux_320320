@@ -33,7 +33,11 @@ def daemon(fake_platform, tmp_path, monkeypatch):
     srv = IPCServer(app)
     srv.start()
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    yield app, srv, AppProxy()
+    proxy = AppProxy()
+    yield app, srv, proxy
+    # Close the CLIENT first: its reader is a thread blocked on a socket read,
+    # and one left running logs into whatever test runs next in this worker.
+    proxy.close()
     srv.shutdown()
 
 
@@ -174,8 +178,13 @@ def test_close_does_not_disconnect_the_daemons_devices(daemon) -> None:
     """
     app, _srv, proxy = daemon
     app.devices["0402:3922"] = object()   # pretend something is attached
-    proxy.close()
-    assert "0402:3922" in app.devices, "a client closed the daemon's devices"
+    try:
+        proxy.close()
+        assert "0402:3922" in app.devices, "a client closed the daemon's devices"
+    finally:
+        # Not a real Device; leaving it would break teardown for whatever
+        # runs next in this worker.
+        app.devices.pop("0402:3922", None)
 
 
 def test_start_session_does_not_start_a_second_metrics_loop(daemon) -> None:
@@ -201,3 +210,19 @@ def test_discover_and_connect_reports_the_daemons_fleet(daemon) -> None:
     said: list[str] = []
     proxy.discover_and_connect(on_progress=said.append)
     assert said and "device(s) attached" in said[-1]
+
+
+def test_close_stops_this_clients_reader_thread(daemon) -> None:
+    """Otherwise every window that opens and closes leaks a thread and an fd."""
+    _app, _srv, proxy = daemon
+    proxy.events.subscribe(DeviceConnected, lambda _e: None)
+    time.sleep(0.4)
+    assert proxy._stream_open
+    reader = proxy._reader
+    assert reader is not None and reader.is_alive()
+
+    proxy.close()
+
+    assert not proxy._stream_open
+    assert not reader.is_alive(), "the reader thread outlived close()"
+    assert proxy._reader is None

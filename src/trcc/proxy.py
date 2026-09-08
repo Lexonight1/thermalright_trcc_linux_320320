@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 from collections.abc import Callable
 from typing import TypeVar
@@ -48,7 +49,12 @@ class AppProxy:
         self._timeout = timeout
         self._events: EventBus | None = None
         self._reader: threading.Thread | None = None
+        self._stream_sock: socket.socket | None = None
         self._stream_open = False
+        # Set by ``close``.  Distinguishes a deliberate shutdown from a daemon
+        # that died: the first is routine, the second is the thing a user
+        # needs told about, and logging both the same way buries it.
+        self._closing = False
 
     def dispatch(self, cmd: Command[R]) -> R:
         """Serialize *cmd*, round-trip through the daemon, return the Result."""
@@ -101,6 +107,7 @@ class AppProxy:
                         "(%s: %s) — this client will receive no events",
                         type(e).__name__, e)
             return
+        self._stream_sock = sock
         self._stream_open = True
         try:
             with sock, sock.makefile("rb") as reader:
@@ -117,13 +124,19 @@ class AppProxy:
                     assert self._events is not None
                     self._events.publish(event)
         except OSError as e:
-            log.warning("AppProxy._read_events: stream failed after %d "
-                        "event(s) — %s: %s", seen, type(e).__name__, e)
+            if not self._closing:
+                log.warning("AppProxy._read_events: stream failed after %d "
+                            "event(s) — %s: %s", seen, type(e).__name__, e)
         finally:
             self._stream_open = False
-            log.warning("AppProxy._read_events: event stream CLOSED after %d "
-                        "event(s); this client is no longer observing",
-                        seen)
+            self._stream_sock = None
+            if self._closing:
+                log.info("AppProxy._read_events: stream closed on request "
+                         "after %d event(s)", seen)
+            else:
+                log.warning("AppProxy._read_events: event stream CLOSED after "
+                            "%d event(s); this client is no longer observing",
+                            seen)
 
     # ── Session lifecycle — the daemon owns it, this client does not ────
     #
@@ -154,14 +167,38 @@ class AppProxy:
             on_progress("Connected to the TRCC daemon")
 
     def close(self) -> None:
-        """No-op: a client must not disconnect the daemon's devices.
+        """Release THIS client's resources, and only this client's.
 
-        ``run_gui``'s ``finally`` calls this unconditionally.  In daemon mode
-        that would tear down the panels of every OTHER client — and of the
-        daemon itself — because one window was closed.
+        A no-op for the daemon's devices: ``run_gui``'s ``finally`` calls this
+        unconditionally, and in daemon mode disconnecting here would tear down
+        the panels of every OTHER client — and of the daemon itself — because
+        one window was closed.
+
+        But the event stream IS this client's, and it must be closed.  The
+        reader is a thread blocked on a socket read; without this, every
+        window that opens and closes leaks a thread and a file descriptor for
+        the life of the process.  ``shutdown`` is what breaks the blocking
+        read — closing the socket alone does not wake the reader.
         """
-        log.info("AppProxy.close: leaving the daemon's devices attached — "
-                 "closing a client must not disconnect other clients")
+        log.info("AppProxy.close: leaving the daemon's devices attached; "
+                 "closing this client's event stream")
+        self._closing = True
+        sock = self._stream_sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                log.debug("AppProxy.close: stream shutdown failed",
+                          exc_info=True)
+        reader = self._reader
+        if reader is not None and reader.is_alive():
+            reader.join(timeout=2.0)
+            if reader.is_alive():
+                log.warning("AppProxy.close: reader thread did not stop "
+                            "within 2s")
+        self._reader = None
+        self._events = None
+        self._closing = False
 
     def discover_and_connect(
         self, on_progress: Callable[[str], None] | None = None,
