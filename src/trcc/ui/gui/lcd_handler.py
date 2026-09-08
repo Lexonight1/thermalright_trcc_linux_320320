@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QPixmap
@@ -107,6 +107,10 @@ class LCDHandler(BaseHandler):
         self._w = widgets
         self._data_dir = data_dir
         self._is_visible = is_visible_fn or (lambda: True)
+        # "" until a Result proves the live surface cannot reach this process,
+        # then "png" for the life of the handler.  An observation, not a
+        # configured mode and not a sniffed environment.
+        self._preview_encode: Literal["", "png"] = ""
         self.log: logging.Logger = log
 
         # Qt-free coordination model — owns the per-device DeviceState cache
@@ -1392,17 +1396,57 @@ class LCDHandler(BaseHandler):
         read and the render guard all moved into :class:`BuildPreview`, which
         also personalizes the readings the way the wire path does — this GUI
         used to draw °C numbers under a °F glyph.
+
+        **Carrier selection reacts to the RESULT, never to the environment.**
+        ``PreviewResult.surface`` is a live ``QImage`` and cannot cross the
+        daemon socket — ``_to_wire`` drops it to ``None``.  Asking for
+        ``encode="png"`` always would cost a PNG encode per frame that is
+        thrown away in-process (measured 2.9 ms at 320x320, 20.2 ms at
+        1600x720 — 60% of a core at full rate), and asking "am I remote?" is
+        the environment sniffing the architecture forbids.  So: ask for
+        nothing, and if a frame WAS rendered yet no carrier arrived, ask again
+        for bytes and remember that answer.
+
+        ``width`` is what makes that unambiguous — ``BuildPreview`` sets it
+        only on the success path, so ``width == 0`` is "no theme loaded" while
+        a non-zero width with no surface and no image means the surface died
+        at the wire.
         """
-        result = self._app.dispatch(BuildPreview(key=self._device_key))
+        result = self._app.dispatch(
+            BuildPreview(key=self._device_key, encode=self._preview_encode),
+        )
         if not result.ok:
             # Blank preview is user-visible; the Command already logged why.
             self.log.warning("_build_preview_surface: %s — %s",
                              self._device_key, result.message)
             return None
-        if result.surface is None:
-            self.log.debug("_build_preview_surface: %s — %s",
-                           self._device_key, result.message)
-        return result.surface
+        if (not self._preview_encode and result.width
+                and result.surface is None and not result.image):
+            self.log.info(
+                "_build_preview_surface: %s rendered %dx%d but no surface "
+                "crossed — switching this panel to PNG bytes (daemon mode)",
+                self._device_key, result.width, result.height,
+            )
+            self._preview_encode = "png"
+            result = self._app.dispatch(
+                BuildPreview(key=self._device_key, encode="png"),
+            )
+        if result.surface is not None:
+            return result.surface
+        if result.image:
+            from PySide6.QtGui import QImage
+            image = QImage.fromData(result.image)
+            if image.isNull():
+                self.log.warning(
+                    "_build_preview_surface: %s sent %d byte(s) of %s that "
+                    "Qt could not decode",
+                    self._device_key, len(result.image), result.media_type,
+                )
+                return None
+            return image
+        self.log.debug("_build_preview_surface: %s — %s",
+                       self._device_key, result.message)
+        return None
 
     # ── Helpers ─────────────────────────────────────────────────────
 

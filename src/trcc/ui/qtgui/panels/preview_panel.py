@@ -15,7 +15,7 @@ a renderable "screen" — for those use the LED control panel.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QImage, QPixmap
@@ -42,6 +42,11 @@ _PREVIEW_MAX = 480  # max edge of the preview pixmap in window pixels
 
 class PreviewPanel(BasePanel):
     """Live preview of an LCD device's rendered output."""
+
+    #: "" until a Result proves the live surface cannot reach this process,
+    #: then "png" for the life of the panel.  An observation, not a configured
+    #: mode and not a sniffed environment.
+    _encode: Literal["", "png"] = ""
 
     def _setup_ui(self) -> None:
         self._picker = DevicePickerWidget(
@@ -113,20 +118,36 @@ class PreviewPanel(BasePanel):
         self._brightness_label.setText(f"{snapshot.brightness}%")
 
         # The render every UI shows — one Command, sensors included.
-        preview = self.dispatch(BuildPreview(key=key))
+        preview = self.dispatch(BuildPreview(key=key, encode=self._encode))
+        if (not self._encode and preview.ok and preview.width
+                and preview.surface is None and not preview.image):
+            # A frame WAS rendered but no carrier arrived: the live surface
+            # cannot cross the daemon socket.  Ask for bytes and remember.
+            # ``width`` is the discriminator -- BuildPreview sets it only on
+            # the success path, so this cannot be confused with "no theme".
+            log.info("preview: %s rendered %dx%d with no surface — switching "
+                     "to PNG bytes (daemon mode)",
+                     key, preview.width, preview.height)
+            self._encode = "png"
+            preview = self.dispatch(BuildPreview(key=key, encode="png"))
         if not preview.ok:
             # Not attached, or the render raised — say which.  "Load a theme"
             # would be a lie for a device that isn't plugged in.
             self._set_placeholder(f"No data for {key} — {preview.message}")
             self._size_label.setText("—")
             return
-        if preview.surface is None:
+        if preview.surface is None and not preview.image:
+            # Only a genuine pre-load state reaches here now.  It used to also
+            # catch every daemon-mode frame, so a device with a theme loaded
+            # and rendering was told "Load a theme" -- a confident false
+            # statement, and worse than gui's silent blank.
             self._set_placeholder(
                 f"Load a theme for {key} to see a live preview here.",
             )
             self._size_label.setText("—")
             return
-        pix = _surface_to_pixmap(preview.surface, _PREVIEW_MAX)
+        pix = _surface_to_pixmap(preview.surface, _PREVIEW_MAX,
+                                 encoded=preview.image)
         if pix is None:
             self._set_placeholder(
                 "Preview surface couldn't be rendered to a pixmap.",
@@ -149,14 +170,27 @@ class PreviewPanel(BasePanel):
         self._preview.setWordWrap(True)
 
 
-def _surface_to_pixmap(surface: object, max_edge: int) -> QPixmap | None:
+def _surface_to_pixmap(
+    surface: object, max_edge: int, *, encoded: bytes = b"",
+) -> QPixmap | None:
     """QtRenderer surfaces are QImage — convert + scale.
+
+    ``encoded`` is the wire carrier: over the daemon socket the live surface
+    is dropped and the Result carries PNG bytes instead.  Decoding them here
+    keeps the caller on ONE path rather than branching on transport, and needs
+    no Renderer port -- this module IS the Qt adapter.
 
     Falls back to None on unexpected types so the panel surfaces a
     friendly placeholder rather than a crash.
     """
     if not isinstance(surface, QImage):
-        return None
+        if not encoded:
+            return None
+        surface = QImage.fromData(encoded)
+        if surface.isNull():
+            log.warning("_surface_to_pixmap: %d byte(s) would not decode",
+                        len(encoded))
+            return None
     pix = QPixmap.fromImage(surface)
     if pix.width() > max_edge or pix.height() > max_edge:
         pix = pix.scaled(
