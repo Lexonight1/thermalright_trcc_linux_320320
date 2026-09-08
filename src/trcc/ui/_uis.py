@@ -72,13 +72,13 @@ class ApiUI(UserInterface, name="api"):
         from ..adapters.render.qt import QtRenderer
         return trcc(platform=platform, renderer=QtRenderer())
 
-    def run(self, app: App) -> int:
+    def run(self) -> int:
         """Serve until the process is stopped."""
         log.info("ApiUI.run: serving on %s:%d", self.host, self.port)
         import uvicorn
 
         from .api.main import build_app
-        uvicorn.run(build_app(trcc=app), host=self.host, port=self.port,
+        uvicorn.run(build_app(trcc=self._app), host=self.host, port=self.port,
                     log_level="info")
         return 0
 
@@ -133,7 +133,7 @@ class DaemonUI(UserInterface, name="daemon"):
         os.environ.pop(_ENV_FLAG, None)
         return _build_local_app(platform=platform, renderer=self._renderer)
 
-    def run(self, app: App) -> int:
+    def run(self) -> int:
         """Bind the socket and serve Commands until shutdown.
 
         ``App.close()`` is NOT called here: :meth:`UserInterface.start` owns
@@ -144,7 +144,7 @@ class DaemonUI(UserInterface, name="daemon"):
         log.info("DaemonUI.run: binding the IPC server")
         from .. import ipc
         from ..daemon import _install_signal_handlers
-        server = ipc.IPCServer(app)
+        server = ipc.IPCServer(self._app)
         server.start()
         _install_signal_handlers(server)
         try:
@@ -238,7 +238,7 @@ class GuiUI(_QtUI, name="gui"):
         set_assets_dir(_PKG_ASSETS_DIR)
         return super().compose(platform)
 
-    def bring_up(self, app: App) -> bool:
+    def bring_up(self) -> bool:
         """Coldplug on the splash worker, then the live loops.
 
         The coldplug runs on a background QThread so the splash can paint
@@ -247,16 +247,16 @@ class GuiUI(_QtUI, name="gui"):
         """
         log.info("GuiUI.bring_up: splash bootstrap")
         from .gui.splash import run_bootstrap_with_splash
-        if not run_bootstrap_with_splash(app):
+        if not run_bootstrap_with_splash(self._app):
             return False
-        return super().bring_up(app)
+        return super().bring_up()
 
-    def run(self, app: App) -> int:
+    def run(self) -> int:
         log.info("GuiUI.run: building the window")
         from ..core.commands import DeviceConnectionIssues
         from .gui.trcc_app import TRCCApp
 
-        window = TRCCApp(app=app, decorated=self.decorated)
+        window = TRCCApp(app=self._app, decorated=self.decorated)
         if self._instance is not None:
             # Fired from SingleInstance's accept thread; the Qt signal marshals
             # it onto the GUI thread (a direct cross-thread QWidget call
@@ -271,7 +271,7 @@ class GuiUI(_QtUI, name="gui"):
             # Surface devices found but not connected, read from the bus: the
             # failures fired before the window subscribed.
             window.notify_device_failures(
-                app.dispatch(DeviceConnectionIssues()).issues,
+                self.dispatch(DeviceConnectionIssues()).issues,
             )
         return self._exec()
 
@@ -293,7 +293,7 @@ class QtGuiUI(_QtUI, name="qtgui"):
         self.on_ready = on_ready
         self._splash: QWidget | None = None
 
-    def bring_up(self, app: App) -> bool:
+    def bring_up(self) -> bool:
         """Splash up, coldplug inline, loops started — before the window builds.
 
         Inline rather than on a worker (the gui's shape): one handshake per
@@ -308,14 +308,14 @@ class QtGuiUI(_QtUI, name="qtgui"):
         qapp = QApplication.instance()
         if qapp is not None:
             qapp.processEvents()
-        return super().bring_up(app)
+        return super().bring_up()
 
-    def run(self, app: App) -> int:
+    def run(self) -> int:
         log.info("QtGuiUI.run: building the window")
         from .qtgui.app import MainWindow
         from .qtgui.splash import auto_close
 
-        window = MainWindow(app)
+        window = MainWindow(self._app)
         if self.start_hidden:
             log.info("QtGuiUI.run: --resume — starting hidden in the tray")
         else:
@@ -327,3 +327,49 @@ class QtGuiUI(_QtUI, name="qtgui"):
             self.on_ready(window)
         self._install_quit_handlers()
         return self._exec()
+
+
+class CliUI(UserInterface, name="cli"):
+    """The terminal face — and the router that launches the others.
+
+    The CLI is both, which is why it was left out of the registry at first:
+    ``trcc gui`` is this process starting a DIFFERENT face, while
+    ``trcc device list`` is this face doing its own work.  Being the launcher
+    does not stop it being a UI, and leaving it out made "every UI is a
+    ``UserInterface``" false for the surface users touch most.
+
+    What kept it out was cost, and lazy composition removed it.  Measured,
+    ``trcc --help`` builds **zero** Apps in 65 ms; composing eagerly in
+    :meth:`start` would have added a platform scan plus a 111 ms
+    ``QtRenderer`` to every ``--help`` and every text command.  Now nothing is
+    composed until something dispatches, so joining the bus costs a ``--help``
+    exactly nothing.
+
+    ``needs_session`` is **False**: a one-shot command must not pay for a
+    coldplug it will never use — ``App.start_session``'s own docstring says
+    one-shot scripts skip it.  A command that does need a device asks for one
+    explicitly through ``EnsureConnected``.
+    """
+
+    needs_session = False
+
+    def compose(self, platform: Platform | None) -> App:
+        """The SAME lazy singleton the command bodies already use.
+
+        ``_ctx.get_app()`` is ``@lru_cache``'d and read by 113 command bodies.
+        Returning it here means this face and those bodies share ONE App
+        rather than composing a second one behind their backs — the bus is a
+        different door onto the same object, not a parallel world.
+        """
+        log.info("CliUI.compose: reusing the CLI's lazy App singleton")
+        from .cli._ctx import get_app, set_platform
+        if platform is not None:
+            set_platform(platform)
+        return get_app()
+
+    def run(self) -> int:
+        """Parse argv and run one command.  Typer owns the exit code."""
+        log.info("CliUI.run: handing off to the argv router")
+        from .cli.main import app as typer_app
+        typer_app()
+        return 0

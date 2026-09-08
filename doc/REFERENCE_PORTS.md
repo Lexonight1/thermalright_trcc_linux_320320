@@ -16,7 +16,7 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`MissPolicy`](#misspolicy) | 1 | 0 | 2 |
 | [`Query`](#query) | 1 | 0 | 38 |
 | [`ScreenCapture`](#screencapture) | 1 | 0 | 1 |
-| [`UserInterface`](#userinterface) | 1 | 5 | 4 |
+| [`UserInterface`](#userinterface) | 1 | 7 | 5 |
 | [`_HidBinding`](#_hidbinding) | 1 | 0 | 2 |
 | [`_QtUI`](#_qtui) | 1 | 1 | 2 |
 | [`DataInstallRunner`](#datainstallrunner) | 2 | 0 | 2 |
@@ -144,12 +144,12 @@ One face of the one app — CLI, API, GUI, qtgui, daemon.
 **You implement (1):**
 
 ```python
-run(app: 'App') -> int
+run() -> int
 ```
 
-**You inherit (5):** `bring_up` · `compose` · `preflight` · `start` · `teardown`
+**You inherit (7):** `bring_up` · `compose` · `dispatch` · `events` · `preflight` · `start` · `teardown`
 
-**Implementations (4):** `ApiUI` · `DaemonUI` · `GuiUI` · `QtGuiUI`
+**Implementations (5):** `ApiUI` · `CliUI` · `DaemonUI` · `GuiUI` · `QtGuiUI`
 
 ## _HidBinding
 
@@ -174,7 +174,7 @@ Shared base for the two widget skins.  Intermediate — not registered.
 **You implement (1):**
 
 ```python
-run(app: 'App') -> int
+run() -> int
 ```
 
 **You inherit (1):** `compose`

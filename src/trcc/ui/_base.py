@@ -38,16 +38,25 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from ..core.errors import UnknownUserInterfaceError
 from ..core.factory import Registry, Reject
+from ..core.logs import per_frame
 
 if TYPE_CHECKING:
     from ..app import App
+    from ..core.commands import Command
+    from ..core.events import EventBus
     from ..core.ports import Platform
+    from ..core.results import Result
 
 log = logging.getLogger(__name__)
+#: Per-dispatch family — silenced with the frame path, see core.logs.
+frame_log = per_frame(__name__)
+
+#: Binds the caller's Result subclass, so ``dispatch`` keeps concrete typing.
+R = TypeVar("R", bound="Result")
 
 
 # The face table.  A miss RAISES: asking for a UI that does not exist is a typo
@@ -68,6 +77,12 @@ class UserInterface(ABC):
 
     #: The registry key, set by ``__init_subclass__`` from the class line.
     name: ClassVar[str] = ""
+
+    #: Set by :meth:`start`.  Class-level defaults rather than an ``__init__``
+    #: so a face writes only the constructor IT needs -- no ``super().__init__``
+    #: to forget, which is the same reason registration is a class keyword.
+    _composed: App | None = None
+    _platform: Platform | None = None
 
     #: Whether this UI needs the live session (coldplug + metrics + LED loops).
     #: False for the one-shot CLI, which must not pay for a coldplug it will
@@ -103,20 +118,69 @@ class UserInterface(ABC):
         """
         log.info("start: ui=%s platform=%s", type(self).__name__,
                  type(platform).__name__)
+        self._platform = platform
         if (code := self.preflight()) is not None:
             log.info("start: %s refused to launch, exit=%d",
                      type(self).__name__, code)
             return code
-        app = self.compose(platform)
         try:
-            if self.needs_session and not self.bring_up(app):
+            if self.needs_session and not self.bring_up():
                 log.warning("start: %s bring-up failed", type(self).__name__)
                 return 1
-            return self.run(app)
+            return self.run()
         finally:
-            log.info("start: %s closing down", type(self).__name__)
-            app.close()
+            # Close only what was actually built.  A face that never
+            # dispatched -- ``trcc --help`` reaching the CLI face -- composed
+            # nothing, and closing a phantom would build an App just to tear
+            # it down.
+            if self._composed is not None:
+                log.info("start: %s closing down", type(self).__name__)
+                self._composed.close()
+                self._composed = None
             self.teardown()
+
+    # ── The command bus — what a face IS ─────────────────────────────────
+    #
+    # A face speaks Commands and nothing else.  ``dispatch`` and ``events``
+    # are the whole surface; the ``App`` behind them is deliberately private,
+    # so "no UI reaches past the bus" stops being a ratchet somebody maintains
+    # and becomes a thing that cannot be typed.  Measured across the two
+    # windows and both handlers: **100 of 103** uses of their App were
+    # ``.dispatch`` and 2 were ``.events`` -- this is the shape the code
+    # already wanted.
+
+    def dispatch(self, cmd: Command[R]) -> R:
+        """Send one Command and get its typed Result.  THE surface.
+
+        DEBUG, not INFO: ``App.dispatch`` already logs every dispatch at the
+        Command's own ``LOG_LEVEL`` — that is the single chokepoint a
+        ``trcc report`` is read for.  A second INFO line here would double
+        every user-action record and drown the one that carries the args.
+        """
+        frame_log.debug("dispatch: %s via %s",
+                        type(cmd).__name__, type(self).__name__)
+        return self._app.dispatch(cmd)
+
+    @property
+    def events(self) -> EventBus:
+        """Observe — the other half of the bus, same object either mode."""
+        log.debug("events: %s subscribing to the bus", type(self).__name__)
+        return self._app.events
+
+    @property
+    def _app(self) -> App:
+        """The App this face dispatches on, composed ONCE on first use.
+
+        Lazy on purpose.  ``trcc --help`` builds zero Apps today (measured),
+        and eagerly composing in :meth:`start` would have cost every text
+        command a platform scan plus a 111 ms ``QtRenderer`` — which is
+        precisely what kept the CLI out of the registry.  Composing on first
+        dispatch instead lets every face join without paying for one.
+        """
+        if self._composed is None:
+            log.info("_app: composing for %s", type(self).__name__)
+            self._composed = self.compose(self._platform)
+        return self._composed
 
     def preflight(self) -> int | None:
         """Refuse to launch, or None to proceed.  Runs before ANY construction.
@@ -162,17 +226,20 @@ class UserInterface(ABC):
         from .._boot import trcc
         return trcc(platform=platform)
 
-    def bring_up(self, app: App) -> bool:
+    def bring_up(self) -> bool:
         """Start the live session.  True to continue, False to abort.
 
         The default is the one shared bring-up.  The GUI overrides it to run
         the same coldplug on a splash worker so the window can paint progress.
         """
         log.info("bring_up: %s starting session", type(self).__name__)
-        app.start_session()
+        self._app.start_session()
         return True
 
     @abstractmethod
-    def run(self, app: App) -> int:
-        """Run this UI's own loop and return its exit code."""
+    def run(self) -> int:
+        """Run this UI's own loop and return its exit code.
+
+        Reach the app through :meth:`dispatch` / :attr:`events`.
+        """
 
