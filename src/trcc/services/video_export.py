@@ -27,19 +27,24 @@ import struct
 import subprocess
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from ..core import toolchain
-from ..core.models import ThemeDir
+from ..core.models import (
+    SUBPROCESS_NO_WINDOW,
+    ZT_FPS,
+    ZT_FRAME_INTERVAL_MS,
+    ZT_MAGIC,
+    ZT_MAX_DURATION_MS,
+    ThemeDir,
+    VideoExportRequest,
+)
 
 log = logging.getLogger(__name__)
 
 
-_ZT_MAGIC = 0xDC
-_EXPORT_FPS = 24
-_FRAME_INTERVAL_MS = 1000.0 / _EXPORT_FPS
-_MAX_DURATION_MS = 300_000  # 5 minutes — matches legacy soft cap.
+# The container's constants live in ``core.models`` — one owner for a
+# format three modules touch.  See the "Theme.zt container" section there.
 _FFMPEG_TIMEOUT_S = 600
 
 
@@ -49,22 +54,6 @@ class VideoExportError(RuntimeError):
 
 ProgressCallback = Callable[[int, str], None]
 """``(percent_0_100, message)`` — UIs render this verbatim."""
-
-
-@dataclass(frozen=True)
-class VideoExportRequest:
-    """Inputs for :meth:`VideoExporter.export_zt`.
-
-    ``start_ms`` / ``end_ms`` clip the source video; ``rotation`` is
-    multiples of 90.  ``target_w/h`` are the device's native pixels —
-    we fit-resize to those exactly (the firmware doesn't crop).
-    """
-    source: Path
-    start_ms: int
-    end_ms: int
-    target_w: int
-    target_h: int
-    rotation: int = 0
 
 
 class VideoExporter:
@@ -111,10 +100,10 @@ class VideoExporter:
                 f"Invalid clip range {req.start_ms}-{req.end_ms} ms "
                 "— end must be greater than start.",
             )
-        if req.end_ms - req.start_ms > _MAX_DURATION_MS:
+        if req.end_ms - req.start_ms > ZT_MAX_DURATION_MS:
             raise VideoExportError(
                 f"Clip is {(req.end_ms - req.start_ms) / 1000:.1f}s, "
-                f"max is {_MAX_DURATION_MS / 1000:.0f}s.  Pick a shorter range.",
+                f"max is {ZT_MAX_DURATION_MS / 1000:.0f}s.  Pick a shorter range.",
             )
         if req.target_w <= 0 or req.target_h <= 0:
             raise VideoExportError(
@@ -165,7 +154,7 @@ class VideoExporter:
             "-t", f"{(req.end_ms - req.start_ms) / 1000.0}",
             "-i", str(req.source),
             "-y",
-            "-r", str(_EXPORT_FPS),
+            "-r", str(ZT_FPS),
             "-s", f"{req.target_w}x{req.target_h}",
         ]
         if vf:
@@ -177,7 +166,8 @@ class VideoExporter:
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, timeout=_FFMPEG_TIMEOUT_S, check=False,
+                cmd, capture_output=True, timeout=_FFMPEG_TIMEOUT_S,
+                check=False, creationflags=SUBPROCESS_NO_WINDOW,
             )
         except subprocess.TimeoutExpired as e:
             raise VideoExportError(
@@ -221,10 +211,10 @@ class VideoExporter:
         progress(85, "Writing Theme.zt…")
         try:
             with output_path.open("wb") as f:
-                f.write(struct.pack("B", _ZT_MAGIC))
+                f.write(struct.pack("B", ZT_MAGIC))
                 f.write(struct.pack("<i", len(jpegs)))
                 for i in range(len(jpegs)):
-                    f.write(struct.pack("<i", int(i * _FRAME_INTERVAL_MS)))
+                    f.write(struct.pack("<i", int(i * ZT_FRAME_INTERVAL_MS)))
                 for jpeg in jpegs:
                     f.write(struct.pack("<i", len(jpeg)))
                     f.write(jpeg)
@@ -257,6 +247,7 @@ def probe_duration_ms(source: Path) -> int:
     try:
         result = subprocess.run(
             cmd, capture_output=True, timeout=10, check=False,
+            creationflags=SUBPROCESS_NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired):
         return 0
@@ -270,7 +261,9 @@ def probe_duration_ms(source: Path) -> int:
     return max(0, int(seconds * 1000))
 
 
-# Constants exported for downstream callers (CLI, GUI labels) so the
-# limits aren't re-defined in two places.
-MAX_DURATION_MS = _MAX_DURATION_MS
-EXPORT_FPS = _EXPORT_FPS
+# Transitional aliases for ``ui/qtgui/video_crop.py``, which still imports the
+# limits from here.  Removed in the commit that rewires it onto the bus — the
+# constants' owner is ``core.models`` now, and a UI has no business importing
+# from a service at all.
+MAX_DURATION_MS = ZT_MAX_DURATION_MS
+EXPORT_FPS = ZT_FPS

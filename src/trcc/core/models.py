@@ -1152,6 +1152,60 @@ MEDIA = MediaCatalog((
 ))
 
 
+# ── Theme.zt container — TRCC's own animation format ─────────────────
+#
+# A ``.zt`` is a magic byte, a frame count, a table of absolute ms
+# timestamps, then length-prefixed JPEGs.  Three places touch it: the
+# decoder (``services/media.ZtDecoder``), the encoder
+# (``services/video_export.VideoExporter``) and the UIs that label the
+# limits in their own widgets.  They each spelled these numbers out —
+# the magic byte four times, the cap and the frame rate three — and a
+# fact expressed twice will drift.  It is one container; these are its
+# constants.
+
+#: First byte of every ``Theme.zt``.  Shares its value with the DC config
+#: magic in ``services/_dc.py`` by coincidence, not by meaning — they are
+#: different formats and must not be unified on the number alone.
+ZT_MAGIC: int = 0xDC
+
+#: Frames per second the exporter extracts at, and therefore the rate the
+#: per-frame timestamps encode.  The firmware plays back at its own rate;
+#: this is what the file says the author intended.
+ZT_FPS: int = 24
+
+#: Milliseconds between consecutive frames — DERIVED from :data:`ZT_FPS`
+#: so the two cannot disagree.  Callers that need whole milliseconds
+#: ``int()`` it at the point of use rather than rounding it here, because
+#: the timestamp table is cumulative and rounding early accumulates.
+ZT_FRAME_INTERVAL_MS: float = 1000.0 / ZT_FPS
+
+#: Longest clip the exporter will encode — the legacy soft cap.  UIs clamp
+#: their trim handles to it so a user cannot ask for a clip the encoder
+#: will refuse.
+ZT_MAX_DURATION_MS: int = 300_000
+
+
+@dataclass(frozen=True, slots=True)
+class VideoExportRequest:
+    """What to encode into a ``Theme.zt`` — a DTO, not a service type.
+
+    Lives in core because the :class:`~trcc.core.ports.VideoExportRunner`
+    port names it, and core may not import a service.  It carries only
+    primitives and a path, so it crosses the daemon socket unchanged.
+
+    ``start_ms`` / ``end_ms`` clip the source; ``rotation`` is a multiple
+    of 90.  ``target_w`` / ``target_h`` are the device's NATIVE pixels —
+    the exporter fit-resizes to them exactly, because the firmware does
+    not crop.
+    """
+    source: Path
+    start_ms: int
+    end_ms: int
+    target_w: int
+    target_h: int
+    rotation: int = 0
+
+
 # DC file (main_count, sub_count) → ``HardwareMetrics`` field name.
 # DERIVED — do not hand-edit; add a row to METRICS above.
 HARDWARE_METRICS: dict[tuple[int, int], str] = {

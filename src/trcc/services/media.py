@@ -22,6 +22,7 @@ from pathlib import Path
 from ..core import toolchain
 from ..core.errors import ThemeError
 from ..core.logs import per_frame
+from ..core.models import ZT_MAGIC
 
 log = logging.getLogger(__name__)
 frame_log = per_frame(__name__)
@@ -233,9 +234,6 @@ def _probe_video_size(path: Path) -> tuple[int, int] | None:
 # =========================================================================
 
 
-_ZT_MAGIC = 0xDC
-
-
 class ZtDecoder:
     """Decode a Thermalright ``Theme.zt`` animation archive.
 
@@ -277,7 +275,7 @@ class ZtDecoder:
         except OSError as e:
             raise ThemeError(f"Cannot read {self.path}: {e}") from e
 
-        if not data or data[0] != _ZT_MAGIC:
+        if not data or data[0] != ZT_MAGIC:
             raise ThemeError(
                 f"Not a Theme.zt archive (magic 0x{data[0]:02X if data else 0}): "
                 f"{self.path}"
