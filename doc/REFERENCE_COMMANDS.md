@@ -4,7 +4,7 @@
 
 Every capability in TRCC, as the one surface all four UIs dispatch against. A new UI — a browser client, a VR panel, a TUI — needs only this page and an event subscription; it never imports a service or an adapter.
 
-**142 total: 105 Commands and 37 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
+**144 total: 106 Commands and 38 Queries.** A *Query* is a read and nothing else, which is why it is named separately — a missing read should be obvious rather than archaeological.
 
 ## Dispatching one
 
@@ -703,6 +703,20 @@ Zip a theme under ``user_theme_dir(w, h) / theme_name`` to an archive path.
 | `theme_name` | `str` | yes |
 | `archive_path` | `Path` | yes |
 
+### `ExportVideoClip`
+
+Encode a clip of *path* into a loose ``Theme.zt`` for *key*'s panel.
+
+*Command* → `VideoExportResult`
+
+| Field | Type | Required |
+|---|---|---|
+| `key` | `str` | yes |
+| `path` | `Path` | yes |
+| `start_ms` | `int` | no |
+| `end_ms` | `int | None` | no |
+| `rotation` | `int` | no |
+
 ### `ImportConfig`
 
 Restore one device's ``DeviceSettings`` from an :class:`ExportConfig` JSON.
@@ -819,6 +833,16 @@ Play a video on the LCD as a single-video theme.
 | `start_ms` | `int` | no |
 | `end_ms` | `int | None` | no |
 | `rotation` | `int` | no |
+
+### `ProbeVideoDuration`
+
+How long is this video file, in milliseconds?
+
+*Query* → `VideoDurationResult`
+
+| Field | Type | Required |
+|---|---|---|
+| `path` | `Path` | yes |
 
 ### `RestoreDeviceState`
 

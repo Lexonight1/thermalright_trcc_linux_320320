@@ -207,6 +207,40 @@ class DaemonResult(Result):
 
 
 @dataclass(frozen=True, slots=True)
+class VideoExportResult(Result):
+    """Acknowledgement that a ``.zt`` encode was ACCEPTED — not that it ran.
+
+    ``ok=True`` means the clip was queued and its ``token`` is live; the
+    outcome arrives later as ``VideoExportFinished`` on the EventBus.  It
+    cannot be anything else: ffmpeg runs for minutes and the IPC dispatch
+    timeout is 30 s, so a Result that waited for the encode could not
+    cross the daemon socket at all.
+
+    ``token`` is how a caller tells its own export from the exports of
+    every other client attached to the same daemon.  ``target_w`` /
+    ``target_h`` echo the resolution actually resolved for the device, so
+    a UI can show what it is encoding for without asking a second time.
+    """
+    token: str = ""
+    source: str = ""
+    target_w: int = 0
+    target_h: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class VideoDurationResult(Result):
+    """How long a video file is, in milliseconds.
+
+    ``ok=False`` with ``duration_ms=0`` when ffprobe is absent or the file
+    is not decodable — a UI defaults its trim range rather than showing a
+    timeline it cannot honour.  Best-effort by contract; the probe is
+    never worth failing an operation over.
+    """
+    path: str = ""
+    duration_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class EnsureDataDownloadResult(Result):
     """Forced theme/web/mask archive install for a resolution."""
     width: int = 0

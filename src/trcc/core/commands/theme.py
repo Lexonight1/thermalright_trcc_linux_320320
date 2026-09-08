@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from .._safe import is_safe_user_name, is_under
 from ..errors import (
@@ -22,7 +23,7 @@ from ..events import (
     ThemeSaved,
 )
 from ..geometry import content_is_portrait, save_folder_resolution
-from ..models import ThemeDir
+from ..models import ZT_MAX_DURATION_MS, ThemeDir, VideoExportRequest
 from ..ports import ContentStore
 from ..registry import find_product
 from ..results import (
@@ -43,6 +44,8 @@ from ..results import (
     ThemeListEntry,
     ThemeResult,
     ThemesListResult,
+    VideoDurationResult,
+    VideoExportResult,
     WebThemesListResult,
 )
 from ._base import Command, Query
@@ -2010,6 +2013,213 @@ class LoadImage(Command[ThemeResult]):
         return LoadTheme(key=self.key, path=theme_dir).execute(app)
 
 @dataclass(frozen=True, slots=True)
+class ProbeVideoDuration(Query[VideoDurationResult]):
+    """How long is this video file, in milliseconds?
+
+    A trimmer cannot draw a timeline without it, and both Qt skins called
+    ``services.video_export.probe_duration_ms`` directly to find out — a
+    UI reaching past the bus into a service, and a crash under
+    ``TRCC_DAEMON=1`` where the answer must come from the process that
+    can actually see the file.
+
+    Best-effort by contract: ``ok=False`` with ``duration_ms=0`` when
+    ffprobe is missing or the file will not decode.  A caller defaults
+    its range (the established fallback is 10 s) rather than refusing to
+    open the trimmer.
+    """
+    path: Path
+
+    def execute(self, app: App) -> VideoDurationResult:
+        del app
+        log.info("ProbeVideoDuration.execute: path=%s", self.path)
+        if not self.path.is_file():
+            log.warning("ProbeVideoDuration.execute: %s is not a file",
+                        self.path)
+            return VideoDurationResult(
+                ok=False, path=str(self.path), duration_ms=0,
+                message=f"Video file not found: {self.path}",
+            )
+        from ...services.video_export import probe_duration_ms
+        duration = probe_duration_ms(self.path)
+        if duration <= 0:
+            log.warning("ProbeVideoDuration.execute: %s probed as 0 ms "
+                        "(ffprobe absent, or the file will not decode)",
+                        self.path)
+            return VideoDurationResult(
+                ok=False, path=str(self.path), duration_ms=0,
+                message=("Could not read the duration — install ffmpeg "
+                         "(which provides ffprobe), or the file may be "
+                         "corrupt."),
+            )
+        log.info("ProbeVideoDuration.execute: %s is %d ms", self.path,
+                 duration)
+        return VideoDurationResult(
+            ok=True, path=str(self.path), duration_ms=duration,
+            message=f"{duration / 1000:.1f}s",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ExportVideoClip(Command[VideoExportResult]):
+    """Encode a clip of *path* into a loose ``Theme.zt`` for *key*'s panel.
+
+    The trimmer's Command.  Both Qt skins had their own QThread around
+    :class:`~trcc.services.video_export.VideoExporter` — gui went further
+    and hand-rolled the ffmpeg invocation AND the ``.zt`` writer, so the
+    container was spelled out twice and had already drifted.  Neither
+    copy was reachable from the CLI or the API, which therefore could not
+    export a video at all.
+
+    **Distinct from :class:`LoadVideo`, which does not cover this.**
+    ``LoadVideo`` stages a whole theme DIRECTORY and applies it; a
+    trimmer needs the loose ``.zt`` back so the user can preview it and
+    then set it as the device background (``SetBackground``, which
+    persists the override that ``SaveTheme`` later bakes in).  Same split
+    as ``LoadCloudTheme`` versus ``DownloadCloudTheme``: fetch-and-apply
+    is not the same capability as fetch.
+
+    **Returns as soon as the clip is QUEUED.**  ffmpeg runs for minutes
+    and the IPC dispatch timeout is 30 s, so waiting here would make the
+    Command impossible in daemon mode.  Watch the bus instead: every
+    ``VideoExportProgress`` and the terminal ``VideoExportFinished``
+    carries the ``token`` this Result hands back.
+
+    ``end_ms=None`` means "to the end of the source", probed on the spot.
+    The canvas is the panel's NATIVE size — never the oriented one, since
+    the firmware applies the mount rotation itself and ``rotation`` here
+    is the user's own turn of the footage on top.
+    """
+    key: str
+    path: Path
+    start_ms: int = 0
+    end_ms: int | None = None
+    rotation: int = 0
+
+    def execute(self, app: App) -> VideoExportResult:
+        log.info("ExportVideoClip.execute: key=%s path=%s start_ms=%d "
+                 "end_ms=%s rotation=%d", self.key, self.path, self.start_ms,
+                 self.end_ms, self.rotation)
+        if not self.path.is_file():
+            log.warning("ExportVideoClip.execute: %s not found", self.path)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Video file not found: {self.path}.  "
+                         "Check the path and try again."),
+            )
+        if MEDIA.kind_of(self.path) is not MediaKind.ANIMATED:
+            log.warning("ExportVideoClip.execute: %s is not an animated "
+                        "format", self.path)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Unsupported video extension {self.path.suffix!r}.  "
+                         f"Supported: "
+                         f"{', '.join(sorted(MEDIA.exts(MediaKind.ANIMATED)))}."),
+            )
+
+        target_w, target_h = _native_size(app, self.key)
+        if target_w == 0 or target_h == 0:
+            log.warning("ExportVideoClip.execute: no canvas known for %s",
+                        self.key)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Don't know the target resolution for {self.key}.  "
+                         "Connect the device first (or pass a key that "
+                         "matches a row in the product registry)."),
+            )
+
+        end_ms = self.end_ms
+        if end_ms is None:
+            probed = ProbeVideoDuration(path=self.path).execute(app)
+            end_ms = probed.duration_ms if probed.ok else self.start_ms + 10_000
+            log.info("ExportVideoClip.execute: end_ms defaulted to %d "
+                     "(probe ok=%s)", end_ms, probed.ok)
+
+        # Validate BEFORE queueing.  A bad range would otherwise be reported
+        # only as a VideoExportFinished(ok=False) seconds later, from a worker
+        # thread, when the caller could have been told at the call site.
+        if end_ms <= self.start_ms:
+            log.warning("ExportVideoClip.execute: empty range %d-%d ms",
+                        self.start_ms, end_ms)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Invalid clip range {self.start_ms}-{end_ms} ms "
+                         "— end must be greater than start."),
+            )
+        if end_ms - self.start_ms > ZT_MAX_DURATION_MS:
+            log.warning("ExportVideoClip.execute: %d ms exceeds the %d ms cap",
+                        end_ms - self.start_ms, ZT_MAX_DURATION_MS)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Clip is {(end_ms - self.start_ms) / 1000:.1f}s, "
+                         f"max is {ZT_MAX_DURATION_MS / 1000:.0f}s.  "
+                         "Pick a shorter range."),
+            )
+        if self.rotation not in (0, 90, 180, 270):
+            log.warning("ExportVideoClip.execute: bad rotation %d",
+                        self.rotation)
+            return VideoExportResult(
+                ok=False, source=str(self.path),
+                message=(f"Rotation must be one of 0/90/180/270, got "
+                         f"{self.rotation}"),
+            )
+
+        token = uuid4().hex
+        app.video_export_runner.submit(token, VideoExportRequest(
+            source=self.path,
+            start_ms=self.start_ms,
+            end_ms=end_ms,
+            target_w=target_w,
+            target_h=target_h,
+            rotation=self.rotation,
+        ))
+        log.info("ExportVideoClip.execute: queued token=%s for %dx%d",
+                 token, target_w, target_h)
+        return VideoExportResult(
+            ok=True, token=token, source=str(self.path),
+            target_w=target_w, target_h=target_h,
+            message=(f"Encoding {self.path.name} at {target_w}x{target_h} "
+                     f"— watch for VideoExportFinished(token={token})"),
+        )
+
+
+def _native_size(app: App, key: str) -> tuple[int, int]:
+    """The device's NATIVE canvas for *key*, or ``(0, 0)`` if unknowable.
+
+    Native, never oriented: a ``.zt`` is authored for the panel's own
+    pixels and the firmware applies the mount rotation itself.  Rotating
+    here as well would encode the turn twice.
+
+    Prefers an attached device's handshake profile, then its scanned
+    ``native_resolution``, then the product registry — that last step is
+    what lets a user stage a video theme BEFORE plugging the cooler in.
+
+    Shared by :class:`LoadVideo` and :class:`ExportVideoClip`, which want
+    the identical answer for the identical reason.
+    """
+    device = app.devices.get(key)
+    if device is not None:
+        if device.profile is not None:
+            log.debug("_native_size: %s from handshake profile", key)
+            return device.profile.resolution
+        if device.info.native_resolution != (0, 0):
+            log.debug("_native_size: %s from scanned DeviceInfo", key)
+            return device.info.native_resolution
+    try:
+        vid_s, pid_s = key.split(":")
+        vid = int(vid_s, 16)
+        pid = int(pid_s, 16)
+    except ValueError:
+        log.warning("_native_size: %r is not a VID:PID key", key)
+        return (0, 0)
+    product = find_product(vid, pid)
+    if product is None:
+        log.warning("_native_size: %s is not in the product registry", key)
+        return (0, 0)
+    log.debug("_native_size: %s from the product registry", key)
+    return product.native_resolution
+
+
+@dataclass(frozen=True, slots=True)
 class LoadVideo(Command[ThemeResult]):
     """Play a video on the LCD as a single-video theme.
 
@@ -2049,7 +2259,7 @@ class LoadVideo(Command[ThemeResult]):
                 ),
             )
 
-        target_w, target_h = self._resolve_target_size(app)
+        target_w, target_h = _native_size(app, self.key)
         if target_w == 0 or target_h == 0:
             return ThemeResult(
                 ok=False, key=self.key,
@@ -2104,23 +2314,3 @@ class LoadVideo(Command[ThemeResult]):
             )
         return LoadTheme(key=self.key, path=theme_dir).execute(app)
 
-    def _resolve_target_size(self, app: App) -> tuple[int, int]:
-        """Prefer an attached device's profile, fall back to the registry."""
-        device = app.devices.get(self.key)
-        if device is not None:
-            if device.profile is not None:
-                return device.profile.resolution
-            if device.info.native_resolution != (0, 0):
-                return device.info.native_resolution
-        # Pre-attach: parse vid/pid and ask the registry directly so
-        # users can stage video themes ahead of plugging in the device.
-        try:
-            vid_s, pid_s = self.key.split(":")
-            vid = int(vid_s, 16)
-            pid = int(pid_s, 16)
-        except ValueError:
-            return (0, 0)
-        product = find_product(vid, pid)
-        if product is None:
-            return (0, 0)
-        return product.native_resolution

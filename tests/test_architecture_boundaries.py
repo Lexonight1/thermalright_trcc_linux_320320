@@ -836,7 +836,12 @@ KNOWN_FS_IO: dict[str, int] = {
     #     well be a fix; it is not a refactor, so it is not smuggled in here.
     #   * the rest read a user's own file to hand its bytes to the store, which
     #     is the ingest boundary itself.
-    "trcc/core/commands/theme.py": 23,
+    # +2 on 2026-09-08: ``ExportVideoClip`` and ``ProbeVideoDuration`` each
+    # ``is_file()`` their source before queueing minutes of ffmpeg — the same
+    # existence check ``LoadVideo`` two definitions above already makes, and
+    # the alternative is a worker thread failing on it after the caller has
+    # returned.
+    "trcc/core/commands/theme.py": 25,
     "trcc/core/libraries.py": 1,
     "trcc/core/toolchain.py": 2,
     "trcc/services/_dc.py": 3,
@@ -1255,7 +1260,9 @@ def test_cli_and_api_reach_only_the_recorded_exception() -> None:
     }
     assert not dirty, (
         "The CLI/API dispatch Commands and read Results — keep it that way. "
-        "Every line below raises under TRCC_DAEMON=1:\n"
+        "Every line below reads App STATE, which the AppProxy a daemon "
+        "client holds does not have (``dispatch`` and ``events`` are all it "
+        "implements):\n"
         + "\n".join(
             f"  {f}:{line}  {text}"
             for f, hits in sorted(dirty.items()) for line, text in hits
