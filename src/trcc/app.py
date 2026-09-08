@@ -62,6 +62,7 @@ from .core.ports import (
     Renderer,
     SendScheduler,
     SendTask,
+    VideoExportRunner,
 )
 from .core.protocol import artwork_variant, mask_variant
 from .core.registry import find_product
@@ -106,7 +107,9 @@ class App:
     def __init__(self, platform: Platform,
                  renderer: Renderer | None = None,
                  send_scheduler: SendScheduler | None = None,
-                 data_install_runner: DataInstallRunner | None = None) -> None:
+                 data_install_runner: DataInstallRunner | None = None,
+                 video_export_runner: VideoExportRunner | None = None,
+                 ) -> None:
         self.platform = platform
         self.devices: dict[str, Device] = {}
         # Last scan's live DeviceInfo per key — carries the firmware fingerprint
@@ -181,6 +184,18 @@ class App:
                 self.data_install, self.events,
             )
         self.data_install_runner: DataInstallRunner = data_install_runner
+        # ...and the same shape for a ``.zt`` encode, for a sharper reason:
+        # ffmpeg over a clip runs for minutes and the IPC dispatch timeout is
+        # 30 s, so ``ExportVideoClip`` CANNOT encode inline and survive daemon
+        # mode.  It submits here and the work reports itself on the bus, which
+        # is also how the CLI and the API get a progress bar the two Qt skins
+        # used to keep to themselves in a private QThread each.
+        if video_export_runner is None:
+            from .adapters.infra.video_export_runner import (
+                ThreadVideoExportRunner,
+            )
+            video_export_runner = ThreadVideoExportRunner(self.events)
+        self.video_export_runner: VideoExportRunner = video_export_runner
         # Per-device slideshow cursor — tick-driven, no background thread.
         self.slideshow = SlideshowService()
         # Per-device send workers (actors) — one owns each device's wire,
@@ -769,6 +784,7 @@ class App:
             self.detach(key)
         self._send_scheduler.shutdown()
         self.data_install_runner.shutdown()
+        self.video_export_runner.shutdown()
 
     # ── Send workers ──────────────────────────────────────────────────
 

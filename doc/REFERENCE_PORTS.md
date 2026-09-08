@@ -6,7 +6,7 @@ Every abstract contract in the tree: what a new implementation must write, what 
 
 Ordered **cheapest to extend first** — the ports at the top are where this codebase welcomes a contributor, the ones at the bottom are where it does not yet.
 
-35 ports.
+36 ports.
 
 | port | implement | inherit | implementations |
 |---|---|---|---|
@@ -20,6 +20,7 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`DataInstallRunner`](#datainstallrunner) | 2 | 0 | 2 |
 | [`IdentifiedSource`](#identifiedsource) | 2 | 0 | 16 |
 | [`SingleFileTheme`](#singlefiletheme) | 2 | 0 | 1 |
+| [`VideoExportRunner`](#videoexportrunner) | 2 | 0 | 2 |
 | [`_MappingPort`](#_mappingport) | 2 | 0 | 2 |
 | [`BaseBulkDevice`](#basebulkdevice) | 3 | 0 | 4 |
 | [`BaseDevice`](#basedevice) | 3 | 4 | 5 |
@@ -190,6 +191,21 @@ install(source: 'Path', filename: 'str') -> Path
 ```
 
 **Implementations (1):** `FileSingleFileTheme`
+
+## VideoExportRunner
+
+`core/ports.py`
+
+Encodes ``Theme.zt`` clips OFF the caller's thread.
+
+**You implement (2):**
+
+```python
+shutdown() -> None
+submit(token: 'str', request: 'VideoExportRequest') -> None
+```
+
+**Implementations (2):** `SyncVideoExportRunner` · `ThreadVideoExportRunner`
 
 ## _MappingPort
 

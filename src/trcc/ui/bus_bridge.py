@@ -41,6 +41,8 @@ from ..core.events import (
     SystemResumed,
     SystemSuspending,
     ThemeLoaded,
+    VideoExportFinished,
+    VideoExportProgress,
     VideoStarted,
     VideoStopped,
 )
@@ -76,6 +78,8 @@ class BusBridge(QObject):
     mask_visibility_changed = Signal(object)   # MaskVisibilityChanged
     video_started = Signal(object)             # VideoStarted
     video_stopped = Signal(object)             # VideoStopped
+    video_export_progress = Signal(object)     # VideoExportProgress
+    video_export_finished = Signal(object)     # VideoExportFinished
     screencast_started = Signal(object)        # ScreencastStarted
     screencast_stopped = Signal(object)        # ScreencastStopped
     system_suspending = Signal(object)         # SystemSuspending
@@ -105,6 +109,8 @@ class BusBridge(QObject):
             (MaskVisibilityChanged, self.mask_visibility_changed),
             (VideoStarted, self.video_started),
             (VideoStopped, self.video_stopped),
+            (VideoExportProgress, self.video_export_progress),
+            (VideoExportFinished, self.video_export_finished),
             (ScreencastStarted, self.screencast_started),
             (ScreencastStopped, self.screencast_stopped),
             (SystemSuspending, self.system_suspending),

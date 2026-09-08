@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .errors import DeviceDisconnectedError, UnsupportedOperationError
 from .logs import per_frame
+from .models import VideoExportRequest
 
 log = logging.getLogger(__name__)
 frame_log = per_frame(__name__)
@@ -2230,6 +2231,51 @@ class DataInstallRunner(ABC):
         resolution alone.  The discover -> connect sequence sees the same panel
         twice and downloads once, while two coolers that share a panel but want
         different libraries each get theirs.
+        """
+
+    @abstractmethod
+    def shutdown(self) -> None:
+        """Stop the worker and drop anything still queued (app teardown)."""
+
+
+class VideoExportRunner(ABC):
+    """Encodes ``Theme.zt`` clips OFF the caller's thread.
+
+    An export is ffmpeg over every frame of a clip up to five minutes
+    long, and the exporter allows it 600 s.  The IPC dispatch timeout is
+    **30 s**, so a Command that encoded inline could not survive daemon
+    mode at all -- the socket would give up twenty times before ffmpeg
+    did.  Submitting instead lets ``ExportVideoClip`` return a token
+    immediately, and the work reports itself on the EventBus as
+    ``VideoExportProgress`` / ``VideoExportFinished``.
+
+    That is also what makes video export a capability of the app rather
+    than of a window: both Qt skins used to own a private QThread each --
+    two copies of the same encode, invisible to the CLI and the API and
+    to any second client of one daemon.
+
+    Serialized on purpose.  Two concurrent ffmpeg runs over the same
+    machine finish no sooner together than in turn and make the UI's
+    progress meaningless, so a second submission queues.
+
+    Concrete: ``ThreadVideoExportRunner`` (a daemon worker) for
+    production, ``SyncVideoExportRunner`` (encodes inline) for
+    deterministic tests.  Injected at the composition root so no Command
+    names a thread.  Mirrors :class:`DataInstallRunner`.
+    """
+
+    @abstractmethod
+    def submit(self, token: str, request: VideoExportRequest) -> None:
+        """Queue *request* for encoding under *token*.  Returns immediately.
+
+        *token* identifies this one export for the lifetime of its
+        events; the caller mints it and matches on it, because several
+        clients of one daemon see every event and only the initiator
+        should act.
+
+        NOT deduplicated: exporting the same clip twice is a thing a user
+        may legitimately ask for, unlike re-downloading an archive that
+        is already on disk.
         """
 
     @abstractmethod

@@ -169,6 +169,42 @@ class VideoStopped(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class VideoExportProgress(Event):
+    """One step of a running ``Theme.zt`` encode.
+
+    An export is minutes of ffmpeg, and the IPC dispatch timeout is 30 s
+    (``ipc._DEFAULT_TIMEOUT_S``) — twenty times shorter than the encoder's
+    own ffmpeg timeout.  So the Command that starts one returns
+    immediately and the work reports itself HERE, which is also what
+    gives the CLI and the REST API a progress bar they have never had:
+    both GUIs used to own a QThread each and nobody else could watch.
+
+    ``token`` identifies one export.  Several UIs may be attached to one
+    daemon and only the initiator should react, so a subscriber matches
+    the token it was handed at submit time and ignores the rest.
+    """
+    token: str
+    percent: int
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class VideoExportFinished(Event):
+    """An export ended — succeeded or failed.  Terminal for its token.
+
+    ``path`` is the freshly-written ``.zt`` on success and empty on
+    failure; ``message`` carries the reason either way, already worded
+    for a user.  Failure is an event rather than an exception because the
+    work happens on a worker thread inside the daemon, where there is no
+    caller left to raise at.
+    """
+    token: str
+    ok: bool
+    path: str = ""
+    message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ScreencastStarted(Event):
     """Published by ``StartScreencast`` after a screen-capture session is
     requested for a device.
