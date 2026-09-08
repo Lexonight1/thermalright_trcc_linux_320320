@@ -4,7 +4,7 @@
 
 A REST interface to the same command bus every other UI uses. Each endpoint builds a Command, dispatches it, and returns the Result as JSON — so anything here is also reachable from the CLI, the GUI, or your own client. The Commands themselves are documented in [`REFERENCE_COMMANDS.md`](REFERENCE_COMMANDS.md).
 
-**135 endpoints.**
+**136 endpoints.**
 
 ## Running it
 
@@ -195,3 +195,9 @@ Interactive docs are served at `/docs` while the API is running.
 | `GET /` | `dict` | — |
 | `GET /health` | `dict` | Liveness probe — always reachable, no auth required. |
 | `POST /pair` | — | Exchange the terminal pairing code for the persistent API token. |
+
+## (Untagged)
+
+| Endpoint | Returns | Description |
+|---|---|---|
+| `WS /events` | — | Push bus events to the client as JSON, one object per message. |

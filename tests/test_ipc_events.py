@@ -188,13 +188,13 @@ def test_the_handler_never_encodes_on_the_publishing_thread(server) -> None:
 
 def test_a_full_queue_drops_instead_of_blocking(server) -> None:
     """A stalled subscriber must not be able to grow the daemon's memory."""
-    from trcc.ipc import _EVENT_QUEUE_MAX
+    from trcc.ipc import EVENT_QUEUE_MAX
 
     _app, srv = server
-    for _ in range(_EVENT_QUEUE_MAX + 50):
+    for _ in range(EVENT_QUEUE_MAX + 50):
         srv._on_bus_event(FrameSent(key="k", bytes_sent=1))
 
-    assert srv._event_q.qsize() <= _EVENT_QUEUE_MAX
+    assert srv._event_q.qsize() <= EVENT_QUEUE_MAX
     assert srv._dropped >= 50
 
 

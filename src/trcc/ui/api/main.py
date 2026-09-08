@@ -34,7 +34,7 @@ from ...core.commands import GetPaths
 
 if TYPE_CHECKING:
     from ...core.ports import Platform
-from . import config, devices, display, led, system, theme
+from . import config, devices, display, events, led, system, theme
 from . import trcc as _trcc_router
 
 log = logging.getLogger(__name__)
@@ -173,6 +173,9 @@ def build_app(trcc: App | None = None) -> FastAPI:
     api.include_router(config.router)
     api.include_router(theme.router)
     api.include_router(_trcc_router.router)
+    # The observe half: dispatch and read were always here,
+    # the bus was not.
+    api.include_router(events.router)
 
     # ── Static serving for cloud previews ───────────────────────────
     # Mount data/web so the /theme/web gallery's preview_url

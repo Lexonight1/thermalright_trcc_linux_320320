@@ -83,7 +83,10 @@ _DEFAULT_TIMEOUT_S = 30.0
 #: grow the daemon's memory without limit.  At the measured 270 events/s for
 #: nine panels at full frame rate this is ~2s of slack, which is far longer
 #: than a healthy client needs and short enough that a dead one is obvious.
-_EVENT_QUEUE_MAX = 512
+#: Public because it is shared policy, not an ipc internal: the API's
+#: ``WS /events`` bridges the same bus to a network socket and must
+#: bound its buffer the same way, for the same reason.
+EVENT_QUEUE_MAX = 512
 #: How long the fan-out thread will wait on one subscriber's socket before
 #: giving up on it.  Kept short because the fan-out is shared: a stalled
 #: client must not hold up delivery to the healthy ones for longer than this,
@@ -484,7 +487,7 @@ class IPCServer:
         # living and dying inside ``_serve_client``.
         self._subscribers: list[_Subscriber] = []
         self._sub_lock = threading.Lock()
-        self._event_q: queue.Queue[Event] = queue.Queue(maxsize=_EVENT_QUEUE_MAX)
+        self._event_q: queue.Queue[Event] = queue.Queue(maxsize=EVENT_QUEUE_MAX)
         self._fanout_thread: threading.Thread | None = None
         self._bridged: set[str] = set()   # event names already subscribed on the bus
         self._dropped = 0
