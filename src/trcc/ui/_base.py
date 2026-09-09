@@ -124,9 +124,24 @@ class UserInterface(ABC):
                      type(self).__name__, code)
             return code
         try:
-            if self.needs_session and not self.bring_up():
-                log.warning("start: %s bring-up failed", type(self).__name__)
-                return 1
+            if self.needs_session:
+                # Compose BEFORE bring_up, not lazily inside it.  A Qt face
+                # builds its QApplication here, and ``QtGuiUI.bring_up`` opens
+                # a splash — a QWidget.  Left lazy, the splash was constructed
+                # first and Qt aborted the process outright:
+                # ``QWidget: Must construct a QApplication before a QWidget``,
+                # SIGABRT, caught by ``dev/smoke_ui_shutdown.py`` and by
+                # nothing in the unit suite, because it is process lifecycle.
+                #
+                # Laziness still buys what it was for: the CLI declares
+                # ``needs_session = False``, so ``trcc --help`` composes
+                # nothing.  The faces that DO need a session were always going
+                # to compose a moment later anyway.
+                _ = self._app
+                if not self.bring_up():
+                    log.warning("start: %s bring-up failed",
+                                type(self).__name__)
+                    return 1
             return self.run()
         finally:
             # Close only what was actually built.  A face that never
@@ -138,6 +153,14 @@ class UserInterface(ABC):
                 self._composed.close()
                 self._composed = None
             self.teardown()
+            # The unconditional teardown proof.  ``dev/smoke_ui_shutdown.py``
+            # greps for exactly this: a UI that exits WITHOUT it left the panel
+            # lit and the transport held (#143), and "the process is gone" on
+            # its own does not distinguish the two.  Logged AFTER close, never
+            # before — a marker printed ahead of the work it attests to is
+            # worse than none.
+            log.info("%s: cleanup complete — process exit",
+                     type(self).__name__)
 
     # ── The command bus — what a face IS ─────────────────────────────────
     #
