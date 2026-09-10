@@ -249,7 +249,11 @@ class _SharedRotatingFileHandler(RenderOnceRotatingFileHandler, ABC):
                 # this exists to close.
                 if not self._keep_open and self.stream is not None:
                     self.stream.close()
-                    self.stream = None
+                    # typeshed types ``stream`` non-optional, but ``FileHandler``
+                    # itself leaves it None under ``delay=True`` and CPython's own
+                    # ``doRollover`` assigns None here.  The stub is wrong, not
+                    # the assignment.
+                    self.stream = None  # pyright: ignore[reportAttributeAccessIssue]
                 self._release()
         except Exception:
             self.handleError(record)
@@ -282,7 +286,7 @@ class _SharedRotatingFileHandler(RenderOnceRotatingFileHandler, ABC):
         # retention.  Re-open onto the current file instead.
         if self.stream:
             self.stream.close()
-            self.stream = None
+            self.stream = None  # pyright: ignore[reportAttributeAccessIssue]
         try:
             rotated_by_peer = self._base_path.stat().st_ino != self._inode
         except FileNotFoundError:

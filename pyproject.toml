@@ -93,6 +93,12 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "pytest-qt>=4.0.0",
+    # REQUIRED, not optional: ``addopts`` carries ``-n auto``, so a pytest
+    # without xdist cannot start at all -- "unrecognized arguments: -n".  It
+    # was declared nowhere and worked only because every machine that had run
+    # the suite happened to have it installed already.  The first environment
+    # that did not was the Windows CI job, on its first ever run.
+    "pytest-xdist>=3.0",
     "ruff>=0.4.0",
     # httpx2, not httpx: starlette.testclient does `try: import httpx2 / except:
     # import httpx` + a DeprecationWarning. Pinning the old one made the suite
