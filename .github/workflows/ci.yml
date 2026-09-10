@@ -71,6 +71,51 @@ jobs:
           name: pytest-output
           path: pytest-output.txt
 
+  tests-windows:
+    # Windows had NO test execution anywhere.  ``windows.yml`` runs on
+    # windows-latest and never calls pytest -- it builds the installer -- and
+    # every other workflow is ubuntu-only.  So a Windows code path could ship
+    # having never executed a line, which is exactly what happened to the
+    # multi-process log handler: its Windows half could not work (``os.rename``
+    # fails with WinError 32 while a peer holds the file) and the build was
+    # green throughout.  A platform with no test run is a platform whose bugs
+    # are found by reporters.
+    #
+    # DELIBERATELY A SUBSET.  The suite has never run on Windows, so its state
+    # there is unknown, and a job that is red for unrelated reasons gates
+    # nothing and gets ignored.  This gates the file/locking layer -- the part
+    # whose semantics genuinely differ per OS and the part just changed.
+    # Widening it to ``tests/`` is worth doing and needs its own pass: run it
+    # once, read what fails, fix or skip each with a reason.
+    name: tests (windows, file + locking layer)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Diagnostics + logging tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/test_diagnostics.py tests/test_logging_coverage.py -q --tb=short
+
+      # The one thing only Windows can answer: whether a rotation actually
+      # succeeds while other processes are writing the same log.
+      - name: Multi-process log rotation
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src
+        run: python dev/smoke_log_multiprocess.py
+
   smokes:
     # The dev/ harnesses and meters, which until now ran only when someone
     # remembered.  That is why smoke_rotation_mask asserted a behaviour the
@@ -136,6 +181,20 @@ jobs:
             echo "::error::failing harnesses:$failed"
             exit 1
           fi
+
+      # The log harness again, under the WINDOWS file policy.  Windows cannot
+      # rename a file a peer holds open (WinError 32), so its handler closes
+      # after every write rather than holding it.  That policy is the half of
+      # the Windows fix a Linux runner can execute -- if closing between
+      # records cost records, doubled a rotation or stuck the lock, it shows up
+      # here instead of on a reporter's machine.  The rename itself still needs
+      # Windows; see the tests-windows job.
+      - name: Log harness under the Windows file policy
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src:.
+          TRCC_SMOKE_CLOSE_BETWEEN_RECORDS: "1"
+        run: python3 dev/smoke_log_multiprocess.py
 
       # KNOWN OPEN DEFECT, quarantined so the rest of the matrix can gate:
       #   video.size.portrait -- "portrait 320x480 decoded zero frames --
