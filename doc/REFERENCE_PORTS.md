@@ -6,7 +6,7 @@ Every abstract contract in the tree: what a new implementation must write, what 
 
 Ordered **cheapest to extend first** — the ports at the top are where this codebase welcomes a contributor, the ones at the bottom are where it does not yet.
 
-38 ports.
+39 ports.
 
 | port | implement | inherit | implementations |
 |---|---|---|---|
@@ -31,6 +31,7 @@ Ordered **cheapest to extend first** — the ports at the top are where this cod
 | [`DramSource`](#dramsource) | 3 | 0 | 1 |
 | [`HotplugMonitor`](#hotplugmonitor) | 3 | 0 | 5 |
 | [`SendScheduler`](#sendscheduler) | 3 | 0 | 2 |
+| [`_SharedRotatingFileHandler`](#_sharedrotatingfilehandler) | 3 | 4 | 2 |
 | [`CloudCatalog`](#cloudcatalog) | 4 | 0 | 1 |
 | [`FanSource`](#fansource) | 4 | 0 | 3 |
 | [`MemorySource`](#memorysource) | 4 | 0 | 2 |
@@ -379,6 +380,24 @@ shutdown() -> None
 ```
 
 **Implementations (2):** `SyncSendScheduler` · `ThreadSendScheduler`
+
+## _SharedRotatingFileHandler
+
+`adapters/infra/logging.py`
+
+A rotating handler several PROCESSES may write to at once.
+
+**You implement (3):**
+
+```python
+_acquire() -> None
+_claim_run(fd: 'int') -> None
+_release() -> None
+```
+
+**You inherit (4):** `close` · `doRollover` · `emit` · `shouldRollover`
+
+**Implementations (2):** `PosixSharedLogHandler` · `WindowsSharedLogHandler`
 
 ## CloudCatalog
 

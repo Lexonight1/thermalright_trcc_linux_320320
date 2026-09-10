@@ -41,20 +41,71 @@ _RECURSION_RISK = frozenset({
     "__len__", "__iter__", "__next__", "__contains__", "__bool__",
 })
 
-#: Same impossibility, one level up: ``logging`` calls these ON A HANDLER OR
-#: FORMATTER while it is turning a record into text, so a log call inside one
-#: recurses forever.  Qualified by the enclosing class rather than by name
-#: alone — ``format`` is far too common a method name to exempt outright, and
-#: exempting it everywhere would hide real silent functions.
-#: ``filter`` belongs here for the same reason and was missing: ``logging``
-#: calls it on every EMITTED record, so a log call inside one emits a record,
-#: which runs the filters, which calls it again — proven by construction, not
-#: argued: a ``logging.Filter`` whose ``filter`` logs raises ``RecursionError``
-#: on the first record.  The ratchet was therefore demanding a log line in a
-#: function where one hangs the app.  Exactly one class in the tree is affected
-#: (``ClassContextFilter``), measured before widening the list.
-_FORMATTER_HOOKS = frozenset({"format", "formatTime", "formatException", "filter"})
-_FORMATTER_BASES = ("Handler", "Formatter", "Filter")
+#: Same impossibility, one level up: ``logging`` calls these ON A HANDLER,
+#: FORMATTER or FILTER while it is handling a record, so a log call inside one
+#: emits a record, which runs them again, forever.  The ratchet would otherwise
+#: demand a log line in a function where one hangs the app.
+#:
+#: Every entry is proven by construction, never argued — see the measurements
+#: below and the self-tests in ``tests/test_logging_coverage.py``.  Which class
+#: each entry affects is measured BEFORE the name is added; the qualifier that
+#: keeps the name from leaking elsewhere is :data:`_FORMATTER_BASES`.
+_FORMATTER_HOOKS = frozenset({
+    "format", "formatTime", "formatException", "filter",
+    # ``logging`` calls these while HANDLING a record, one step before it
+    # formats one, so the same impossibility applies.  Measured rather than
+    # argued -- entries provoked by a SINGLE emitted record, each method
+    # carrying one log line, one trial per process so a crash cannot mask its
+    # neighbours (``sys.setrecursionlimit(200)``):
+    #
+    #     emit             166   flush           427
+    #     shouldRollover   142   _open           409
+    #     doRollover         5   close             1
+    #
+    # A first pass read ``_open`` as safe at 1 entry -- an artifact of a trial
+    # whose file never rolled over, so ``_open`` ran once at construction and
+    # never again.  Forcing real rollovers moved it to 409.
+    "emit", "shouldRollover", "_open", "flush",
+    # ``doRollover`` is exempt for a SECOND, independent reason: it does not
+    # recurse (measured, 5 entries), but it runs under the cross-process
+    # rollover lock.  ``flock`` keeps no recursion count -- proven by asking a
+    # peer process: take LOCK_EX twice on one fd, release once, and the peer
+    # ACQUIRES.  So a log line here re-enters ``emit``, whose ``finally``
+    # releases the lock while the rotation is still half-done, letting a peer
+    # rename the file being rotated.  Nothing under the lock may log.
+    "doRollover",
+    # The handler's own lock hooks, called by ``emit`` on both sides of
+    # ``super().emit`` — so they are the record path, and they are what takes
+    # the lock nothing under may log through.
+    "_acquire", "_release",
+})
+
+#: Qualified by the ENCLOSING CLASS, because these are ordinary method names:
+#: ``format``, ``flush`` and ``_open`` all belong on plenty of classes that
+#: have nothing to do with logging, and exempting them by name alone would
+#: hide real silent functions.
+#:
+#: Matched EXACTLY, against the logging base classes themselves.  It used to be
+#: a suffix test -- ``b.endswith(("Handler", "Formatter", "Filter"))`` -- whose
+#: own comment claimed the enclosing class was the qualifier.  It was not:
+#: measured, ``LCDHandler(BaseHandler)`` and ``LEDHandler(BaseHandler)`` match
+#: that suffix, and they are the GUI's per-device handlers, not logging ones.
+#: Nothing was wrongly exempt at the time (neither declares any hook in this
+#: set), so the suffix test was correct by luck.  Widening the set to the
+#: record-handling path is what would have spent that luck: ``_open`` and
+#: ``flush`` are entirely plausible on a device handler, and either would have
+#: gone silently uncounted under a rule written for ``logging``.
+_FORMATTER_BASES = frozenset({
+    "Handler", "Filter", "Formatter",
+    "StreamHandler", "FileHandler", "RotatingFileHandler", "MemoryHandler",
+    "logging.Handler", "logging.Filter", "logging.Formatter",
+    "logging.StreamHandler", "logging.FileHandler",
+    "logging.handlers.RotatingFileHandler",
+    "logging.handlers.MemoryHandler",
+    # This tree's own logging handlers, so their subclasses qualify too.
+    "RenderOnceRotatingFileHandler",
+    "_SharedRotatingFileHandler",
+})
 
 
 def _class_bases_by_method(tree: ast.AST) -> dict[int, list[str]]:
@@ -76,7 +127,7 @@ def _exempt(fn: ast.FunctionDef | ast.AsyncFunctionDef,
     if fn.name in _RECURSION_RISK or _is_stub(fn) or _is_abstract(fn):
         return True
     return fn.name in _FORMATTER_HOOKS and any(
-        b.endswith(_FORMATTER_BASES) for b in bases
+        b in _FORMATTER_BASES for b in bases
     )
 
 

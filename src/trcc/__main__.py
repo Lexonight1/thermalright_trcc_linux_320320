@@ -6,49 +6,30 @@ a log file at ~/.trcc/trcc.log even if the app crashes on startup.
 """
 
 import logging
-import logging.handlers
 import os
 import sys
 from pathlib import Path
 
 # Early logging — catches import failures, DI errors, platform issues.
-# Must run before any trcc imports. All 4 OS's get a log file.
-_log_dir = Path.home() / '.trcc'
-_log_dir.mkdir(parents=True, exist_ok=True)
-_log_path = _log_dir / 'trcc.log'
+#
+# This BUFFERS; it does not open a file.  Where the log lives is a question
+# only the platform layer can answer, and that layer is 48 modules including
+# pyusb, psutil and pynvml — the very imports whose failure this exists to
+# record.  So the records are held until ``configure_logging`` knows the real
+# destination, and replayed through the real handlers.
+#
+# It used to install its own RotatingFileHandler on a hardcoded path, which is
+# the same fact written twice.  Both copies had drifted: the path was
+# ``~/.trcc/trcc.log`` on every OS while the report reads ``%APPDATA%\trcc``
+# on Windows and ``~/Library/.../Logs`` on macOS — and BOTH frozen builds are
+# entry-pointed at THIS file, so every shipped Windows and macOS binary wrote
+# its startup records where nothing would read them.  The format drifted too:
+# ``tail_log_actions`` returned zero lines for a startup CRITICAL, because a
+# space-separated date and a bracketed level made every early record parse as a
+# continuation.  See ``start_early_logging``.
+from trcc.adapters.infra.logging import ensure_configured, start_early_logging
 
-
-# Windows-only: stdlib RotatingFileHandler can't rotate a file that's open
-# in another process — ``os.rename`` fails with WinError 32 and the default
-# error path prints the traceback to stderr *and* drops the log record.
-# Linux/macOS rename of an open file works, so they use the stdlib handler.
-if sys.platform == 'win32':
-    class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
-        def doRollover(self) -> None:
-            try:
-                super().doRollover()
-            except (PermissionError, OSError):
-                pass
-
-    _rotating_handler_cls: type[logging.handlers.RotatingFileHandler] = _SafeRotatingFileHandler
-else:
-    _rotating_handler_cls = logging.handlers.RotatingFileHandler
-
-
-_early_handler = _rotating_handler_cls(
-    _log_path, maxBytes=1_000_000, backupCount=3,
-    encoding='utf-8', errors='replace',
-)
-# Tag the early shim so ``adapters.infra.logging.configure_logging`` knows
-# to swap it out when it runs.  Without the tag, both handlers stay
-# attached and every log line gets written twice.
-_early_handler._trcc_handler = True  # type: ignore[attr-defined]
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(name)s.%(funcName)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[_early_handler],
-)
+start_early_logging()
 log = logging.getLogger('trcc.main')
 log.info("Starting TRCC — platform=%s, executable=%s", sys.platform, sys.executable)
 
@@ -109,4 +90,12 @@ try:
     sys.exit(main() or 0)
 except Exception:
     log.critical("Fatal startup error", exc_info=True)
+    # The buffer still holds this CRITICAL and everything before it, and
+    # nothing has written a file yet — the crash is why.  Configure now so the
+    # records reach disk; ``ensure_configured`` falls back to a named path if
+    # asking the platform is itself what broke.
+    try:
+        ensure_configured()
+    except Exception:
+        log.exception("Fatal startup error: could not write the log either")
     raise

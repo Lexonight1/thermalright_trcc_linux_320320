@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import ast
 import logging
+import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -24,8 +26,13 @@ from trcc.adapters.diagnostics.health import (
     run_health_checks,
 )
 from trcc.adapters.infra.logging import (
+    ClassContextFilter,
+    PosixSharedLogHandler,
     RenderOnceRotatingFileHandler,
     configure_logging,
+    log_chain,
+    shared_handler_class,
+    start_early_logging,
     tail_log,
     tail_log_actions,
 )
@@ -291,6 +298,656 @@ def test_tail_log_returns_last_n_lines(tmp_path: Path) -> None:
     tail = tail_log(log_file, n_lines=10)
     assert len(tail) == 10
     assert tail[-1] == "line 499"
+
+
+# =========================================================================
+# The rotation chain — a report reads the SET, not the live segment
+# =========================================================================
+#
+# ``trcc report`` is the entire diagnosis for hardware we do not own, and it
+# used to read ``trcc.log`` alone.  A rollover therefore cut it to whatever the
+# live segment happened to hold: measured on a SINGLE writer, 5,300 significant
+# records emitted gave ``tail_log(1000)`` -> 423 lines and
+# ``tail_log_actions(500)`` -> 424, the other 4,876 sitting unread in
+# ``trcc.log.1``.  No concurrency needed to lose them.
+
+
+def _rotated(tmp_path: Path, segments: dict[str, list[str]]) -> Path:
+    """Write a rotation set by hand.  Keys are suffixes, ``""`` is the live file."""
+    base = tmp_path / "trcc.log"
+    for suffix, lines in segments.items():
+        target = base if suffix == "" else base.with_name(f"trcc.log.{suffix}")
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return base
+
+
+def test_log_chain_is_oldest_first_and_ends_at_the_live_file() -> None:
+    """Rotation renames base -> .1 -> .2, so a HIGHER suffix is OLDER."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        base = _rotated(Path(d), {"2": ["old"], "1": ["mid"], "": ["live"]})
+        assert [p.name for p in log_chain(base)] == [
+            "trcc.log.2", "trcc.log.1", "trcc.log",
+        ]
+
+
+def test_log_chain_ignores_siblings_that_are_not_segments(
+    tmp_path: Path,
+) -> None:
+    """Only NUMERIC suffixes are log content.
+
+    The multi-process rollover lock is a sidecar named ``trcc.log.lock`` — it
+    shares the prefix and is not a segment.  ``trcc.latest.log`` is a separate
+    file with its own lifetime and must not be spliced in either.
+    """
+    base = _rotated(tmp_path, {"1": ["mid"], "": ["live"]})
+    (tmp_path / "trcc.log.lock").write_text("", encoding="utf-8")
+    (tmp_path / "trcc.latest.log").write_text("latest\n", encoding="utf-8")
+    (tmp_path / "trcc.log.bak").write_text("bak\n", encoding="utf-8")
+
+    assert [p.name for p in log_chain(base)] == ["trcc.log.1", "trcc.log"]
+
+
+def test_log_chain_of_a_missing_file_is_empty(tmp_path: Path) -> None:
+    assert log_chain(tmp_path / "absent.log") == []
+
+
+def test_tail_log_reaches_into_the_backups(tmp_path: Path) -> None:
+    """The 423-of-1000 case: the live segment holds far less than the budget."""
+    base = _rotated(tmp_path, {
+        "1": [f"old {i}" for i in range(900)],
+        "": [f"live {i}" for i in range(100)],
+    })
+    tail = tail_log(base, n_lines=1000)
+
+    assert len(tail) == 1000
+    assert tail[0] == "old 0"
+    assert tail[899] == "old 899"
+    assert tail[900] == "live 0"
+    assert tail[-1] == "live 99"
+
+
+def test_tail_log_actions_reaches_into_the_backups(tmp_path: Path) -> None:
+    """Significance selection spans the chain, not just the live segment."""
+    base = _rotated(tmp_path, {
+        "1": [_record("INFO", "LoadTheme ok: Theme1")]
+             + [_record("DEBUG", f"draw_text {i}", i) for i in range(2000)],
+        "": [_record("DEBUG", f"draw_text {i}", i) for i in range(2000)],
+    })
+
+    assert [line.split(": ", 1)[-1] for line in tail_log_actions(base)] == [
+        "LoadTheme ok: Theme1",
+    ]
+
+
+def test_a_records_traceback_does_not_leak_across_a_rollover(
+    tmp_path: Path,
+) -> None:
+    """A segment boundary resets continuation tracking.
+
+    One ``emit`` writes a whole record — traceback included — and rollover
+    happens between records, so a continuation line can never belong to a
+    record in the PREVIOUS segment.  Without the reset, a DEBUG-suppressed
+    record at the end of one segment could adopt the next segment's first line.
+    """
+    base = _rotated(tmp_path, {
+        "1": [_record("ERROR", "boom"), "Traceback (most recent call last):"],
+        "": ["  File 'orphan.py', line 1", _record("INFO", "after rollover")],
+    })
+    kept = tail_log_actions(base)
+
+    assert kept == [
+        _record("ERROR", "boom"),
+        "Traceback (most recent call last):",
+        _record("INFO", "after rollover"),
+    ]
+
+
+# =========================================================================
+# Multi-process rotation — the daemon flip makes 2+ writers permanent
+# =========================================================================
+
+
+@contextmanager
+def _shared_handler(log_file: Path, **kwargs: object):
+    """A multi-process handler on its own logger, cleaned up afterwards."""
+    handler = shared_handler_class()(log_file, encoding="utf-8", **kwargs)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger = logging.getLogger("trcc.test.shared")
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    previous = list(logger.handlers)
+    logger.handlers[:] = [handler]
+    try:
+        yield logger, handler
+    finally:
+        handler.close()
+        logger.handlers[:] = previous
+
+
+def test_a_peer_rotation_moves_our_writes_onto_the_new_file(
+    tmp_path: Path,
+) -> None:
+    """The orphaned-writer bug, in one step.
+
+    ``RotatingFileHandler`` decides rollover from ``self.stream.tell()`` — OUR
+    position in the file WE opened.  After a peer renames that file away, the
+    stream keeps working and we keep appending to an inode nothing reads:
+    measured with three processes, ``trcc.log`` held 2,263 records from one
+    writer and ZERO from the other two.  Asking ``stat`` for the shared file
+    instead answers both questions — its size, and whether it is still ours.
+    """
+    log_file = tmp_path / "trcc.log"
+    with _shared_handler(log_file, maxBytes=10_000_000, backupCount=5) as (lg, _h):
+        lg.info("before-peer-rotation")
+
+        # A peer rotates underneath us: our inode becomes .1, a NEW file
+        # takes the name.  Nothing tells us; only the inode differs.
+        log_file.rename(tmp_path / "trcc.log.1")
+        log_file.write_text("", encoding="utf-8")
+
+        lg.info("after-peer-rotation")
+
+    assert "after-peer-rotation" in log_file.read_text(encoding="utf-8"), (
+        "still writing into the inode the peer renamed away — those records "
+        "are invisible to the file `trcc report` reads"
+    )
+    assert "before-peer-rotation" in (
+        tmp_path / "trcc.log.1").read_text(encoding="utf-8")
+
+
+def test_a_peer_rotation_does_not_rotate_the_chain_a_second_time(
+    tmp_path: Path,
+) -> None:
+    """One overflow must advance the chain ONCE, not once per writer.
+
+    Rotating again for a rollover a peer already did is what cost three
+    writers 17.6 points of retention (47.8% -> 30.2%).
+    """
+    log_file = tmp_path / "trcc.log"
+    with _shared_handler(log_file, maxBytes=10_000_000, backupCount=5) as (lg, _h):
+        lg.info("first")
+        log_file.rename(tmp_path / "trcc.log.1")
+        log_file.write_text("", encoding="utf-8")
+        lg.info("second")
+
+    # A second rotation would have pushed the peer's file down to .2.
+    assert (tmp_path / "trcc.log.1").is_file()
+    assert not (tmp_path / "trcc.log.2").exists(), (
+        "the chain advanced twice for one overflow — every extra writer would "
+        "shorten retention by another generation"
+    )
+
+
+def test_the_lock_sidecar_exists_and_is_never_read_as_log_content(
+    tmp_path: Path,
+) -> None:
+    """The lock lives beside the log, so the chain reader must skip it."""
+    log_file = tmp_path / "trcc.log"
+    configure_logging(log_file, level=logging.DEBUG,
+                      stderr_level=logging.CRITICAL)
+    logging.getLogger("trcc.test").warning("a-record")
+
+    assert (tmp_path / "trcc.log.lock").is_file()
+    assert (tmp_path / "trcc.latest.log.lock").is_file()
+    assert [p.name for p in log_chain(log_file)] == ["trcc.log"]
+
+
+def test_a_closed_handler_drops_records_rather_than_reopening(
+    tmp_path: Path,
+) -> None:
+    """``close()`` does not detach, and stdlib answers records by re-opening.
+
+    That silently leaks the reopened file object and writes without the lock.
+    A closed shared handler stays closed instead — safe because in production
+    ``close()`` only ever follows ``removeHandler``.
+    """
+    log_file = tmp_path / "trcc.log"
+    handler = shared_handler_class()(
+        log_file, maxBytes=10_000_000, backupCount=1, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.close()
+
+    assert handler._lock_fd == -1
+    handler.emit(logging.LogRecord(
+        "trcc.test", logging.WARNING, __file__, 1, "after-close", None, None))
+
+    assert handler.stream is None, "a closed handler re-opened its stream"
+    assert "after-close" not in log_file.read_text(encoding="utf-8")
+
+
+def test_a_live_peer_keeps_its_run_so_we_append_to_latest(
+    tmp_path: Path,
+) -> None:
+    """``latest`` belongs to the SESSION, not to whichever process started last.
+
+    The sequential gate above cannot see this: it calls ``configure_logging``
+    twice in one process, where the second call legitimately owns the run
+    again.  With a LIVE peer the old behaviour wiped a running session's log —
+    measured with three writers, one lost 1,501 of 9,000 records and another
+    3,356, leaving a file blended from three runs.
+
+    The peer claims the run through the SAME primitive the app uses, so this
+    test runs on every OS rather than reaching for ``fcntl`` directly.
+    """
+    import subprocess
+    import sys
+
+    log_file = tmp_path / "trcc.log"
+    latest = tmp_path / "trcc.latest.log"
+    latest.write_text("PEER-SESSION-MARKER\n", encoding="utf-8")
+
+    # A context manager, so the pipes close with the process — a leaked one
+    # surfaces as a ResourceWarning inside whichever unrelated test runs next.
+    with subprocess.Popen(
+        [sys.executable, "-c",
+         "import os, sys\n"
+         "from trcc.adapters.infra.logging import shared_handler_class\n"
+         "fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o644)\n"
+         "shared_handler_class()._claim_run(fd)\n"
+         "print('held', flush=True)\n"
+         "sys.stdin.read()\n",
+         str(tmp_path / "trcc.latest.log.run")],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    ) as peer:
+        try:
+            assert peer.stdout is not None
+            assert peer.stdout.readline().strip() == "held", (
+                "the peer could not claim the run — setup, not the behaviour"
+            )
+            configure_logging(log_file, level=logging.DEBUG,
+                              stderr_level=logging.CRITICAL)
+            body = latest.read_text(encoding="utf-8")
+        finally:
+            assert peer.stdin is not None
+            peer.stdin.close()
+            peer.wait(timeout=10)
+
+    assert "PEER-SESSION-MARKER" in body, (
+        "a joining process truncated a LIVE peer's per-run log — the peer's "
+        "session is gone and what remains is half one run, half another"
+    )
+
+
+def test_the_run_claim_is_released_so_a_later_launch_owns_a_fresh_run(
+    tmp_path: Path,
+) -> None:
+    """The other half: once nobody holds it, the next launch truncates again.
+
+    Also the self-conflict guard — ``flock`` is per open file DESCRIPTION, so
+    a second ``configure_logging`` in ONE process must release its own claim
+    before probing, or it would mistake itself for a live peer and never
+    truncate again.
+    """
+    log_file = tmp_path / "trcc.log"
+    latest = tmp_path / "trcc.latest.log"
+
+    configure_logging(log_file, level=logging.DEBUG,
+                      stderr_level=logging.CRITICAL)
+    logging.getLogger("trcc.test").warning("run-one-marker")
+    configure_logging(log_file, level=logging.DEBUG,
+                      stderr_level=logging.CRITICAL)
+    logging.getLogger("trcc.test").warning("run-two-marker")
+
+    body = latest.read_text(encoding="utf-8")
+    assert "run-two-marker" in body
+    assert "run-one-marker" not in body, (
+        "the process mistook its OWN previous claim for a live peer and "
+        "stopped truncating — the per-run guarantee is silently retired"
+    )
+
+
+def test_a_handler_that_may_not_hold_the_file_closes_it_between_records(
+    tmp_path: Path,
+) -> None:
+    """The Windows rotation fix, exercised on whatever OS runs this.
+
+    Windows cannot rename a file a PEER holds open — ``os.rename`` needs
+    exclusive access to the source and CPython's ``open(path, "a")`` does not
+    request ``FILE_SHARE_DELETE``, so the rename fails with WinError 32.
+    Serialising rotation does not help, because the peer is not the process
+    rotating.  So the Windows handler holds nothing between records, exactly as
+    ``concurrent-log-handler`` does.
+
+    ``_keep_open`` is a plain attribute rather than a ``sys.platform`` test
+    precisely so this is testable here: a Windows-only path only Windows can
+    run is as unverifiable as the bug it fixes.
+    """
+    handler_cls = shared_handler_class()
+
+    class ClosesBetweenRecords(handler_cls):  # type: ignore[valid-type,misc]
+        _keep_open = False
+
+    log_file = tmp_path / "trcc.log"
+    handler = ClosesBetweenRecords(
+        log_file, maxBytes=10_000_000, backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("trcc.test.keepopen")
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.handlers[:] = [handler]
+    try:
+        assert handler.stream is None, (
+            "the file was opened at construction — nothing may hold it, "
+            "including before the first record"
+        )
+        logger.info("first")
+        assert handler.stream is None, (
+            "the file is still open after a write — on Windows a peer's "
+            "handle in this state fails every rotation with WinError 32"
+        )
+        logger.info("second")
+        assert log_file.read_text(encoding="utf-8").splitlines() == [
+            "first", "second",
+        ], "closing between records must not cost records or truncate"
+    finally:
+        handler.close()
+        logger.handlers[:] = []
+
+
+@pytest.mark.skipif(
+    shared_handler_class() is not PosixSharedLogHandler,
+    reason="asserts the POSIX handler's own policy; it needs fcntl to build",
+)
+def test_the_posix_handler_does_hold_the_file_open(tmp_path: Path) -> None:
+    """The other half: POSIX must NOT pay for a Windows-only constraint.
+
+    Renaming an open file is an inode swap on POSIX, so the lock alone is
+    sufficient there and the +8.9%/record measurement assumes the stream stays
+    open.  Silently flipping every OS to open-per-record would be a much larger
+    regression than the bug it came from.
+    """
+    handler = PosixSharedLogHandler(
+        tmp_path / "trcc.log", maxBytes=10_000_000, backupCount=1,
+        encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    try:
+        assert handler._keep_open is True
+        handler.emit(logging.LogRecord(
+            "t", logging.WARNING, __file__, 1, "one", None, None))
+        assert handler.stream is not None
+    finally:
+        handler.close()
+
+
+class _StubMsvcrt:
+    """Just enough ``msvcrt`` to drive the Windows handler on any OS.
+
+    Byte-range semantics are the OS's business and this cannot check them.
+    What it CAN check is our side of the contract — that the handler seeks to
+    byte 0 before every lock (``msvcrt`` locks from the CURRENT position, so
+    forgetting the seek locks a different byte each time and serialises
+    nothing), takes the blocking mode to acquire and the unlock mode to
+    release, and pairs them exactly.
+    """
+
+    LK_LOCK = 1
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    #: Where this stub leaves the file position after every call, so the next
+    #: caller MUST seek.  Without it the offset is 0 whether or not anyone
+    #: seeks — the lock fd is never read or written — and an assertion that the
+    #: handler locks byte 0 passes even when the seek is deleted.  Caught by
+    #: mutation, not by review: removing the ``lseek`` from ``_acquire`` left
+    #: the test green.
+    DIRTY_POSITION = 7
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int, int]] = []
+        self.held: set[int] = set()
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        offset = os.lseek(fd, 0, os.SEEK_CUR)
+        self.calls.append((offset, mode, nbytes))
+        os.lseek(fd, self.DIRTY_POSITION, os.SEEK_SET)
+        if mode == self.LK_UNLCK:
+            self.held.discard(fd)
+            return
+        if fd in self.held:
+            raise OSError(13, "already locked")
+        self.held.add(fd)
+
+
+def test_the_windows_handler_locks_the_way_msvcrt_requires(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the REAL Windows class, on this OS, with a stubbed ``msvcrt``.
+
+    Windows has no test run anywhere — ``windows.yml`` builds the installer and
+    never calls pytest, every other workflow is ubuntu-only — so this class
+    would otherwise ship having never executed a single line.  This does not
+    prove Windows file semantics; it proves the code we wrote does what
+    ``msvcrt`` documents: lock one byte, from position 0, blocking to acquire
+    and unlocking to release.
+    """
+    import sys as sys_mod
+
+    from trcc.adapters.infra.logging import WindowsSharedLogHandler
+
+    stub = _StubMsvcrt()
+    monkeypatch.setitem(sys_mod.modules, "msvcrt", stub)
+
+    log_file = tmp_path / "trcc.log"
+    handler = WindowsSharedLogHandler(
+        log_file, maxBytes=10_000_000, backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("trcc.test.win")
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.handlers[:] = [handler]
+    try:
+        logger.info("first")
+        logger.info("second")
+
+        assert log_file.read_text(encoding="utf-8").splitlines() == [
+            "first", "second",
+        ]
+        # Every lock call: byte 0, one byte.
+        assert all(offset == 0 and nbytes == 1
+                   for offset, _mode, nbytes in stub.calls), stub.calls
+        # Acquire/release pair per record, plus the constructor's probe.
+        modes = [mode for _o, mode, _n in stub.calls]
+        assert modes == [stub.LK_LOCK, stub.LK_UNLCK] * (len(modes) // 2), (
+            f"locks and unlocks are not paired in order: {modes}"
+        )
+        assert not stub.held, "a lock was left held after the last record"
+        # And the Windows policy: nothing holds the file between records.
+        assert handler.stream is None
+    finally:
+        handler.close()
+        logger.handlers[:] = []
+
+
+def test_the_windows_run_claim_uses_the_non_blocking_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_claim_run`` must NOT block — it is a "is a peer alive?" question.
+
+    ``LK_LOCK`` would retry for ten seconds and then raise, turning a startup
+    probe into a ten-second stall.  ``LK_NBLCK`` answers immediately, and it is
+    the only exclusive non-blocking mode ``msvcrt`` has — there is no shared
+    mode at all, which is why the run claim is held rather than probed.
+    """
+    import sys as sys_mod
+
+    from trcc.adapters.infra.logging import WindowsSharedLogHandler
+
+    stub = _StubMsvcrt()
+    monkeypatch.setitem(sys_mod.modules, "msvcrt", stub)
+
+    fd = os.open(tmp_path / "trcc.latest.log.run", os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        os.lseek(fd, stub.DIRTY_POSITION, os.SEEK_SET)   # must seek back to 0
+        WindowsSharedLogHandler._claim_run(fd)
+        assert stub.calls == [(0, stub.LK_NBLCK, 1)]
+        with pytest.raises(OSError):
+            WindowsSharedLogHandler._claim_run(fd)   # a peer holds it
+    finally:
+        os.close(fd)
+
+
+def test_a_lock_that_cannot_be_taken_never_raises_into_the_caller(
+    tmp_path: Path,
+) -> None:
+    """A logging call must not become an exception in application code.
+
+    Every stdlib ``emit`` wraps its whole body and routes failure to
+    ``handleError``.  The lock calls sat outside that protection, and a
+    ``BlockingIOError`` escaped a plain ``lg.info(...)`` — measured.
+
+    Windows makes it reachable rather than theoretical:
+    ``msvcrt.locking(LK_LOCK)`` retries at one-second intervals, ten times,
+    then raises ``OSError``.  ``flock`` blocks indefinitely, so POSIX never
+    surfaced it.
+    """
+    handler_cls = shared_handler_class()
+
+    class LockFailsAfterConstruction(handler_cls):  # type: ignore[valid-type,misc]
+        armed = False
+
+        def _acquire(self) -> None:
+            if self.armed:
+                raise OSError(11, "simulated: LK_LOCK gave up after ten tries")
+            super()._acquire()
+
+    handler = LockFailsAfterConstruction(
+        tmp_path / "trcc.log", maxBytes=10_000_000, backupCount=1,
+        encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(ClassContextFilter())
+    logger = logging.getLogger("trcc.test.lockfail")
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.handlers[:] = [handler]
+    try:
+        logger.info("healthy")
+        handler.armed = True
+        # The assertion IS that this does not raise.
+        logger.info("the lock is now unavailable")
+    finally:
+        handler.armed = False
+        handler.close()
+        logger.handlers[:] = []
+
+
+# =========================================================================
+# Startup records — buffered until the real destination is known
+# =========================================================================
+
+
+def test_early_records_reach_the_real_log_in_the_real_format(
+    tmp_path: Path,
+) -> None:
+    """The whole point: a startup CRITICAL must survive into the report.
+
+    The old shim wrote them itself, with its own format and its own path.
+    ``tail_log_actions`` returned **0 lines** for a startup CRITICAL, because
+    a space-separated date and a bracketed ``[CRITICAL]`` made ``_log_level_of``
+    read the time-of-day as the level and classify every early record as a
+    continuation line.
+    """
+    start_early_logging()
+    early = logging.getLogger("trcc.test.early")
+    early.info("STARTING-UP marker")
+    try:
+        raise ImportError("simulated startup failure")
+    except ImportError:
+        early.critical("Fatal startup error", exc_info=True)
+
+    log_file = tmp_path / "trcc.log"
+    configure_logging(log_file, level=logging.DEBUG,
+                      stderr_level=logging.CRITICAL)
+
+    body = log_file.read_text(encoding="utf-8")
+    assert "STARTING-UP marker" in body
+    assert "Fatal startup error" in body
+
+    actions = tail_log_actions(log_file, 500)
+    assert any("Fatal startup error" in line for line in actions), (
+        "the startup CRITICAL is in the file but invisible to the report's "
+        "significant-actions section — which is the half a maintainer reads"
+    )
+    assert any("simulated startup failure" in line for line in actions), (
+        "the traceback was dropped from the record it belongs to"
+    )
+
+
+def test_early_records_are_not_written_twice(tmp_path: Path) -> None:
+    """The buffer detaches BEFORE the real handlers attach.
+
+    Left attached during ``configure_logging`` it keeps collecting, so every
+    record the configuration itself emits lands in the file directly AND is
+    replayed after — measured, the ``shared_handler_class`` line appeared 5
+    times in a 51-line log.
+    """
+    start_early_logging()
+    logging.getLogger("trcc.test.early").warning("ONCE-ONLY marker")
+
+    log_file = tmp_path / "trcc.log"
+    configure_logging(log_file, level=logging.DEBUG,
+                      stderr_level=logging.CRITICAL)
+
+    body = log_file.read_text(encoding="utf-8")
+    assert body.count("ONCE-ONLY marker") == 1
+    assert body.count("shared_handler_class: using") == 2, (
+        "one per handler — the rotating log and latest — and no replay copies"
+    )
+
+
+def test_the_early_buffer_does_not_look_like_configured_logging() -> None:
+    """``ensure_configured`` no-ops when it sees a ``_HANDLER_TAG`` handler.
+
+    So the buffer must NOT carry that tag: a console-script launch
+    (``trcc-gui`` / ``trcc-lcd``) calls ``ensure_configured()`` bare, and a
+    tagged buffer would convince it logging was already set up — leaving the
+    whole session with no file handler at all, which is the exact defect
+    ``ensure_configured`` exists to prevent.
+    """
+    from trcc.adapters.infra.logging import _EARLY_TAG, _HANDLER_TAG
+
+    root = logging.getLogger()
+    assert start_early_logging() is True
+    buffers = [h for h in root.handlers if getattr(h, _EARLY_TAG, False)]
+
+    assert len(buffers) == 1
+    assert not getattr(buffers[0], _HANDLER_TAG, False)
+    assert not any(getattr(h, _HANDLER_TAG, False) for h in root.handlers), (
+        "the early buffer registered as configured logging — ensure_configured "
+        "will now skip installing a file handler"
+    )
+    assert start_early_logging() is False, "buffering twice stacks handlers"
+
+
+def test_logging_survives_a_platform_that_cannot_be_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The diagnostic path must not share the fate of the broken import.
+
+    ``adapters.system`` pulls in pyusb / psutil / pynvml, and a startup crash
+    in one of those is exactly the crash worth recording — so asking it where
+    the log lives cannot be allowed to lose the answer.
+    """
+    from trcc.adapters import system as system_mod
+    from trcc.adapters.infra import logging as logging_mod
+
+    def _explode() -> object:
+        raise ImportError("simulated: no module named 'usb'")
+
+    monkeypatch.setattr(system_mod, "current_platform", _explode)
+    monkeypatch.setattr(logging_mod, "LAST_RESORT_LOG", tmp_path / "trcc.log")
+
+    start_early_logging()
+    logging.getLogger("trcc.test.early").critical("Fatal startup error")
+    assert logging_mod.ensure_configured(force=True) is True
+
+    body = (tmp_path / "trcc.log").read_text(encoding="utf-8")
+    assert "Fatal startup error" in body
+    assert "could not ask the platform where the log lives" in body, (
+        "the fallback path must say it IS a fallback — on macOS and Windows "
+        "the report reads somewhere else entirely"
+    )
 
 
 # =========================================================================

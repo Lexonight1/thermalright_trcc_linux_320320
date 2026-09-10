@@ -58,7 +58,18 @@ import logging_coverage  # noqa: E402  # pyright: ignore[reportMissingImports]
 #: failure) and qtgui's ``_ExportThread`` both went, replaced by one runner
 #: whose every branch logs.  A duplicate implementation is silent twice.
 #: The other two are the runner's own helpers, logged as they were written.
-MAX_SILENT = 1326
+#: 1327 -> 1326 on 2026-09-08 with the video-export port (see above).
+#: 1326 -> 1325 on 2026-09-09: the record-handling path joined the exemption
+#: list, which removed ``__main__._SafeRotatingFileHandler.doRollover`` from
+#: the countable set.  Nothing gained a log line — a function the rule could
+#: never have been satisfied in stopped being counted, exactly as the
+#: ``ClassContextFilter.filter`` entry did before it.  The ratchet asserts BOTH
+#: directions, so this must come down with it.
+#: 1325 -> 1324 the same day: ``_entry.main`` gained the entry log THE RULE
+#: asks for, in the pass that gave the console script the startup-crash
+#: buffering ``python -m trcc`` already had.  It was the one dispatch every
+#: packaged install goes through, and it said nothing.
+MAX_SILENT = 1324
 
 
 def test_logging_coverage_only_improves() -> None:
@@ -98,3 +109,99 @@ def test_recursion_risk_dunders_are_excluded_for_a_reason() -> None:
         assert name not in logging_coverage._RECURSION_RISK, (
             f"{name} is not invoked by log formatting — it must be counted"
         )
+
+
+# =========================================================================
+# The record-handling path — exempt because a log line there hangs the app
+# =========================================================================
+
+
+def _countable_names(src: str) -> set[str]:
+    """Names the ratchet would demand a log line in, for a snippet."""
+    import ast
+    return {fn.name for fn in logging_coverage._countable(ast.parse(src))}
+
+
+_A_LOGGING_HANDLER = '''
+class SharedLogHandler(RenderOnceRotatingFileHandler):
+    def __init__(self, filename, **kw):
+        self._fd = os.open(str(filename) + ".lock", os.O_CREAT)
+        super().__init__(filename, **kw)
+    def emit(self, record):
+        self._acquire(); super().emit(record)
+    def shouldRollover(self, record):
+        return os.stat(self.baseFilename).st_size > self.maxBytes
+    def _open(self):
+        stream = super()._open(); self._ino = 1; return stream
+    def flush(self):
+        super().flush()
+    def doRollover(self):
+        super().doRollover()
+    def close(self):
+        os.close(self._fd); super().close()
+'''
+
+#: The GUI's per-device handlers.  Their base name ENDS IN "Handler" but they
+#: are not logging handlers, and the exemption must not reach them.
+_A_GUI_DEVICE_HANDLER = '''
+class LCDHandler(BaseHandler):
+    def emit(self, frame):
+        self._device.send(frame)
+    def flush(self):
+        self._queue.clear()
+    def _open(self):
+        self._device.connect()
+    def format(self, theme):
+        return theme.name.upper()
+'''
+
+
+def test_the_record_handling_path_is_exempt_on_a_logging_handler() -> None:
+    """A log line in any of these recurses until the stack ends.
+
+    Measured, entries provoked by ONE emitted record: emit 166, shouldRollover
+    142, _open 409, flush 427.
+
+    ``doRollover`` is exempt on a second, independent ground: it does NOT
+    recurse (5 entries), but it runs under the cross-process rollover lock, and
+    ``flock`` keeps no recursion count — take LOCK_EX twice on one fd, release
+    once, and a peer process acquires.  A log line there re-enters ``emit``,
+    whose ``finally`` drops the lock mid-rotation.
+
+    ``close`` (1 entry) is off both paths, so THE RULE still applies to it.
+    """
+    countable = _countable_names(_A_LOGGING_HANDLER)
+
+    for name in ("emit", "shouldRollover", "_open", "flush", "doRollover"):
+        assert name not in countable, (
+            f"{name} runs on the record-handling path or under the rollover "
+            f"lock — a log line there hangs or corrupts rotation"
+        )
+    for name in ("__init__", "close"):
+        assert name in countable, (
+            f"{name} runs on neither path (measured), so it takes the log "
+            f"line THE RULE requires"
+        )
+
+
+def test_the_exemption_does_not_reach_a_non_logging_handler() -> None:
+    """``LCDHandler(BaseHandler)`` is a device handler, not a logging one.
+
+    The qualifier used to be ``base.endswith("Handler")``, which these match.
+    Nothing was wrongly exempt then, because neither declared any hook in the
+    set — but widening it to ``_open`` / ``flush`` would have spent that luck
+    silently, since both are ordinary methods on a device handler.
+    """
+    countable = _countable_names(_A_GUI_DEVICE_HANDLER)
+
+    assert countable == {"emit", "flush", "_open", "format"}, (
+        "the logging exemption leaked onto a non-logging class — every one of "
+        "these is a real function that must carry a log line"
+    )
+
+
+def test_formatter_bases_are_matched_exactly_not_by_suffix() -> None:
+    """A suffix test is what let the qualifier reach ``BaseHandler``."""
+    assert "BaseHandler" not in logging_coverage._FORMATTER_BASES
+    assert "Handler" in logging_coverage._FORMATTER_BASES
+    assert "RenderOnceRotatingFileHandler" in logging_coverage._FORMATTER_BASES

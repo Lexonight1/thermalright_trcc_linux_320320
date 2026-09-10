@@ -224,7 +224,12 @@ def test_direct_gui_entry_configures_logging(monkeypatch: pytest.MonkeyPatch) ->
         "a direct `trcc-gui` launch configured no logging — the whole session "
         "would produce no report"
     )
-    assert any("File" in type(h).__name__ for h in tagged), (
+    # By TYPE, not by name.  This read ``"File" in type(h).__name__`` — a
+    # substring standing in for the property it means — and the multi-process
+    # handler is a ``RotatingFileHandler`` subclass called
+    # ``PosixSharedLogHandler``, so the proxy failed while the thing it was
+    # proxying for was true.  ``isinstance`` is what the message already claims.
+    assert any(isinstance(h, logging.FileHandler) for h in tagged), (
         f"no FILE handler among {[type(h).__name__ for h in tagged]} — a "
         "stderr-only launch still leaves `trcc report` empty"
     )

@@ -40,7 +40,7 @@ from ...core.models import Kind, ProductInfo
 from ...core.ports import Platform
 from ...core.registry import find_product
 from ..device import DEVICES
-from ..infra.logging import tail_log, tail_log_actions
+from ..infra.logging import log_chain, tail_log, tail_log_actions
 from .health import HealthReport, run_health_checks
 from .install import InstallInfo, collect_install_info
 
@@ -293,21 +293,26 @@ def _scrape_handshake_lines(log_path: Path, keep: int = 6) -> list[str]:
     The fallback for :func:`_probe_handshake`: when a live probe can't run
     (the GUI holds the device), the connect-time handshake line may still be
     somewhere in the log — but earlier than the tail window.  Scans the whole
-    file keeping only the last *keep* matches, so it stays memory-bounded even
-    on a large log.
+    rotation set keeping only the last *keep* matches, so it stays
+    memory-bounded even on a large log.
+
+    "Full log" means the CHAIN, not the live segment.  Reaching further back
+    than the tail is this function's entire purpose, and a rollover defeated it
+    exactly as it defeated the tail — the handshake it exists to recover is the
+    oldest line in a session, so it is the first one a rotation moves out of
+    the file this used to read.
     """
     log.debug("_scrape_handshake_lines: %s (keep=%d)", log_path, keep)
-    if not log_path.is_file():
-        return []
     recent: deque[str] = deque(maxlen=keep)
-    try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if _HANDSHAKE_LOG_MARKER in line:
-                    recent.append(line.rstrip("\n"))
-    except OSError as e:
-        log.debug("_scrape_handshake_lines: read failed: %s", e)
-        return []
+    for segment in log_chain(log_path):
+        try:
+            with segment.open("r", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if _HANDSHAKE_LOG_MARKER in line:
+                        recent.append(line.rstrip("\n"))
+        except OSError as e:
+            log.debug("_scrape_handshake_lines: read failed on %s: %s",
+                      segment, e)
     log.debug("_scrape_handshake_lines: found %d line(s)", len(recent))
     return list(recent)
 
