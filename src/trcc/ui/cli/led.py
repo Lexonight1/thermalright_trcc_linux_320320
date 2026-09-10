@@ -385,7 +385,7 @@ def test_led(
     multi-zone strips during headless debugging.
     """
     log.info("cli led test-led: key=%s", key)
-    from ...services._ansi import zones_to_ansi
+    from ._ansi import zones_to_ansi
 
     result = get_app().dispatch(LedSnapshot(key=key))
     if not result.ok:

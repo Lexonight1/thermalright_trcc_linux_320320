@@ -1156,7 +1156,7 @@ def test_lcd(
     where you can't see the physical device.
     """
     log.info("cli display test-lcd: key=%s cols=%s", key, cols)
-    from ...services._ansi import image_to_ansi
+    from ._ansi import image_to_ansi
 
     result = get_app().dispatch(BuildPreview(key=key, sample_cols=cols))
     if not result.ok:
