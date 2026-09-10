@@ -174,7 +174,7 @@ def silent_functions() -> list[str]:
     out: list[str] = []
     for path in sorted(_SRC.rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
         rel = path.relative_to(_SRC)
@@ -189,7 +189,7 @@ def countable_total() -> int:
     total = 0
     for path in sorted(_SRC.rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
         for _fn in _countable(tree):

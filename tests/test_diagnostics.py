@@ -514,7 +514,11 @@ def test_a_closed_handler_drops_records_rather_than_reopening(
         "trcc.test", logging.WARNING, __file__, 1, "after-close", None, None))
 
     assert handler.stream is None, "a closed handler re-opened its stream"
-    assert "after-close" not in log_file.read_text(encoding="utf-8")
+    # The file need not exist at all: a handler that may not hold the file open
+    # is built with delay=True, so nothing is created until a record is written
+    # -- and this one never wrote any.
+    body = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+    assert "after-close" not in body
 
 
 def test_a_live_peer_keeps_its_run_so_we_append_to_latest(
@@ -891,8 +895,9 @@ def test_early_records_are_not_written_twice(tmp_path: Path) -> None:
 
     body = log_file.read_text(encoding="utf-8")
     assert body.count("ONCE-ONLY marker") == 1
-    assert body.count("shared_handler_class: using") == 2, (
-        "one per handler — the rotating log and latest — and no replay copies"
+    assert body.count("_RunOwnership.claim: this process owns the run") == 1, (
+        "a configure-time record was written once directly and once by the "
+        "replay — the buffer is still attached while the handlers go on"
     )
 
 
@@ -1858,7 +1863,8 @@ def _role_port_members() -> frozenset[str]:
     earlier draft of this gate scanned every method and failed on that line,
     which is how the over-reach was found before it shipped.
     """
-    tree = ast.parse((_SRC / "core" / "ports.py").read_text())
+    tree = ast.parse(
+        (_SRC / "core" / "ports.py").read_text(encoding="utf-8"))
     owners = _ROLE_PORTS | {"IdentifiedSource"}
     names: set[str] = set()
     for node in ast.walk(tree):
