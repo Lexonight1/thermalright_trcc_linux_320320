@@ -170,6 +170,139 @@ KNOWN_UI_ASYMMETRY: dict[str, tuple[frozenset[str], str]] = {
         "_browser_base._target_resolution derives only a resolution. The gui's "
         "browsers are path-driven and need the directories themselves"
     )),
+
+    # ── Reached by cli AND api, by NEITHER gui (the unguarded axis) ──────
+    #
+    # Nothing asked this question until 2026-09-10, so NONE of these were
+    # recorded: the single-client gate fires at <= 1 UI and these have two,
+    # and the cli<->api gate sees them AGREE.  ``ResetDevice`` is the proof
+    # of what that costs -- it sat here while being DisconnectDevice
+    # byte-for-byte for the entire rebuild.
+    #
+    # Tagged ``gap`` unless there is evidence for ``scoped``: a gap asks for
+    # attention, a scope excuses, and guessing the second is how a record
+    # stops being worth reading.
+    "KeepAliveLoop": (frozenset({"cli", "api"}), (
+        "scoped: a hold/confirm LOOP, not a user capability -- the GUIs keep a "
+        "device awake through their own render cadence"
+    )),
+    "EnsureConnected": (frozenset({"cli", "api"}), (
+        "scoped: the attach-first PRECONDITION a wire command runs before itself "
+        "(31e7fcb4 gave the API what the CLI always had); the GUIs own "
+        "connection lifecycle in their per-device handlers"
+    )),
+    "DaemonStatus": (frozenset({"cli", "api"}), (
+        "scoped: the GUIs build the App in-process and can HOST the IPC server, so "
+        "they are the daemon rather than a client asking after one"
+    )),
+    "EnsureDaemon": (frozenset({"cli", "api"}), (
+        "scoped: same: a GUI that hosts the App has no daemon to start"
+    )),
+    "StopDaemon": (frozenset({"cli", "api"}), (
+        "scoped: same: closing the window ends the process that IS the daemon"
+    )),
+    "RunDoctor": (frozenset({"cli", "api"}), (
+        "scoped: renders a CLI-shaped summary AND an exit code; a GUI wants the "
+        "health checks underneath, which is a different Command, not this "
+        "one"
+    )),
+    "RunQuickstart": (frozenset({"cli", "api"}), (
+        "scoped: a terminal onboarding walk (doctor -> scan) whose whole output is "
+        "CLI text; the GUIs have their own first-run flow"
+    )),
+    "ResetDevice": (frozenset({"cli", "api"}), (
+        "gap: power-cycle + restore. It sat in exactly this blind spot, which is "
+        "why nobody noticed it was DisconnectDevice byte-for-byte for the "
+        "whole rebuild"
+    )),
+    "ExportConfig": (frozenset({"cli", "api"}), (
+        "gap: write a device's settings to JSON -- a GUI user cannot back up a "
+        "configuration"
+    )),
+    "ImportConfig": (frozenset({"cli", "api"}), (
+        "gap: restore settings from an ExportConfig JSON; the other half of the "
+        "same hole"
+    )),
+    "ExportDcTheme": (frozenset({"cli", "api"}), (
+        "gap: write a theme as a legacy config1.dc"
+    )),
+    "ExportOverlay": (frozenset({"cli", "api"}), (
+        "gap: copy a theme's overlay config out"
+    )),
+    "ListSensors": (frozenset({"cli", "api"}), (
+        "gap: enumerate sensor descriptors -- a GUI picker builds its list some "
+        "other way instead of asking the bus"
+    )),
+    "ListFans": (frozenset({"cli", "api"}), (
+        "gap: enumerate fans with live readings; same shape as ListSensors"
+    )),
+    "ListDisks": (frozenset({"cli", "api"}), (
+        "gap: enumerate mounted partitions; same shape"
+    )),
+    "ListFonts": (frozenset({"cli", "api"}), (
+        "gap: font families the renderer can draw -- an overlay editor needs "
+        "exactly this"
+    )),
+    "ListWebThemes": (frozenset({"cli", "api"}), (
+        "gap: downloaded cloud-theme previews for a resolution"
+    )),
+    "ListLedModes": (frozenset({"cli", "api"}), (
+        "gap: the LEDMode enum names a picker needs"
+    )),
+    "ListLedStyles": (frozenset({"cli", "api"}), (
+        "gap: LED styles from the PM registry. Do NOT wire it until the Query is "
+        "trusted -- see project_led_capability_columns"
+    )),
+    "SetLedColors": (frozenset({"cli", "api"}), (
+        "gap: set the LED colour array + on/off + brightness; the GUIs have LED "
+        "panels but reach the capability another way"
+    )),
+    "RenderLed": (frozenset({"cli", "api"}), (
+        "gap: compute and send one LED frame from settings + sensors"
+    )),
+    "SendColor": (frozenset({"cli", "api"}), (
+        "gap: push a solid-colour frame to an LCD"
+    )),
+    "SendImage": (frozenset({"cli", "api"}), (
+        "gap: push an image without staging it as a theme"
+    )),
+    "PauseVideo": (frozenset({"cli", "api"}), (
+        "gap: toggle the per-device playback pause flag"
+    )),
+    "LoopVideo": (frozenset({"cli", "api"}), (
+        "gap: toggle whether playback wraps or sticks at the last frame"
+    )),
+    "StartSlideshowDriver": (frozenset({"cli", "api"}), (
+        "gap: the GUIs rotate a slideshow from their OWN QTimer instead of the "
+        "shared driver -- a duplicated mechanism, and the CLI/API path is "
+        "the one that survives a daemon flip"
+    )),
+    "StopSlideshowDriver": (frozenset({"cli", "api"}), (
+        "gap: the other half of the same duplicated mechanism"
+    )),
+    "SetMediaPlayer": (frozenset({"cli", "api"}), (
+        "gap: set the device's media-player source URI"
+    )),
+    "UploadBootAnimation": (frozenset({"cli", "api"}), (
+        "gap: upload a boot animation to a SCSI LCD's flash"
+    )),
+    "RenderDcStandalone": (frozenset({"cli", "api"}), (
+        "gap: render a DC config with no device and no theme load -- a preview "
+        "capability"
+    )),
+    "EnsureDataDownload": (frozenset({"cli", "api"}), (
+        "gap: force-install the theme/cloud/mask archives. The gui OBSERVES "
+        "DataInstalled (trcc_app.py:560) but dispatches nothing, so a GUI "
+        "user cannot re-fetch archives whose first download failed"
+    )),
+    "MarkFirstRunDone": (frozenset({"cli", "api"}), (
+        "gap: record that onboarding completed; the GUIs have a first-run flow "
+        "but do not close it through the bus"
+    )),
+    "RunSetup": (frozenset({"cli", "api"}), (
+        "gap: OS-specific one-time setup (udev rules, WinUSB guide). A GUI-only "
+        "Linux user needs udev rules just as much (#194)"
+    )),
 }
 
 
@@ -220,6 +353,49 @@ def test_no_new_single_client_commands() -> None:
     )
 
 
+#: The two graphical faces.  A capability absent from BOTH is absent from every
+#: window a user can open, however well the CLI covers it.
+_GUIS = frozenset({"gui", "qtgui"})
+
+
+def _absent_from_both_guis(uis: frozenset[str]) -> bool:
+    """Reached by cli AND api, by NEITHER graphical UI."""
+    return "cli" in uis and "api" in uis and not (uis & _GUIS)
+
+
+def test_no_command_is_absent_from_both_guis() -> None:
+    """The axis nothing asked about, and the one the standard is written on.
+
+    *Anything the C# GUI can do, every UI should be able to do.*  A Command the
+    CLI and the API both dispatch and NEITHER window offers is precisely a
+    capability the graphical users cannot have -- and until 2026-09-10 no gate
+    could see it, for three structural reasons at once:
+
+        gui <-> qtgui delta   absent from BOTH, so in neither difference set
+        single-client gate    fires at len(uis) <= 1; these have exactly 2
+        cli <-> api gate      cli and api AGREE, so there is nothing to report
+
+    ``ResetDevice`` is what that costs.  It sat in this set for the whole
+    rebuild while being ``DisconnectDevice`` byte-for-byte, and no assertion in
+    this file could have noticed.
+
+    Derived from the ONE record, like every other gate here: to add a Command
+    to this set you must write down why, and ``gap:`` is not permission to
+    leave it -- it is a promise that it is known.
+    """
+    measured = {c for c, uis in _reach_by_command().items()
+                if _absent_from_both_guis(frozenset(uis))}
+    expected = _recorded(_absent_from_both_guis)
+
+    assert measured == expected, (
+        "Commands absent from BOTH GUIs drifted:\n"
+        f"  unexpected -- wire it into a window, or record it with a reason: "
+        f"{sorted(measured - expected)}\n"
+        f"  stale -- a window reaches it now, update the record: "
+        f"{sorted(expected - measured)}"
+    )
+
+
 def test_cli_and_api_dispatch_the_same_commands_modulo_the_record() -> None:
     """The CLI <-> API surface differs by EXACTLY what the record allows."""
     cli = _commands_dispatched_by("cli")
@@ -250,11 +426,22 @@ def test_shared_command_surface_is_the_bulk_of_both() -> None:
     Parity is the norm and the record is the exception. Guards against the
     collector silently returning empty and every assertion above passing
     vacuously.
+
+    The ratio counts ``scoped:`` entries alone, not the whole record.  A
+    ``scoped`` is an asymmetry we have EXCUSED, and letting those outgrow the
+    shared surface is what this is watching for.  A ``gap`` is the opposite --
+    it says parity IS broken here and someone should close it -- so counting
+    gaps would punish the act of writing a hole down, and reward leaving it
+    undiscovered.  That is not hypothetical: recording the 33 Commands on the
+    both-GUIs-absent axis took the record from 13 to 46 and tripped this
+    assertion, having improved the tree rather than harmed it.
     """
     cli = _commands_dispatched_by("cli")
     api = _commands_dispatched_by("api")
     shared = cli & api
-    assert len(shared) > 3 * len(KNOWN_UI_ASYMMETRY)
+    excused = {n for n, (_uis, why) in KNOWN_UI_ASYMMETRY.items()
+               if why.startswith("scoped:")}
+    assert len(shared) > 3 * len(excused)
     assert len(shared) >= 80   # ~110 today; a floor that catches a dead collector
 
 
